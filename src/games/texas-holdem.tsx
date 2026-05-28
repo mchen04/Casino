@@ -989,11 +989,7 @@ export default function TexasHoldem() {
     if (state.playerHole.length < 2) return "";
     const known = [...state.playerHole, ...state.board.slice(0, state.revealBoard)];
     if (known.length < 5) return "";
-    try {
-      return evaluateBest(known).name;
-    } catch {
-      return "";
-    }
+    return evaluateBest(known).name;
   }, [state.playerHole, state.board, state.revealBoard]);
 
   const buttonIsPlayer = state.buttonIsPlayer;

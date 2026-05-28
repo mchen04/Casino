@@ -740,9 +740,9 @@ export default function PharaohsFortune() {
       setResult(res);
       if (res.total > 0) {
         setSpinWin(res.total);
-        // For the base spin, gross payout = winnings + returned stake.
-        // For free spins the stake is not re-deducted, so we credit winnings only.
-        if (!freeSpin) wallet.win(res.total + totalBet);
+        // Paytable multipliers already include the stake (gross), so credit
+        // res.total directly — same convention as slots-classic / slots-fruit.
+        if (!freeSpin) wallet.win(res.total);
         if (res.expand) {
           sfx.jackpot();
           setMessage(

@@ -7,3 +7,4 @@ files + shared engine (`src/lib`, `src/components`). Baseline tsc: GREEN.
 
 | # | verdict | findings (C/I/O) | commits | LOC Δ | tests | notes |
 |---|---|---|---|---|---|---|
+| 1 | BLOCK | 1/4/2 | 1 | ~-1200 | ✅ tsc+build | Extracted CountingNumber (16 games), sleep→lib/async (10), cryptoGames (dice/limbo/crash); fixed crash setState-after-unmount + coin-flip compounding-rounding; removed dead `trips` in evaluate3 + defensive getImageData try/catch |
