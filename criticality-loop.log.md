@@ -8,3 +8,4 @@ files + shared engine (`src/lib`, `src/components`). Baseline tsc: GREEN.
 | # | verdict | findings (C/I/O) | commits | LOC Δ | tests | notes |
 |---|---|---|---|---|---|---|
 | 1 | BLOCK | 1/4/2 | 1 | ~-1200 | ✅ tsc+build | Extracted CountingNumber (16 games), sleep→lib/async (10), cryptoGames (dice/limbo/crash); fixed crash setState-after-unmount + coin-flip compounding-rounding; removed dead `trips` in evaluate3 + defensive getImageData try/catch |
+| 2 | BLOCK | 2/3/1 | 1 | ~-90 | ✅ tsc+build | CRITICAL: fixed slots-egypt base-spin double-credit (win(total+bet)→win(total)); removed texas-holdem try/catch around pure evaluateBest; extracted baccarat third-card tableau→lib/baccarat.ts, pai-gow eval/houseWay→lib/paiGow.ts. Declined sound.ts cast (current typed form safer than `any`). Held reel-render/multi-bet/ResultBanner unification — risky rewrites of working games, 2/4 auditors APPROVE, would homogenize per-game SOTA visuals. |

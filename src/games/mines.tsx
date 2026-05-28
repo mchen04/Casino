@@ -323,6 +323,11 @@ export default function Mines() {
   // Synchronous re-entrancy guard so a rapid double-click can never resolve a
   // round (cash out / bust) twice before React re-renders.
   const lockRef = useRef(false);
+  // Guards async reveal continuations against setState-after-unmount.
+  const mountedRef = useRef(true);
+  useEffect(() => () => {
+    mountedRef.current = false;
+  }, []);
 
   // Result feedback.
   const [result, setResult] = useState<{ won: boolean; amount: number; text: string } | null>(
@@ -399,8 +404,10 @@ export default function Mines() {
         // Reveal whole board shortly after the explosion.
         void (async () => {
           await sleep(420);
+          if (!mountedRef.current) return;
           setRevealed(new Set(Array.from({ length: TILES }, (_, k) => k)));
           await sleep(120);
+          if (!mountedRef.current) return;
           setPhase("busted");
           setResult({
             won: false,
@@ -426,7 +433,8 @@ export default function Mines() {
         const gross = Math.floor(stake * mult);
         void (async () => {
           await sleep(360);
-          wallet.win(gross);
+          wallet.win(gross); // credit even if the player navigated away mid-reveal
+          if (!mountedRef.current) return;
           // expose the (now obvious) mines too
           setRevealed(new Set(Array.from({ length: TILES }, (_, k) => k)));
           setPhase("cashed");
