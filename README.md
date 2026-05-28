@@ -4,6 +4,8 @@ A neon, art-deco casino floor with **33+ fully playable casino games**, built as
 single Next.js app with state-of-the-art animations. Pure play money — chase the
 jackpot risk-free. Every game lives in one dashboard; click a card to play.
 
+**▶ Live demo: https://casino-topaz-gamma.vercel.app**
+
 > ⚠️ For entertainment only. No real-money wagering. No accounts, no payments.
 
 ## 📸 Screenshots
