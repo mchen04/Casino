@@ -1,0 +1,126 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-0: #04060a;
+  --bg-1: #070b12;
+  --gold: #d4af37;
+  --gold-light: #f5d060;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  background:
+    radial-gradient(1200px 700px at 50% -10%, rgba(34, 225, 255, 0.08), transparent 60%),
+    radial-gradient(900px 600px at 90% 10%, rgba(255, 43, 209, 0.07), transparent 55%),
+    radial-gradient(1100px 800px at 10% 100%, rgba(212, 175, 55, 0.08), transparent 60%),
+    linear-gradient(180deg, var(--bg-1) 0%, var(--bg-0) 100%);
+  background-attachment: fixed;
+  color: #e9eef5;
+  font-family: var(--font-body), system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* ---------- Reusable casino utilities ---------- */
+@layer components {
+  .felt {
+    background:
+      radial-gradient(120% 120% at 50% 0%, rgba(255, 255, 255, 0.05), transparent 45%),
+      radial-gradient(140% 140% at 50% 100%, rgba(0, 0, 0, 0.55), transparent 55%),
+      linear-gradient(160deg, #0e7a57 0%, #0a5e44 45%, #074031 100%);
+    box-shadow:
+      inset 0 2px 30px rgba(0, 0, 0, 0.5),
+      inset 0 0 90px rgba(0, 0, 0, 0.4);
+    position: relative;
+  }
+  .felt::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Cpath d='M0 0h40v40H0z' fill='none'/%3E%3Cpath d='M0 0l40 40M40 0L0 40' stroke='%23ffffff' stroke-opacity='0.02' stroke-width='1'/%3E%3C/svg%3E");
+    pointer-events: none;
+    border-radius: inherit;
+  }
+
+  .gold-text {
+    background: linear-gradient(180deg, #fff4c2 0%, var(--gold-light) 35%, var(--gold) 60%, #9a7d1e 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
+  }
+
+  .gold-border {
+    border: 1px solid rgba(212, 175, 55, 0.55);
+    box-shadow:
+      0 0 0 1px rgba(212, 175, 55, 0.15),
+      0 10px 30px rgba(0, 0, 0, 0.45),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+
+  .glass {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .neon-cyan {
+    text-shadow: 0 0 8px rgba(34, 225, 255, 0.8), 0 0 22px rgba(34, 225, 255, 0.5);
+  }
+  .neon-magenta {
+    text-shadow: 0 0 8px rgba(255, 43, 209, 0.8), 0 0 22px rgba(255, 43, 209, 0.5);
+  }
+}
+
+@layer utilities {
+  .text-shadow-deep {
+    text-shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
+  }
+  .bg-grid {
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+/* ---------- Scrollbar ---------- */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.03);
+}
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(212, 175, 55, 0.5), rgba(212, 175, 55, 0.2));
+  border-radius: 999px;
+}
+
+/* respect reduced motion for ambient loops */
+@media (prefers-reduced-motion: reduce) {
+  .animate-shimmer,
+  .animate-floaty,
+  .animate-pulseGlow {
+    animation: none !important;
+  }
+}
