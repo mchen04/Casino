@@ -98,6 +98,7 @@ export function BetControls({
           <Button
             size="lg"
             variant="gold"
+            data-testid="play-btn"
             disabled={primaryDisabled ?? (disabled || bet < min || bet > balance)}
             onClick={onPrimary}
           >

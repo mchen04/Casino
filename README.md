@@ -6,6 +6,14 @@ jackpot risk-free. Every game lives in one dashboard; click a card to play.
 
 > ⚠️ For entertainment only. No real-money wagering. No accounts, no payments.
 
+## 📸 Screenshots
+
+| Lobby | Blackjack | Roulette |
+| --- | --- | --- |
+| ![Lobby](docs/screenshots/lobby.png) | ![Blackjack](docs/screenshots/blackjack.png) | ![Roulette](docs/screenshots/roulette.png) |
+| **Neon Megaways** | **Crash** | **Mines** |
+| ![Neon Megaways](docs/screenshots/slots-megaways.png) | ![Crash](docs/screenshots/crash.png) | ![Mines](docs/screenshots/mines.png) |
+
 ## ✨ Highlights
 
 - **33 games** across Cards, Table, Slots, Wheels, Dice, Modern (crypto-style) and Lottery.
@@ -75,6 +83,18 @@ See [`docs/GAME_CONTRACT.md`](docs/GAME_CONTRACT.md) for the full author spec.
 
 Balance starts at **10,000** chips and persists in `localStorage`. Drop near zero and
 the shell offers free top-ups; **Reset** restores the starting bankroll.
+
+## ✅ Quality & verification
+
+- **TypeScript strict** + `next build` pass clean (all 38 routes statically generated).
+- **Criticality loop converged** (2 consecutive clean audit cycles, aggressive). It caught and
+  fixed real bugs — a slots-egypt stake double-credit, a pervasive setState-after-unmount class
+  across 8 games, a coin-flip rounding drift — and deduplicated ~390 LOC into shared modules
+  (`CountingNumber`, `lib/async`, `lib/cryptoGames`, `lib/baccarat`, `lib/paiGow`). See
+  [`criticality-loop.log.md`](criticality-loop.log.md).
+- **Browser-verified** with headless Chromium: all 33 games load with **zero console errors**;
+  Blackjack, Roulette, Neon Megaways, Crash, Plinko and Mines were played end-to-end with the
+  chip wallet debiting/crediting at the correct odds.
 
 ## 🚀 Getting started
 
