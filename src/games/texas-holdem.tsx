@@ -448,6 +448,12 @@ export default function TexasHoldem() {
   const stateRef = useRef(state);
   stateRef.current = state;
 
+  // Guards the async drive loop / deal sequence against running after unmount.
+  const mountedRef = useRef(true);
+  useEffect(() => () => {
+    mountedRef.current = false;
+  }, []);
+
   // Track who had the button last so we can alternate.
   const lastButtonPlayer = useRef<boolean | null>(null);
 
@@ -734,6 +740,7 @@ export default function TexasHoldem() {
       let guard = 0;
       while (guard++ < 200) {
         await sleep(20);
+        if (!mountedRef.current) return;
         const s = stateRef.current;
         if (s.phase === "done" || s.phase === "idle") break;
 
@@ -857,12 +864,15 @@ export default function TexasHoldem() {
     dispatch({ type: "START_HAND", deck, buttonIsPlayer, stack: effective });
     sfx.card();
     await sleep(120);
+    if (!mountedRef.current) return;
     sfx.card();
     await sleep(260);
+    if (!mountedRef.current) return;
 
     // Post blinds and pull the player's blind from the wallet.
     dispatch({ type: "POST_BLINDS" });
     await sleep(40);
+    if (!mountedRef.current) return;
     const afterBlinds = stateRef.current;
     // Charge the player's blind immediately.
     if (!settleWallet(afterBlinds.playerCommitted)) {
@@ -875,6 +885,7 @@ export default function TexasHoldem() {
     sfx.chip();
 
     await sleep(260);
+    if (!mountedRef.current) return;
     dispatch({ type: "REVEAL_HOLE" });
     // If the bot is first to act preflop (player is BB / not on button), let it move.
     const s = stateRef.current;

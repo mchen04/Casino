@@ -93,6 +93,11 @@ export default function CasinoWar() {
   // Ref-based mutex: prevents double-invocation of async handlers on rapid clicks.
   const resolvingRef = useRef(false);
 
+  // Tracks whether the component is still mounted, so async handlers can bail
+  // out of state updates after an await once the component has unmounted.
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
+
   // Keep bet within affordable bounds while idle.
   useEffect(() => {
     if (phase !== "betting") return;
@@ -154,13 +159,16 @@ export default function CasinoWar() {
     setPlayerCard(p);
     sfx.card();
     await sleep(280);
+    if (!mountedRef.current) return;
     setPlayerDown(false);
     sfx.card();
     await sleep(360);
+    if (!mountedRef.current) return;
 
     setDealerCard(d);
     sfx.card();
     await sleep(280);
+    if (!mountedRef.current) return;
     setDealerDown(false);
     sfx.card();
     await sleep(420);
@@ -169,12 +177,16 @@ export default function CasinoWar() {
     const dv = rankValue(d.rank);
 
     if (pv > dv) {
+      // Settle money first so the win lands even if we have unmounted.
       win(bet * 2);
+      if (!mountedRef.current) return;
       finish({ outcome: "win", net: bet, label: "You Win!", good: true });
     } else if (pv < dv) {
+      if (!mountedRef.current) return;
       finish({ outcome: "lose", net: -bet, label: "Dealer Wins", good: false });
     } else {
       // TIE — player must choose surrender or war.
+      if (!mountedRef.current) return;
       sfx.thud();
       setPhase("tie");
     }
@@ -211,6 +223,7 @@ export default function CasinoWar() {
     setShowWarBanner(true);
     sfx.jackpot();
     await sleep(950);
+    if (!mountedRef.current) return;
     setShowWarBanner(false);
 
     // Burn three cards.
@@ -221,8 +234,10 @@ export default function CasinoWar() {
       setBurned([...b]);
       sfx.card();
       await sleep(180);
+      if (!mountedRef.current) return;
     }
     await sleep(180);
+    if (!mountedRef.current) return;
 
     // Deal one more to each.
     const pw = draw();
@@ -231,16 +246,20 @@ export default function CasinoWar() {
     setPlayerWar(pw);
     sfx.card();
     await sleep(300);
+    if (!mountedRef.current) return;
     setPlayerWarDown(false);
     sfx.card();
     await sleep(360);
+    if (!mountedRef.current) return;
 
     setDealerWar(dw);
     sfx.card();
     await sleep(300);
+    if (!mountedRef.current) return;
     setDealerWarDown(false);
     sfx.card();
     await sleep(460);
+    if (!mountedRef.current) return;
 
     const pv = rankValue(pw.rank);
     const dv = rankValue(dw.rank);

@@ -174,6 +174,15 @@ export default function Limbo() {
   const busy = phase === "rolling";
   const betLocked = busy;
 
+  // Track mount so async resolves bail out of setState after unmount.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   // Keep bet affordable while idle.
   useEffect(() => {
     if (phase !== "betting") return;
@@ -268,9 +277,11 @@ export default function Limbo() {
     const ticks = Math.round(climbDur / 130);
     for (let i = 0; i < ticks; i++) {
       await sleep(climbDur / ticks);
+      if (!mountedRef.current) return;
       sfx.tick();
     }
     await sleep(180); // let the number lock visually
+    if (!mountedRef.current) return;
 
     const won = res >= tgt;
     const gross = won ? Math.floor(stake * tgt) : 0;

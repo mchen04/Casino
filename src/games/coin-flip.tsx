@@ -307,6 +307,11 @@ export default function CoinFlip() {
   // Synchronous guard to prevent double-fire before React re-renders propagate.
   const resolvingRef = useRef(false);
 
+  // Tracks mount status so async continuations after an await can bail out if
+  // the component unmounted mid-animation (avoids state updates on unmounted).
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
+
   const busy = phase === "flipping";
 
   // Keep bet within affordable bounds while idle (and not mid-streak).
@@ -363,9 +368,11 @@ export default function CoinFlip() {
     // Ticking spin feedback during the tumble.
     for (let i = 0; i < 6; i++) {
       await sleep(230);
+      if (!mountedRef.current) return;
       sfx.tick();
     }
     await sleep(560); // let the coin settle visually
+    if (!mountedRef.current) return;
 
     const won = landedSide === call;
     setResult({ call, landed: landedSide, won });

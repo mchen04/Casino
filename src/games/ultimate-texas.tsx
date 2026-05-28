@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AnimatePresence,
   motion,
@@ -238,6 +238,12 @@ function DealtCard({
 export default function UltimateTexasHoldem() {
   const wallet = useWallet();
 
+  // Guards async reveal sequences against setState-after-unmount.
+  const mountedRef = useRef(true);
+  useEffect(() => () => {
+    mountedRef.current = false;
+  }, []);
+
   // bet config
   const [ante, setAnte] = useState(25);
   const [trips, setTrips] = useState(0);
@@ -297,19 +303,23 @@ export default function UltimateTexasHoldem() {
 
     // animated deal: player1, dealer1, player2, dealer2
     await sleep(120);
+    if (!mountedRef.current) return;
     setPlayerHole([ph[0]]);
     sfx.card();
     await sleep(180);
+    if (!mountedRef.current) return;
     setDealerHole([dh[0]]);
     sfx.card();
     await sleep(180);
+    if (!mountedRef.current) return;
     setPlayerHole([ph[0], ph[1]]);
     sfx.card();
     await sleep(180);
+    if (!mountedRef.current) return;
     setDealerHole([dh[0], dh[1]]);
     sfx.card();
     await sleep(260);
-
+    if (!mountedRef.current) return;
     setPhase("preflop");
     setBusy(false);
   }, [busy, inRound, ante, trips, canAfford, wallet]);
@@ -476,14 +486,16 @@ export default function UltimateTexasHoldem() {
         sfx.card();
         // eslint-disable-next-line no-await-in-loop
         await sleep(260);
-      }
+        if (!mountedRef.current) return;
+        }
 
       // Flip the dealer's hole cards.
       await sleep(220);
+      if (!mountedRef.current) return;
       setDealerRevealed(true);
       sfx.card();
       await sleep(520);
-
+      if (!mountedRef.current) return;
       setPhase("showdown");
       resolve(finalPlay, folded);
       setBusy(false);
@@ -519,8 +531,10 @@ export default function UltimateTexasHoldem() {
       sfx.card();
       // eslint-disable-next-line no-await-in-loop
       await sleep(240);
-    }
+      if (!mountedRef.current) return;
+      }
     await sleep(180);
+    if (!mountedRef.current) return;
     setPhase("flop");
     setBusy(false);
   }, [busy, phase]);
@@ -547,8 +561,10 @@ export default function UltimateTexasHoldem() {
       sfx.card();
       // eslint-disable-next-line no-await-in-loop
       await sleep(260);
-    }
+      if (!mountedRef.current) return;
+      }
     await sleep(180);
+    if (!mountedRef.current) return;
     setPhase("river");
     setBusy(false);
   }, [busy, phase]);

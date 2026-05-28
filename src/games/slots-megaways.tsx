@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useWallet } from "@/lib/wallet";
 import { BetControls } from "@/components/BetControls";
@@ -126,6 +126,10 @@ export default function NeonMegaways() {
   const [spinWin, setSpinWin] = useState<number | null>(null);
   const [message, setMessage] = useState("Cascading reels · up to 46,656 ways");
   const busy = useRef(false);
+  const mountedRef = useRef(true);
+  useEffect(() => () => {
+    mountedRef.current = false;
+  }, []);
 
   const ways = useMemo(() => grid.reduce((a, reel) => a * reel.length, 1), [grid]);
 
@@ -146,6 +150,7 @@ export default function NeonMegaways() {
     let current = makeGrid();
     setGrid(current);
     await sleep(420);
+    if (!mountedRef.current) return;
     sfx.thud();
 
     let total = 0;
@@ -159,6 +164,7 @@ export default function NeonMegaways() {
         total += bonus;
         setMessage(`💫 ${res.scatters} scatters · +${formatChips(bonus)} bonus`);
         await sleep(500);
+        if (!mountedRef.current) return;
       }
       if (res.units <= 0 || res.winners.size === 0) break;
 
@@ -172,6 +178,7 @@ export default function NeonMegaways() {
       );
       sfx.win();
       await sleep(720);
+      if (!mountedRef.current) return;
 
       // explode + drop
       current = cascade(current, res.winners);
@@ -179,6 +186,7 @@ export default function NeonMegaways() {
       setWinners(new Set());
       cascadeNum++;
       await sleep(520);
+      if (!mountedRef.current) return;
     }
 
     if (total > 0) {
