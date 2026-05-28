@@ -296,28 +296,31 @@ export default function Bingo() {
     const finalCalls = new Set(callsRef.current);
     const ballsDrawn = callsRef.current.length;
     const stake = stakeRef.current;
-    const firstLineBall = firstLineBallRef.current;
-    const lineMult = firstLineBall > 0 ? lineMultFor(firstLineBall) : 0;
-    const lineCards = lineCardsRef.current;
+    const firstLine = firstLineRef.current;
+    const lineBalls = firstLine.filter((n) => n > 0);
+    const earliestLineBall = lineBalls.length ? Math.min(...lineBalls) : 0;
 
     let gross = 0;
+    let bestMult = 0;
 
     const perCard = cardsRef.current.map((card, i) => {
       const sc = scoreCard(card, finalCalls);
+      const flb = firstLine[i] ?? 0;
       let pattern: PatternKind = "none";
       let mult = 0;
       if (bonusRef.current && sc.blackout) {
         // Blackout jackpot replaces the line pay for this card.
         pattern = "blackout";
         mult = BLACKOUT_MULT;
-      } else if (lineCards[i]) {
-        // Held a line when the first line landed → pay the speed multiplier.
+      } else if (flb > 0) {
+        // Pay by how fast THIS card's own first line landed.
         pattern = "line";
-        mult = lineMult;
+        mult = lineMultFor(flb);
       }
+      if (mult > bestMult) bestMult = mult;
       const payout = Math.floor(bet * mult);
       gross += payout;
-      return { id: card.id, pattern, mult, payout };
+      return { id: card.id, pattern, firstLineBall: flb, mult, payout };
     });
 
     const best: PatternKind = perCard.some((p) => p.pattern === "blackout")
@@ -329,7 +332,7 @@ export default function Bingo() {
     if (gross > 0) wallet.win(gross);
 
     const profit = gross - stake;
-    setResult({ stake, gross, profit, ballsDrawn, firstLineBall, lineMult, perCard, best });
+    setResult({ stake, gross, profit, ballsDrawn, earliestLineBall, perCard, best });
 
     if (gross > 0) {
       if (best === "blackout") {
@@ -340,8 +343,9 @@ export default function Bingo() {
         setResultText(`BLACKOUT! ${formatMultiplier(BLACKOUT_MULT)} — ${formatDelta(profit)}`);
       } else {
         sfx.win();
+        const lines = perCard.filter((p) => p.pattern === "line").length;
         setResultText(
-          `LINE on ball ${firstLineBall} · ${formatMultiplier(lineMult)} — ${formatDelta(profit)}`,
+          `${lines} LINE${lines > 1 ? "S" : ""} · best ${formatMultiplier(bestMult)} — ${formatDelta(profit)}`,
         );
       }
       setBurst((b) => b + 1);
@@ -388,18 +392,29 @@ export default function Bingo() {
     const interval = inBonus ? BONUS_INTERVAL : DRAW_INTERVAL;
 
     if (!inBonus) {
-      // PHASE 1 — racing for the first line on any card.
-      const scores = cardsRef.current.map((card) => scoreCard(card, calledSet));
-      const anyLine = scores.some((s) => s.hasLine);
-      if (anyLine) {
-        firstLineBallRef.current = drawn;
-        lineCardsRef.current = scores.map((s) => s.hasLine);
-        // Fast enough → enter the blackout bonus chase; otherwise resolve.
-        if (drawn <= BONUS_THRESHOLD && drawn < BO_CAP) {
+      // PHASE 1 — keep drawing until every card has its first line.
+      const firstLine = firstLineRef.current;
+      let justLined = false;
+      let allLined = true;
+      cardsRef.current.forEach((card, i) => {
+        if (firstLine[i] === 0) {
+          if (scoreCard(card, calledSet).hasLine) {
+            firstLine[i] = drawn; // record THIS card's own first-line ball
+            justLined = true;
+          } else {
+            allLined = false;
+          }
+        }
+      });
+      if (justLined) sfx.thud();
+
+      if (allLined) {
+        // Every card lined. If the earliest line came fast, chase a blackout.
+        const earliest = Math.min(...firstLine.filter((n) => n > 0));
+        if (earliest <= BONUS_THRESHOLD && drawn < BO_CAP) {
           bonusRef.current = true;
           setBonusPhase(true);
-          sfx.thud();
-          drawTimer.current = window.setTimeout(drawNext, 760);
+          drawTimer.current = window.setTimeout(drawNext, 720);
           return;
         }
         drawTimer.current = window.setTimeout(resolve, DRAW_INTERVAL);
@@ -429,8 +444,7 @@ export default function Bingo() {
     stakeRef.current = stake;
     callsRef.current = [];
     cardsRef.current = cards;
-    firstLineBallRef.current = 0;
-    lineCardsRef.current = cards.map(() => false);
+    firstLineRef.current = cards.map(() => 0);
     bonusRef.current = false;
     bagRef.current = shuffle(Array.from({ length: 75 }, (_, i) => i + 1));
 
@@ -707,7 +721,7 @@ export default function Bingo() {
             )}
 
             {/* paytable */}
-            <Paytable best={result?.best} firstLineBall={result?.firstLineBall} />
+            <Paytable best={result?.best} firstLineBall={result?.earliestLineBall} />
           </div>
 
           {/* ============================ RIGHT: cards + board =============== */}
