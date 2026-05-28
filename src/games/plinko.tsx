@@ -14,6 +14,7 @@ import { formatChips, formatDelta, formatMultiplier } from "@/lib/format";
 import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
 import { BetControls } from "@/components/BetControls";
+import { CountingNumber } from "@/components/CountingNumber";
 
 // ---------------------------------------------------------------------------
 // PLINKO — Neon Royale
@@ -258,37 +259,6 @@ function sampleBall(ball: Ball, el: number): { p: Pt; lastPeg: number } {
     acc += d;
   }
   return { p: ball.path[ball.path.length - 1], lastPeg: ball.path.length };
-}
-
-// ---------------------------------------------------------------------------
-// Animated rolling balance counter.
-// ---------------------------------------------------------------------------
-function Counter({ value, className }: { value: number; className?: string }) {
-  const [display, setDisplay] = useState(value);
-  const fromRef = useRef(value);
-  const rafRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    const from = fromRef.current;
-    const to = value;
-    if (from === to) return;
-    const start = performance.now();
-    const dur = 520;
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / dur);
-      const eased = 1 - Math.pow(1 - t, 3);
-      setDisplay(Math.round(from + (to - from) * eased));
-      if (t < 1) rafRef.current = requestAnimationFrame(tick);
-      else fromRef.current = to;
-    };
-    rafRef.current = requestAnimationFrame(tick);
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      fromRef.current = to;
-    };
-  }, [value]);
-
-  return <span className={className}>{formatChips(display)}</span>;
 }
 
 // ---------------------------------------------------------------------------
@@ -961,7 +931,7 @@ export default function Plinko() {
         <div className="relative mt-3 text-center text-xs text-white/40">
           Balance:{" "}
           <span className="font-semibold text-white/70 tabular-nums">
-            {ready ? <Counter value={balance} /> : "—"}
+            {ready ? <CountingNumber value={balance} /> : "—"}
           </span>
         </div>
       </div>

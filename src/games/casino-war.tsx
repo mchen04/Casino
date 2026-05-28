@@ -9,6 +9,8 @@ import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
 import { PlayingCard } from "@/components/PlayingCard";
 import { BetControls } from "@/components/BetControls";
+import { CountingNumber } from "@/components/CountingNumber";
+import { sleep } from "@/lib/async";
 
 // ---------------------------------------------------------------------------
 // Casino War — single bet, highest card wins. On a tie: surrender for half, or
@@ -47,37 +49,6 @@ interface ResultInfo {
   net: number;
   label: string;
   good: boolean;
-}
-
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
-// Animated rolling chip counter -------------------------------------------------
-function Counter({ value, className }: { value: number; className?: string }) {
-  const [display, setDisplay] = useState(value);
-  const fromRef = useRef(value);
-  const rafRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    const from = fromRef.current;
-    const to = value;
-    if (from === to) return;
-    const start = performance.now();
-    const dur = 550;
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / dur);
-      const eased = 1 - Math.pow(1 - t, 3);
-      setDisplay(Math.round(from + (to - from) * eased));
-      if (t < 1) rafRef.current = requestAnimationFrame(tick);
-      else fromRef.current = to;
-    };
-    rafRef.current = requestAnimationFrame(tick);
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      fromRef.current = to;
-    };
-  }, [value]);
-
-  return <span className={className}>{formatChips(display)}</span>;
 }
 
 export default function CasinoWar() {
@@ -365,7 +336,7 @@ export default function CasinoWar() {
               Balance
             </div>
             <div className="gold-text text-base font-bold tabular-nums sm:text-lg">
-              {ready ? <Counter value={balance} /> : "—"}
+              {ready ? <CountingNumber value={balance} /> : "—"}
             </div>
           </div>
         </div>

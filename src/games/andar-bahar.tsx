@@ -6,6 +6,7 @@ import { useWallet } from "@/lib/wallet";
 import { makeShoe, type Card, SUIT_SYMBOL, SUIT_COLOR } from "@/lib/cards";
 import { sfx } from "@/lib/sound";
 import { formatChips, formatDelta } from "@/lib/format";
+import { CountingNumber } from "@/components/CountingNumber";
 import { PlayingCard } from "@/components/PlayingCard";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
@@ -75,40 +76,6 @@ function sideDeep(side: Side): string {
 }
 function rankLabel(card: Card): string {
   return `${card.rank}${SUIT_SYMBOL[card.suit]}`;
-}
-
-/* ----------------------------------------------------------------------------
- * Animated count-up number.
- * ------------------------------------------------------------------------- */
-function Counter({ value, prefix = "" }: { value: number; prefix?: string }) {
-  const [display, setDisplay] = useState(value);
-  const raf = useRef<number | null>(null);
-  const from = useRef(value);
-
-  useEffect(() => {
-    from.current = display;
-    const start = performance.now();
-    const delta = value - from.current;
-    const dur = 520;
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / dur);
-      const eased = 1 - Math.pow(1 - t, 3);
-      setDisplay(Math.round(from.current + delta * eased));
-      if (t < 1) raf.current = requestAnimationFrame(tick);
-    };
-    raf.current = requestAnimationFrame(tick);
-    return () => {
-      if (raf.current) cancelAnimationFrame(raf.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value]);
-
-  return (
-    <span className="tabular-nums">
-      {prefix}
-      {formatChips(display)}
-    </span>
-  );
 }
 
 export default function AndarBahar() {
@@ -661,7 +628,7 @@ export default function AndarBahar() {
             <div className="rounded-xl border border-white/10 bg-black/30 px-3 py-2">
               <div className="text-[10px] uppercase tracking-widest text-white/35">Last stake</div>
               <div className="text-sm font-bold tabular-nums text-white/80">
-                <Counter value={lastStake} />
+                <CountingNumber value={lastStake} className="tabular-nums" />
               </div>
             </div>
             <div className="rounded-xl border border-white/10 bg-black/30 px-3 py-2">

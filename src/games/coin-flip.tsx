@@ -6,8 +6,10 @@ import { useWallet } from "@/lib/wallet";
 import { chance } from "@/lib/rng";
 import { formatChips, formatDelta, formatMultiplier } from "@/lib/format";
 import { sfx } from "@/lib/sound";
+import { sleep } from "@/lib/async";
 import { Button } from "@/components/ui/Button";
 import { BetControls } from "@/components/BetControls";
+import { CountingNumber } from "@/components/CountingNumber";
 
 // ---------------------------------------------------------------------------
 // Coin Flip — pick HEADS or TAILS, flip a gorgeous 3D coin.
@@ -40,39 +42,6 @@ interface FlipResult {
   call: Side;
   landed: Side;
   won: boolean;
-}
-
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
-// ---------------------------------------------------------------------------
-// Animated rolling chip counter
-// ---------------------------------------------------------------------------
-function Counter({ value, className }: { value: number; className?: string }) {
-  const [display, setDisplay] = useState(value);
-  const fromRef = useRef(value);
-  const rafRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    const from = fromRef.current;
-    const to = value;
-    if (from === to) return;
-    const start = performance.now();
-    const dur = 550;
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / dur);
-      const eased = 1 - Math.pow(1 - t, 3);
-      setDisplay(Math.round(from + (to - from) * eased));
-      if (t < 1) rafRef.current = requestAnimationFrame(tick);
-      else fromRef.current = to;
-    };
-    rafRef.current = requestAnimationFrame(tick);
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      fromRef.current = to;
-    };
-  }, [value]);
-
-  return <span className={className}>{formatChips(display)}</span>;
 }
 
 // ---------------------------------------------------------------------------
@@ -347,10 +316,11 @@ export default function CoinFlip() {
   }, [balance, bet, phase, streakActive]);
 
   const canAfford = bet >= MIN_BET && bet <= balance;
-  const potentialPot = useMemo(
-    () => Math.round((streakActive ? pot : bet) * PAYOUT),
-    [streakActive, pot, bet],
-  );
+  const potentialPot = useMemo(() => {
+    const stake = streakActive ? streakStake : bet;
+    const level = streakActive ? streak + 1 : 1;
+    return Math.round(stake * Math.pow(PAYOUT, level));
+  }, [streakActive, streakStake, bet, streak]);
 
   // -------------------------------------------------------------------------
   // Core flip. Handles both single and streak modes.
@@ -362,7 +332,7 @@ export default function CoinFlip() {
     resolvingRef.current = true;
 
     let stakeForRound = streakStake;
-    let basePot = pot;
+    const priorStreak = streakActive ? streak : 0;
 
     if (!streakActive) {
       // Starting a fresh round / streak — take the wager now.
@@ -375,7 +345,6 @@ export default function CoinFlip() {
         return;
       }
       stakeForRound = bet;
-      basePot = bet;
       setStreakStake(bet);
       setStreakActive(true);
       setStreak(0);
@@ -404,7 +373,7 @@ export default function CoinFlip() {
     setHistory((h) => [{ side: landedSide, id: hid }, ...h].slice(0, 14));
 
     if (won) {
-      const newPot = Math.round(basePot * PAYOUT);
+      const newPot = Math.round(stakeForRound * Math.pow(PAYOUT, priorStreak + 1));
       setStreak((s) => s + 1);
       setPot(newPot);
       setBurst((b) => b + 1);
@@ -434,7 +403,7 @@ export default function CoinFlip() {
     busy,
     streakActive,
     streakStake,
-    pot,
+    streak,
     canAfford,
     placeBet,
     bet,
@@ -576,7 +545,7 @@ export default function CoinFlip() {
                 className="text-3xl font-extrabold tabular-nums"
                 style={{ color: ACCENT, textShadow: `0 0 18px ${ACCENT}88` }}
               >
-                <Counter value={pot} />
+                <CountingNumber value={pot} />
               </div>
               <div className="text-xs text-white/45">
                 ×{formatMultiplier(PAYOUT).slice(0, -1)} on next correct flip

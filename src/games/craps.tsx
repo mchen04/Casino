@@ -6,6 +6,7 @@ import { useWallet } from "@/lib/wallet";
 import { sfx } from "@/lib/sound";
 import { randInt } from "@/lib/rng";
 import { formatChips, formatDelta } from "@/lib/format";
+import { CountingNumber } from "@/components/CountingNumber";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 
@@ -162,39 +163,6 @@ function Die({ value, size = 72, rolling }: { value: number; size?: number; roll
         ))}
       </div>
     </motion.div>
-  );
-}
-
-/* ----------------------------- Counter -------------------------------- */
-
-function Counter({ value, prefix = "" }: { value: number; prefix?: string }) {
-  const [display, setDisplay] = useState(value);
-  const raf = useRef<number | null>(null);
-  const from = useRef(value);
-
-  useEffect(() => {
-    from.current = display;
-    const start = performance.now();
-    const delta = value - from.current;
-    const dur = 520;
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / dur);
-      const eased = 1 - Math.pow(1 - t, 3);
-      setDisplay(Math.round(from.current + delta * eased));
-      if (t < 1) raf.current = requestAnimationFrame(tick);
-    };
-    raf.current = requestAnimationFrame(tick);
-    return () => {
-      if (raf.current) cancelAnimationFrame(raf.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value]);
-
-  return (
-    <span className="tabular-nums">
-      {prefix}
-      {formatChips(display)}
-    </span>
   );
 }
 
@@ -907,7 +875,7 @@ export default function Craps() {
             <div className="rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-center">
               <div className="text-[9px] uppercase tracking-widest text-white/40">On Table</div>
               <div className="text-base font-bold tabular-nums" style={{ color: ACCENT }}>
-                <Counter value={totalOnTable} />
+                <CountingNumber value={totalOnTable} className="tabular-nums" />
               </div>
             </div>
 

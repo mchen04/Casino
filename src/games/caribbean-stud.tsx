@@ -15,6 +15,7 @@ import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
 import { BetControls } from "@/components/BetControls";
 import { PlayingCard } from "@/components/PlayingCard";
+import { CountingNumber } from "@/components/CountingNumber";
 
 const ACCENT = "#1abc9c";
 const MIN_BET = 5;
@@ -57,40 +58,6 @@ function dealerQualifies(hand: Card[]): boolean {
   // High card: needs an Ace AND a King among the 5 cards.
   const vals = new Set(hand.map((c) => rankValue(c.rank)));
   return vals.has(14) && vals.has(13);
-}
-
-// ---------------------------------------------------------------------------
-// Animated chip counter
-// ---------------------------------------------------------------------------
-function Counter({ value, className }: { value: number; className?: string }) {
-  const [display, setDisplay] = useState(value);
-  const fromRef = useRef(value);
-  const rafRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    const from = fromRef.current;
-    const to = value;
-    if (from === to) return;
-    const start = performance.now();
-    const dur = 600;
-    const step = (now: number) => {
-      const t = Math.min(1, (now - start) / dur);
-      const eased = 1 - Math.pow(1 - t, 3);
-      setDisplay(Math.round(from + (to - from) * eased));
-      if (t < 1) {
-        rafRef.current = requestAnimationFrame(step);
-      } else {
-        fromRef.current = to;
-      }
-    };
-    rafRef.current = requestAnimationFrame(step);
-    return () => {
-      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
-      fromRef.current = to;
-    };
-  }, [value]);
-
-  return <span className={className}>{formatChips(display)}</span>;
 }
 
 // ---------------------------------------------------------------------------
@@ -456,7 +423,7 @@ export default function CaribbeanStud() {
               <div className="text-[9px] uppercase tracking-widest text-white/40">
                 Balance
               </div>
-              <Counter
+              <CountingNumber
                 value={balance}
                 className="tabular-nums text-lg font-bold text-white"
               />

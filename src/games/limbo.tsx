@@ -9,11 +9,18 @@ import React, {
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useWallet } from "@/lib/wallet";
-import { randFloat, clamp } from "@/lib/rng";
+import { clamp } from "@/lib/rng";
 import { formatChips, formatDelta, formatMultiplier } from "@/lib/format";
 import { sfx } from "@/lib/sound";
+import { sleep } from "@/lib/async";
+import {
+  HOUSE_EDGE,
+  rollMultiplier,
+  winChanceForTarget,
+} from "@/lib/cryptoGames";
 import { Button } from "@/components/ui/Button";
 import { BetControls } from "@/components/BetControls";
+import { CountingNumber } from "@/components/CountingNumber";
 
 // ---------------------------------------------------------------------------
 // Limbo — pick a TARGET multiplier, watch the LIMBO BAR fly.
@@ -39,7 +46,6 @@ import { BetControls } from "@/components/BetControls";
 const ACCENT = "#8aff80";
 const ACCENT_DEEP = "#3fbf4f";
 const LOSE = "#ff5d6c";
-const EDGE = 0.01;
 const MIN_TARGET = 1.01;
 const MAX_TARGET = 1_000_000; // sane upper bound on the input
 const MIN_BET = 5;
@@ -52,22 +58,6 @@ interface RoundResult {
   result: number;
   won: boolean;
   delta: number;
-}
-
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
-// Draw a crash-style result multiplier with house edge folded in.
-function rollResult(): number {
-  // random ∈ [0, 1); guard the asymptote near 1 so the value stays finite.
-  const r = clamp(randFloat(0, 1), 0, 0.999999);
-  const raw = (1 - EDGE) / (1 - r);
-  return Math.max(1, Math.floor(raw * 100) / 100);
-}
-
-// Win probability for a target, expressed as a fraction in [0, 1].
-function winChance(target: number): number {
-  if (target <= 0) return 0;
-  return Math.min(1, (1 - EDGE) / target);
 }
 
 // ---------------------------------------------------------------------------
@@ -166,37 +156,6 @@ function MultiplierDisplay({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Animated chip counter for balance-style numbers.
-// ---------------------------------------------------------------------------
-function ChipCounter({ value }: { value: number }) {
-  const [display, setDisplay] = useState(value);
-  const fromRef = useRef(value);
-  const rafRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    const from = fromRef.current;
-    const to = value;
-    if (from === to) return;
-    const start = performance.now();
-    const dur = 550;
-    const step = (now: number) => {
-      const t = Math.min(1, (now - start) / dur);
-      const eased = 1 - Math.pow(1 - t, 3);
-      setDisplay(Math.round(from + (to - from) * eased));
-      if (t < 1) rafRef.current = requestAnimationFrame(step);
-      else fromRef.current = to;
-    };
-    rafRef.current = requestAnimationFrame(step);
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      fromRef.current = to;
-    };
-  }, [value]);
-
-  return <span className="tabular-nums">{formatChips(display)}</span>;
-}
-
 export default function Limbo() {
   const { balance, bet: placeBet, win, ready } = useWallet();
 
@@ -224,7 +183,7 @@ export default function Limbo() {
   const canAfford = bet >= MIN_BET && bet <= balance;
 
   // Derived odds for the current target.
-  const chanceFrac = useMemo(() => winChance(target), [target]);
+  const chanceFrac = useMemo(() => winChanceForTarget(target), [target]);
   const chancePct = chanceFrac * 100;
   const potentialReturn = Math.floor(bet * target);
   const potentialProfit = potentialReturn - bet;
@@ -293,7 +252,7 @@ export default function Limbo() {
     if (!placeBet(bet)) return;
 
     const stake = bet;
-    const res = rollResult();
+    const res = rollMultiplier();
     setResultValue(res);
     setRound(null);
     setRollKey((k) => k + 1);
@@ -378,7 +337,7 @@ export default function Limbo() {
               Balance
             </div>
             <div className="gold-text text-lg font-bold tabular-nums">
-              {ready ? <ChipCounter value={balance} /> : "—"}
+              {ready ? <CountingNumber value={balance} /> : "—"}
             </div>
           </div>
         </div>
@@ -771,7 +730,7 @@ export default function Limbo() {
               <div className="flex items-center justify-between text-xs">
                 <span className="text-white/45">House edge</span>
                 <span className="font-semibold text-white/70 tabular-nums">
-                  {(EDGE * 100).toFixed(0)}%
+                  {(HOUSE_EDGE * 100).toFixed(0)}%
                 </span>
               </div>
             </div>

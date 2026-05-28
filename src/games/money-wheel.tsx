@@ -4,10 +4,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AnimatePresence, motion } from "framer-motion";
 import { useWallet } from "@/lib/wallet";
 import { sfx } from "@/lib/sound";
-import { formatChips, formatDelta } from "@/lib/format";
+import { formatDelta } from "@/lib/format";
 import { weightedPick, randFloat } from "@/lib/rng";
 import { Button } from "@/components/ui/Button";
 import { BetControls } from "@/components/BetControls";
+import { CountingNumber } from "@/components/CountingNumber";
 
 /* ----------------------------------------------------------------------------
  * Big Six Money Wheel (Wheel of Fortune).
@@ -110,38 +111,6 @@ function buildRing(): Segment[] {
     order.push(spot);
   }
   return order.map((spot, index) => ({ spot, index }));
-}
-
-/** Count-up animated number for stake / payout readouts. */
-function Counter({ value, prefix = "" }: { value: number; prefix?: string }) {
-  const [display, setDisplay] = useState(value);
-  const raf = useRef<number | null>(null);
-  const from = useRef(value);
-
-  useEffect(() => {
-    from.current = display;
-    const start = performance.now();
-    const delta = value - from.current;
-    const dur = 560;
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / dur);
-      const eased = 1 - Math.pow(1 - t, 3);
-      setDisplay(Math.round(from.current + delta * eased));
-      if (t < 1) raf.current = requestAnimationFrame(tick);
-    };
-    raf.current = requestAnimationFrame(tick);
-    return () => {
-      if (raf.current) cancelAnimationFrame(raf.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value]);
-
-  return (
-    <span className="tabular-nums">
-      {prefix}
-      {formatChips(display)}
-    </span>
-  );
 }
 
 type Phase = "betting" | "spinning" | "resolved";
@@ -542,7 +511,7 @@ export default function MoneyWheel() {
                   "Insufficient Chips"
                 ) : (
                   <span>
-                    Spin · <Counter value={bet} /> on {selectedSpot.label}
+                    Spin · <CountingNumber value={bet} duration={560} className="tabular-nums" /> on {selectedSpot.label}
                   </span>
                 )}
               </Button>
@@ -901,7 +870,7 @@ function Readout({
         className="font-display text-xl font-bold tabular-nums"
         style={{ color: accent }}
       >
-        <Counter value={value} />
+        <CountingNumber value={value} duration={560} className="tabular-nums" />
       </div>
     </div>
   );

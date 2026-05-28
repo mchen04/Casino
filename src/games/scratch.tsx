@@ -10,9 +10,6 @@ import React, {
 import {
   AnimatePresence,
   motion,
-  useMotionValue,
-  useSpring,
-  useTransform,
 } from "framer-motion";
 import { useWallet } from "@/lib/wallet";
 import { weightedPick, shuffle, pick } from "@/lib/rng";
@@ -20,6 +17,7 @@ import { formatChips, formatMultiplier, formatDelta } from "@/lib/format";
 import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
 import { BetControls } from "@/components/BetControls";
+import { CountingNumber } from "@/components/CountingNumber";
 
 /* ================================================================== *
  * Neon Royale — Scratch Cards
@@ -192,18 +190,6 @@ function rollCard(theme: Theme): CardOutcome {
   return { cells, prize, winCells: positions.slice().sort((a, b) => a - b) };
 }
 
-/* ---- Rolling number ---------------------------------------------- */
-
-function RollingNumber({ value }: { value: number }) {
-  const mv = useMotionValue(value);
-  const spring = useSpring(mv, { stiffness: 90, damping: 18 });
-  const text = useTransform(spring, (v) => formatChips(v));
-  useEffect(() => {
-    mv.set(value);
-  }, [value, mv]);
-  return <motion.span>{text}</motion.span>;
-}
-
 /* ---- Sparkle burst (for winning matched panels) ------------------ */
 
 function Sparkles({ color }: { color: string }) {
@@ -361,17 +347,14 @@ function Panel({
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+    if (canvas.width === 0 || canvas.height === 0) return;
     const step = 8;
     let clear = 0;
     let total = 0;
-    try {
-      const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-      for (let i = 3; i < data.length; i += 4 * step) {
-        total++;
-        if (data[i] === 0) clear++;
-      }
-    } catch {
-      return;
+    const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    for (let i = 3; i < data.length; i += 4 * step) {
+      total++;
+      if (data[i] === 0) clear++;
     }
     if (total > 0 && clear / total > 0.55) {
       cleared.current = true;
@@ -649,7 +632,7 @@ export default function ScratchCards() {
               Balance
             </div>
             <div className="gold-text text-lg font-bold tabular-nums">
-              <RollingNumber value={balance} />
+              <CountingNumber value={balance} />
             </div>
           </div>
           <div>
@@ -660,7 +643,7 @@ export default function ScratchCards() {
               className="text-lg font-bold tabular-nums"
               style={{ color: won ? theme.accent : "rgba(255,255,255,0.55)" }}
             >
-              <RollingNumber value={lastWin} />
+              <CountingNumber value={lastWin} />
             </div>
           </div>
         </div>

@@ -6,6 +6,7 @@ import { useWallet } from "@/lib/wallet";
 import { randInt } from "@/lib/rng";
 import { sfx } from "@/lib/sound";
 import { formatChips, formatDelta } from "@/lib/format";
+import { CountingNumber } from "@/components/CountingNumber";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 
@@ -149,38 +150,6 @@ const PIP_MAP: Record<Die, [number, number][]> = {
   5: [[0, 0], [2, 0], [1, 1], [0, 2], [2, 2]],
   6: [[0, 0], [2, 0], [0, 1], [2, 1], [0, 2], [2, 2]],
 };
-
-/* ---- Count-up number ------------------------------------------------------ */
-function Counter({ value, prefix = "" }: { value: number; prefix?: string }) {
-  const [display, setDisplay] = useState(value);
-  const raf = useRef<number | null>(null);
-  const from = useRef(value);
-
-  useEffect(() => {
-    from.current = display;
-    const start = performance.now();
-    const delta = value - from.current;
-    const dur = 520;
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / dur);
-      const eased = 1 - Math.pow(1 - t, 3);
-      setDisplay(Math.round(from.current + delta * eased));
-      if (t < 1) raf.current = requestAnimationFrame(tick);
-    };
-    raf.current = requestAnimationFrame(tick);
-    return () => {
-      if (raf.current) cancelAnimationFrame(raf.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value]);
-
-  return (
-    <span className="tabular-nums">
-      {prefix}
-      {formatChips(display)}
-    </span>
-  );
-}
 
 /* ---- A single 3D-ish rolling die ----------------------------------------- */
 function DiceCube({
@@ -958,7 +927,7 @@ export default function SicBo() {
                   Total bet
                 </div>
                 <div className="gold-text text-base font-bold tabular-nums">
-                  <Counter value={totalStake} />
+                  <CountingNumber value={totalStake} />
                 </div>
               </div>
               <div>
@@ -1050,7 +1019,7 @@ export default function SicBo() {
                     color: netDelta > 0 ? WIN_GREEN : netDelta < 0 ? LOSE_RED : "#fff",
                   }}
                 >
-                  <Counter value={netDelta} prefix={netDelta > 0 ? "+" : ""} />
+                  <CountingNumber value={netDelta} prefix={netDelta > 0 ? "+" : ""} />
                 </span>
               </motion.div>
             )}

@@ -14,9 +14,9 @@ import { Button } from "@/components/ui/Button";
 import { formatChips, formatMultiplier, formatDelta } from "@/lib/format";
 import { sfx } from "@/lib/sound";
 import { clamp } from "@/lib/rng";
+import { HOUSE_EDGE, rollMultiplier, toCrashPoint } from "@/lib/cryptoGames";
 
 const ACCENT = "#ff2bd1";
-const HOUSE_EDGE = 0.01;
 // Multiplier grows exponentially: m = GROWTH_RATE ^ elapsedSeconds.
 // ~0.0625x/s base growth that compounds — a tense, accelerating climb.
 const GROWTH_RATE = 1.07;
@@ -28,16 +28,6 @@ interface HistoryItem {
   point: number;
   /** Did the player cash out this round (win) or bust (loss/no-bet)? */
   cashed: boolean;
-}
-
-/** Pre-roll a crash point from a house-edge distribution. */
-function rollCrashPoint(): number {
-  // Use (0,1) — guard against the rare 0/1 endpoints from Math.random().
-  let r = Math.random();
-  if (r >= 1) r = 0.999999;
-  // crashPoint = max(1.00, floor(100*(1-edge)/(1-r))/100)
-  const raw = Math.floor((100 * (1 - HOUSE_EDGE)) / (1 - r)) / 100;
-  return Math.max(1, raw);
 }
 
 // Geometry for the rocket trajectory (an exponential-feeling curve in an SVG box).
@@ -122,6 +112,7 @@ export default function Crash() {
   // Mirror of `multiplier` state kept in a ref so the rAF loop and manual
   // cash-out handler always read the latest value without stale-closure risk.
   const multiplierRef = useRef(1);
+  const shakeTimerRef = useRef<number | null>(null);
 
   const ready = wallet.ready;
   const canAfford = bet > 0 && bet <= wallet.balance;
@@ -137,7 +128,13 @@ export default function Crash() {
     }
   }, []);
 
-  useEffect(() => () => stopLoop(), [stopLoop]);
+  useEffect(
+    () => () => {
+      stopLoop();
+      if (shakeTimerRef.current) clearTimeout(shakeTimerRef.current);
+    },
+    [stopLoop],
+  );
 
   /** Resolve the round when the rocket explodes (no cash-out). */
   const bust = useCallback((point: number) => {
@@ -149,7 +146,8 @@ export default function Crash() {
     setShake(true);
     sfx.lose();
     sfx.thud();
-    window.setTimeout(() => setShake(false), 520);
+    if (shakeTimerRef.current) clearTimeout(shakeTimerRef.current);
+    shakeTimerRef.current = window.setTimeout(() => setShake(false), 520);
     setHistory((h) =>
       [{ id: ++histIdRef.current, point, cashed: false }, ...h].slice(0, 18),
     );
@@ -194,7 +192,7 @@ export default function Crash() {
     // Deduct the stake; abort if unaffordable.
     if (!wallet.bet(stake)) return;
 
-    const point = rollCrashPoint();
+    const point = toCrashPoint(rollMultiplier());
     stakeRef.current = stake;
     crashRef.current = point;
     cashedRef.current = false;

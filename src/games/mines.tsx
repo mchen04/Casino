@@ -8,6 +8,8 @@ import { formatChips, formatDelta, formatMultiplier } from "@/lib/format";
 import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
+import { CountingNumber } from "@/components/CountingNumber";
+import { sleep } from "@/lib/async";
 
 // ---------------------------------------------------------------------------
 // MINES — a 5×5 grid (25 tiles). Player sets a bet and the number of mines
@@ -45,8 +47,6 @@ const MINE_PRESETS = [1, 3, 5, 10, 24];
 type Phase = "betting" | "playing" | "busted" | "cashed";
 type TileKind = "gem" | "mine";
 
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
 /**
  * Multiplier (INCLUDING the stake) after `safe` successful gem picks with a
  * given mine count. safe=0 returns 1 (no win yet). House edge baked in.
@@ -62,49 +62,6 @@ function multiplierFor(mines: number, safe: number): number {
     raw *= (TILES - i) / (TILES - mines - i);
   }
   return raw * (1 - HOUSE_EDGE);
-}
-
-// ---------------------------------------------------------------------------
-// Animated rolling counter (chips / multiplier).
-// ---------------------------------------------------------------------------
-function useAnimatedNumber(value: number, dur = 500) {
-  const [display, setDisplay] = useState(value);
-  const fromRef = useRef(value);
-  const rafRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    const from = fromRef.current;
-    const to = value;
-    if (from === to) {
-      setDisplay(to);
-      return;
-    }
-    const start = performance.now();
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / dur);
-      const eased = 1 - Math.pow(1 - t, 3);
-      setDisplay(from + (to - from) * eased);
-      if (t < 1) rafRef.current = requestAnimationFrame(tick);
-      else fromRef.current = to;
-    };
-    rafRef.current = requestAnimationFrame(tick);
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      fromRef.current = to;
-    };
-  }, [value, dur]);
-
-  return display;
-}
-
-function ChipCounter({ value, className }: { value: number; className?: string }) {
-  const display = useAnimatedNumber(value);
-  return <span className={className}>{formatChips(Math.round(display))}</span>;
-}
-
-function MultCounter({ value, className }: { value: number; className?: string }) {
-  const display = useAnimatedNumber(value, 350);
-  return <span className={className}>{formatMultiplier(display)}</span>;
 }
 
 // ---------------------------------------------------------------------------
@@ -556,17 +513,17 @@ export default function Mines() {
           </div>
           <div className="flex items-center gap-2">
             <Stat label="Mult" highlight>
-              <MultCounter value={inRound || roundOver ? currentMult : 1} />
+              <CountingNumber value={inRound || roundOver ? currentMult : 1} decimals={2} suffix="×" duration={350} />
             </Stat>
             <Stat label="Cash Out">
               {inRound && safeCount > 0 ? (
-                <ChipCounter value={cashoutValue} />
+                <CountingNumber value={cashoutValue} />
               ) : (
                 <span className="opacity-50">—</span>
               )}
             </Stat>
             <Stat label="Balance">
-              <ChipCounter value={ready ? balance : 0} />
+              <CountingNumber value={ready ? balance : 0} />
             </Stat>
           </div>
         </div>

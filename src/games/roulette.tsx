@@ -14,6 +14,7 @@ import { sfx } from "@/lib/sound";
 import { formatChips, formatDelta } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
+import { CountingNumber } from "@/components/CountingNumber";
 
 /* ----------------------------------------------------------------------------
  * ROULETTE — European (single 0) by default, American (0 + 00) toggle.
@@ -167,38 +168,6 @@ interface HistoryEntry {
 interface WinFlash {
   id: string;
   amount: number;
-}
-
-/* ----------------------------- Count-up number ---------------------------- */
-function Counter({ value, prefix = "" }: { value: number; prefix?: string }) {
-  const [display, setDisplay] = useState(value);
-  const raf = useRef<number | null>(null);
-  const from = useRef(value);
-
-  useEffect(() => {
-    from.current = display;
-    const start = performance.now();
-    const delta = value - from.current;
-    const dur = 520;
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / dur);
-      const eased = 1 - Math.pow(1 - t, 3);
-      setDisplay(Math.round(from.current + delta * eased));
-      if (t < 1) raf.current = requestAnimationFrame(tick);
-    };
-    raf.current = requestAnimationFrame(tick);
-    return () => {
-      if (raf.current) cancelAnimationFrame(raf.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value]);
-
-  return (
-    <span className="tabular-nums">
-      {prefix}
-      {formatChips(display)}
-    </span>
-  );
 }
 
 /* -------------------------------- Wheel ------------------------------------ */
@@ -1056,7 +1025,7 @@ export default function Roulette() {
                 Table stake
               </div>
               <div className="gold-text text-lg font-bold tabular-nums">
-                <Counter value={totalStake} />
+                <CountingNumber value={totalStake} className="tabular-nums" />
               </div>
             </div>
 

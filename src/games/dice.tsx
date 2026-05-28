@@ -8,6 +8,9 @@ import { formatChips, formatDelta, formatMultiplier } from "@/lib/format";
 import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
 import { BetControls } from "@/components/BetControls";
+import { CountingNumber } from "@/components/CountingNumber";
+import { sleep } from "@/lib/async";
+import { HOUSE_EDGE, payoutForChance } from "@/lib/cryptoGames";
 
 // ---------------------------------------------------------------------------
 // Dice — modern crypto-casino "over / under" game.
@@ -32,8 +35,6 @@ const ACCENT_DEEP = "#0e7490";
 const WIN_GREEN = "#86efac";
 const LOSE_RED = "#fca5a5";
 
-const HOUSE_EDGE = 0.01;
-const RTP = 1 - HOUSE_EDGE; // 0.99
 const MIN_BET = 5;
 const CHIPS = [5, 25, 100, 500, 1000];
 
@@ -54,8 +55,6 @@ interface RollResult {
   delta: number; // net chips (+profit / -stake)
 }
 
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
 /** Win probability (0..1) for a given target + mode. */
 function winChance(target: number, mode: Mode): number {
   const t = clamp(target, 0, 100);
@@ -64,101 +63,7 @@ function winChance(target: number, mode: Mode): number {
 
 /** Payout multiplier (includes stake) with the house edge baked in. */
 function payoutFor(target: number, mode: Mode): number {
-  const p = winChance(target, mode);
-  if (p <= 0) return 0;
-  return RTP / p; // = 99 / (p*100)
-}
-
-// ---------------------------------------------------------------------------
-// Animated numeric counter — eases display toward `value`, fixed decimals.
-// ---------------------------------------------------------------------------
-function NumberTicker({
-  value,
-  decimals = 2,
-  durationMs = 900,
-  className,
-  style,
-}: {
-  value: number;
-  decimals?: number;
-  durationMs?: number;
-  className?: string;
-  style?: React.CSSProperties;
-}) {
-  const [display, setDisplay] = useState(value);
-  const fromRef = useRef(value);
-  const rafRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    const from = fromRef.current;
-    const to = value;
-    if (from === to) {
-      setDisplay(to);
-      return;
-    }
-    const start = performance.now();
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / durationMs);
-      // easeOutExpo for a punchy, decelerating roll-up
-      const eased = t >= 1 ? 1 : 1 - Math.pow(2, -10 * t);
-      setDisplay(from + (to - from) * eased);
-      if (t < 1) {
-        rafRef.current = requestAnimationFrame(tick);
-      } else {
-        rafRef.current = null;
-        fromRef.current = to;
-        setDisplay(to);
-      }
-    };
-    rafRef.current = requestAnimationFrame(tick);
-    return () => {
-      if (rafRef.current !== null) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
-      fromRef.current = to;
-    };
-  }, [value, durationMs]);
-
-  return (
-    <span className={className} style={style}>
-      {display.toFixed(decimals)}
-    </span>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Chip-counter for whole-number chip amounts (balance / payout).
-// ---------------------------------------------------------------------------
-function ChipCounter({ value, className }: { value: number; className?: string }) {
-  const [display, setDisplay] = useState(value);
-  const fromRef = useRef(value);
-  const rafRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    const from = fromRef.current;
-    const to = value;
-    if (from === to) return;
-    const start = performance.now();
-    const dur = 600;
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / dur);
-      const eased = 1 - Math.pow(1 - t, 3);
-      setDisplay(Math.round(from + (to - from) * eased));
-      if (t < 1) rafRef.current = requestAnimationFrame(tick);
-      else { rafRef.current = null; fromRef.current = to; }
-    };
-    rafRef.current = requestAnimationFrame(tick);
-    return () => {
-      if (rafRef.current !== null) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
-      fromRef.current = to;
-    };
-  }, [value]);
-
-  return <span className={className}>{formatChips(display)}</span>;
+  return payoutForChance(winChance(target, mode));
 }
 
 // ---------------------------------------------------------------------------
@@ -448,7 +353,11 @@ export default function Dice() {
                     // raw skittering value while rolling (no smoothing — it jitters)
                     liveRoll.toFixed(2)
                   ) : (
-                    <NumberTicker value={result ? result.roll : liveRoll} />
+                    <CountingNumber
+                      value={result ? result.roll : liveRoll}
+                      decimals={2}
+                      duration={900}
+                    />
                   )}
                 </motion.div>
               </motion.div>
@@ -630,7 +539,7 @@ export default function Dice() {
           </StatTile>
           <StatTile label="Profit on Win" testid="stat-profit">
             <span style={{ color: WIN_GREEN }}>
-              +<ChipCounter value={profitOnWin} />
+              +<CountingNumber value={profitOnWin} />
             </span>
           </StatTile>
         </div>
@@ -824,7 +733,7 @@ export default function Dice() {
         <div className="relative mt-3 text-center text-xs text-white/40">
           Balance:{" "}
           <span className="font-semibold text-white/70 tabular-nums">
-            {ready ? <ChipCounter value={balance} /> : "—"}
+            {ready ? <CountingNumber value={balance} /> : "—"}
           </span>
         </div>
       </div>

@@ -15,6 +15,7 @@ import {
 } from "@/lib/cards";
 import { useWallet } from "@/lib/wallet";
 import { formatChips, formatDelta } from "@/lib/format";
+import { sleep } from "@/lib/async";
 import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
@@ -53,11 +54,6 @@ interface PlayerHand {
 }
 
 let HAND_ID = 1;
-
-// Sleep that can be cancelled by a generation token check at the call site.
-function sleep(ms: number): Promise<void> {
-  return new Promise((res) => setTimeout(res, ms));
-}
 
 function isBlackjack(cards: Card[]): boolean {
   return cards.length === 2 && blackjackTotal(cards).total === 21;

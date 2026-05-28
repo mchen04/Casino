@@ -298,9 +298,7 @@ export function evaluate3(cards: Card[]): ThreeCardRank {
       straightHigh = 3; // A-2-3 wheel
   }
   const isStraight = straightHigh > 0;
-  const trips = distinct.length === 1 || values[0] === values[2];
-  const isTrips = new Set(values).size === 1;
-  void trips;
+  const isTrips = distinct.length === 1;
 
   let category: ThreeCardCategory;
   let tiebreak: number[];

@@ -14,6 +14,8 @@ import { formatChips, formatDelta, formatMultiplier } from "@/lib/format";
 import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
+import { CountingNumber } from "@/components/CountingNumber";
+import { sleep } from "@/lib/async";
 
 // ---------------------------------------------------------------------------
 // KENO — 80-number grid, pick 1-10 spots, draw 20 balls, count hits.
@@ -40,8 +42,6 @@ const MIN_BET = 5;
 const CHIPS = [5, 25, 100, 500, 1000];
 
 type Phase = "betting" | "drawing" | "resolved";
-
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 // ---------------------------------------------------------------------------
 // Paytable. PAYTABLE[spots][hits] = gross multiplier (includes stake).
@@ -72,38 +72,6 @@ function topMultiplier(spots: number): number {
   const row = PAYTABLE[spots];
   if (!row) return 0;
   return row.reduce((m, v) => Math.max(m, v), 0);
-}
-
-// ---------------------------------------------------------------------------
-// Animated rolling chip counter.
-// ---------------------------------------------------------------------------
-function Counter({ value, className }: { value: number; className?: string }) {
-  const [display, setDisplay] = useState(value);
-  const fromRef = useRef(value);
-  const rafRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    const from = fromRef.current;
-    const to = value;
-    if (from === to) return;
-    const start = performance.now();
-    const dur = 600;
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / dur);
-      const eased = 1 - Math.pow(1 - t, 3);
-      setDisplay(Math.round(from + (to - from) * eased));
-      if (t < 1) rafRef.current = requestAnimationFrame(tick);
-      else fromRef.current = to;
-    };
-    rafRef.current = requestAnimationFrame(tick);
-    return () => {
-      const raf = rafRef.current;
-      if (raf !== null) cancelAnimationFrame(raf);
-      fromRef.current = to;
-    };
-  }, [value]);
-
-  return <span className={className}>{formatChips(display)}</span>;
 }
 
 // ---------------------------------------------------------------------------
@@ -578,12 +546,12 @@ export default function Keno() {
                     {delta > 0 ? (
                       // Genuine win: show gross credited and net profit
                       <div className="mt-1 text-lg font-bold tabular-nums text-emerald-300">
-                        +<Counter value={payout} /> chips
+                        +<CountingNumber value={payout} /> chips
                       </div>
                     ) : delta === 0 && payout > 0 ? (
                       // Push: stake returned, net zero — neutral display
                       <div className="mt-1 text-lg font-bold tabular-nums text-yellow-200">
-                        <Counter value={payout} /> chips returned
+                        <CountingNumber value={payout} /> chips returned
                       </div>
                     ) : (
                       // Loss: show the net as a negative

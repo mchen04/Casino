@@ -7,6 +7,7 @@ import { BetControls } from "@/components/BetControls";
 import { formatChips, formatMultiplier } from "@/lib/format";
 import { weightedPick, randInt } from "@/lib/rng";
 import { sfx } from "@/lib/sound";
+import { sleep } from "@/lib/async";
 
 // ---- Symbol definitions -----------------------------------------------------
 interface Sym {
@@ -127,8 +128,6 @@ export default function NeonMegaways() {
   const busy = useRef(false);
 
   const ways = useMemo(() => grid.reduce((a, reel) => a * reel.length, 1), [grid]);
-
-  const sleep = (ms: number) => new Promise<void>((res) => setTimeout(res, ms));
 
   const spin = useCallback(async () => {
     if (busy.current || spinning) return;

@@ -17,6 +17,7 @@ import {
 } from "@/lib/cards";
 import { chance, clamp, randInt } from "@/lib/rng";
 import { formatChips, formatDelta } from "@/lib/format";
+import { sleep } from "@/lib/async";
 import { sfx } from "@/lib/sound";
 import { useWallet } from "@/lib/wallet";
 import { Button } from "@/components/ui/Button";
@@ -457,8 +458,6 @@ export default function TexasHoldem() {
   const [raiseTo, setRaiseTo] = useState(BB * 2);
   const [chipBursts, setChipBursts] = useState<{ id: number; from: Actor }[]>([]);
   const burstId = useRef(0);
-
-  const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
   // ---- helpers tied to current ref state -------------------------------
   const canAfford = (extra: number) => {

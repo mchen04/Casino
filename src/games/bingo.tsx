@@ -6,6 +6,7 @@ import { useWallet } from "@/lib/wallet";
 import { sfx } from "@/lib/sound";
 import { formatChips, formatDelta, formatMultiplier } from "@/lib/format";
 import { shuffle, randFloat, randInt } from "@/lib/rng";
+import { CountingNumber } from "@/components/CountingNumber";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 
@@ -21,13 +22,15 @@ import { Chip } from "@/components/ui/Chip";
  *
  * On START the hopper draws balls one at a time (animated, e.g. "B-7") and
  * auto-daubs matching cells. Winning shapes are detected per card:
- *   • LINE   — any full row, column, or diagonal  → pays a line multiplier
- *   • BLACKOUT — every cell daubed                → pays a big multiplier
+ *   • LINE   — any full row, column, or diagonal  → pays a SPEED multiplier
+ *   • BLACKOUT — every cell daubed                → pays the big jackpot
  *
- * Each card is paid the BEST single pattern it achieves, plus a SPEED bonus
- * that scales the multiplier up the fewer balls it took to get there (faster =
- * fatter). Drawing halts as soon as every card has blacked out (best win
- * locked) or all 75 balls are gone. Every chip flows through useWallet().
+ * It is a SPEED race: the hopper keeps calling until every card has its first
+ * line (or the LINE_CAP). Each card is paid by HOW FAST *its own* first line
+ * landed — fewer balls = fatter pay. If your earliest line came in fast it
+ * unlocks a BLACKOUT BONUS chase for the jackpot. Drawing stops the instant the
+ * outcome is locked; it never burns all 75 balls needlessly. See the pay model
+ * below — tuned to ~92% RTP. Every chip flows through useWallet().
  * ------------------------------------------------------------------------- */
 
 const ACCENT = "#fd79a8";
@@ -163,41 +166,6 @@ function scoreCard(card: BingoCard, calls: Set<number>): CardScore {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Count-up readout                                                           */
-/* -------------------------------------------------------------------------- */
-
-function Counter({ value, prefix = "" }: { value: number; prefix?: string }) {
-  const [display, setDisplay] = useState(value);
-  const raf = useRef<number | null>(null);
-  const from = useRef(value);
-
-  useEffect(() => {
-    from.current = display;
-    const start = performance.now();
-    const delta = value - from.current;
-    const dur = 540;
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / dur);
-      const eased = 1 - Math.pow(1 - t, 3);
-      setDisplay(Math.round(from.current + delta * eased));
-      if (t < 1) raf.current = requestAnimationFrame(tick);
-    };
-    raf.current = requestAnimationFrame(tick);
-    return () => {
-      if (raf.current) cancelAnimationFrame(raf.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value]);
-
-  return (
-    <span className="tabular-nums">
-      {prefix}
-      {formatChips(display)}
-    </span>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
 /* Component                                                                  */
 /* -------------------------------------------------------------------------- */
 
@@ -241,6 +209,8 @@ export default function Bingo() {
   const stakeRef = useRef<number>(0);
   const firstLineRef = useRef<number[]>([]); // per card: ball # its first line landed (0 = none)
   const bonusRef = useRef<boolean>(false); // are we in the blackout chase phase?
+  // Guard against rapid double-click starting two rounds simultaneously.
+  const startingRef = useRef<boolean>(false);
 
   const [bonusPhase, setBonusPhase] = useState(false);
 
@@ -436,9 +406,13 @@ export default function Bingo() {
   /* ----- start a round ----- */
   const start = useCallback(() => {
     if (phase !== "betting") return;
+    // Guard against rapid double-clicks firing two rounds before the phase
+    // state propagates back through React's render cycle.
+    if (startingRef.current) return;
+    startingRef.current = true;
     const stake = bet * numCards;
-    if (stake < MIN_BET) return;
-    if (!wallet.bet(stake)) return; // unaffordable → abort
+    if (stake < MIN_BET) { startingRef.current = false; return; }
+    if (!wallet.bet(stake)) { startingRef.current = false; return; } // unaffordable → abort
 
     sfx.chip();
     stakeRef.current = stake;
@@ -450,6 +424,7 @@ export default function Bingo() {
 
     setCalls([]);
     setCurrentBall(null);
+    setPulseCells("");
     setResult(null);
     setResultText("");
     setBigWin(false);
@@ -458,6 +433,9 @@ export default function Bingo() {
     setPhase("drawing");
 
     drawTimer.current = window.setTimeout(drawNext, 420);
+    // Reset the guard after one event loop turn — by then setPhase("drawing")
+    // will have committed and the play button will be disabled.
+    Promise.resolve().then(() => { startingRef.current = false; });
   }, [phase, bet, numCards, cards, wallet, drawNext]);
 
   /* ----- new round ----- */
@@ -467,9 +445,11 @@ export default function Bingo() {
     if (drawTimer.current) clearTimeout(drawTimer.current);
     if (overlayTimer.current) clearTimeout(overlayTimer.current);
     bonusRef.current = false;
+    startingRef.current = false;
     setPhase("betting");
     setCalls([]);
     setCurrentBall(null);
+    setPulseCells("");
     setResult(null);
     setResultText("");
     setBigWin(false);
@@ -658,7 +638,7 @@ export default function Bingo() {
                   variant="ghost"
                   data-testid="bet-double"
                   disabled={phase !== "betting"}
-                  onClick={() => setBet((b) => b * 2)}
+                  onClick={() => setBet((b) => Math.min(Math.floor(wallet.balance / numCards), b * 2))}
                 >
                   2×
                 </Button>
@@ -714,7 +694,7 @@ export default function Bingo() {
                   "Insufficient Chips"
                 ) : (
                   <span>
-                    Start · <Counter value={totalStake} />
+                    Start · <CountingNumber value={totalStake} className="tabular-nums" />
                   </span>
                 )}
               </Button>
@@ -1250,7 +1230,7 @@ function Readout({ label, value, accent }: { label: string; value: number; accen
     <div className="glass rounded-2xl px-3 py-2.5">
       <div className="text-[10px] uppercase tracking-widest text-white/40">{label}</div>
       <div className="font-display text-xl font-bold tabular-nums" style={{ color: accent }}>
-        <Counter value={value} />
+        <CountingNumber value={value} />
       </div>
     </div>
   );

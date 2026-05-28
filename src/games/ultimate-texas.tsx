@@ -15,6 +15,7 @@ import {
   evaluateBest,
   HandCategory,
 } from "@/lib/cards";
+import { sleep } from "@/lib/async";
 import { formatChips, formatDelta } from "@/lib/format";
 import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
@@ -265,8 +266,6 @@ export default function UltimateTexasHoldem() {
     (extra: number) => extra <= wallet.balance,
     [wallet.balance],
   );
-
-  const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
   // ----- deal --------------------------------------------------------------
 
