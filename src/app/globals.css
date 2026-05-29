@@ -82,6 +82,49 @@ body {
   .neon-magenta {
     text-shadow: 0 0 8px rgba(255, 43, 209, 0.8), 0 0 22px rgba(255, 43, 209, 0.5);
   }
+
+  /* Living gold text — the static gold-text plus a slow gradient drift. */
+  .gold-text-anim {
+    background: linear-gradient(
+      100deg,
+      #9a7d1e 0%,
+      #f5d060 25%,
+      #fff4c2 50%,
+      #f5d060 75%,
+      #9a7d1e 100%
+    );
+    background-size: 220% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: gradientShift 6s ease-in-out infinite;
+  }
+
+  /* A glare that sweeps across a surface. Put inside a `position:relative`,
+     `overflow:hidden` parent; it self-animates. */
+  .sheen-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+    border-radius: inherit;
+  }
+  .sheen-layer::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 40%;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.35),
+      transparent
+    );
+    transform: translateX(-160%) skewX(-18deg);
+    animation: sheen 3.4s ease-in-out infinite;
+  }
 }
 
 @layer utilities {
@@ -120,7 +163,18 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .animate-shimmer,
   .animate-floaty,
-  .animate-pulseGlow {
+  .animate-pulseGlow,
+  .animate-sheen,
+  .animate-gradientShift,
+  .animate-winPulse,
+  .animate-floatSlow,
+  .animate-flicker,
+  .animate-sparkle,
+  .gold-text-anim,
+  .sheen-layer::before {
     animation: none !important;
+  }
+  .gold-text-anim {
+    background-position: 50% 50%;
   }
 }

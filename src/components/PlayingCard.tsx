@@ -39,20 +39,23 @@ export function PlayingCard({
   const symbol = card ? SUIT_SYMBOL[card.suit] : "";
 
   return (
-    <div
+    <motion.div
       className={`relative shrink-0 ${className}`}
       style={{ width: d.w, height: d.h, perspective: 600 }}
+      initial={{ opacity: 0, scale: 0.82, y: 8 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      transition={{ type: "spring", stiffness: 430, damping: 27, mass: 0.7 }}
     >
       <motion.div
         className="absolute inset-0"
         style={{ transformStyle: "preserve-3d" }}
         initial={false}
         animate={{ rotateY: showBack ? 180 : 0 }}
-        transition={{ duration: 0.4, ease: [0.2, 0.7, 0.2, 1] }}
+        transition={{ duration: 0.46, ease: [0.2, 0.8, 0.2, 1] }}
       >
         {/* FRONT */}
         <div
-          className="absolute inset-0 bg-white"
+          className="absolute inset-0 overflow-hidden bg-white"
           style={{
             backfaceVisibility: "hidden",
             WebkitBackfaceVisibility: "hidden",
@@ -63,6 +66,24 @@ export function PlayingCard({
             color,
           }}
         >
+          {/* glossy diagonal highlight for a printed-card sheen */}
+          <span
+            className="pointer-events-none absolute inset-0"
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0) 38%, rgba(0,0,0,0.04) 100%)",
+              borderRadius: d.r,
+            }}
+          />
+          {/* pulsing winner glow */}
+          {highlight && (
+            <motion.span
+              className="pointer-events-none absolute inset-0"
+              style={{ borderRadius: d.r, boxShadow: "inset 0 0 16px rgba(245,208,96,0.85)" }}
+              animate={{ opacity: [0.35, 0.9, 0.35] }}
+              transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
+            />
+          )}
           <span
             className="absolute font-bold leading-none text-center"
             style={{ top: 4, left: 5, fontSize: d.corner }}
@@ -114,6 +135,6 @@ export function PlayingCard({
           </span>
         </div>
       </motion.div>
-    </div>
+    </motion.div>
   );
 }

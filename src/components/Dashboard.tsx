@@ -136,15 +136,20 @@ export function Dashboard() {
   }, []);
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
-      {/* Hero */}
-      <section className="relative mb-10 overflow-hidden rounded-3xl border border-gold/20 bg-gradient-to-b from-ink-panel/90 to-ink/90 px-6 py-10 text-center sm:py-14">
+    <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 sm:py-7">
+      {/* Hero — compact on short / landscape viewports so game cards are
+          visible immediately without scrolling. */}
+      <section className="relative mb-6 overflow-hidden rounded-3xl border border-gold/20 bg-gradient-to-b from-ink-panel/90 to-ink/90 px-6 py-7 text-center sm:py-10 [@media(max-height:760px)]:py-4">
         <div className="bg-grid pointer-events-none absolute inset-0 opacity-40" />
         <span className="pointer-events-none absolute left-1/2 top-0 h-40 w-[60%] -translate-x-1/2 rounded-full bg-gold/10 blur-3xl" />
+        {/* drifting ambient motes */}
+        <span className="animate-floatSlow pointer-events-none absolute left-[12%] top-[30%] h-1.5 w-1.5 rounded-full bg-neon-cyan/60 blur-[1px]" />
+        <span className="animate-floatSlow pointer-events-none absolute right-[16%] top-[55%] h-1.5 w-1.5 rounded-full bg-neon-magenta/60 blur-[1px]" style={{ animationDelay: "2.5s" }} />
+        <span className="animate-floatSlow pointer-events-none absolute left-[70%] top-[20%] h-1 w-1 rounded-full bg-gold/70 blur-[1px]" style={{ animationDelay: "5s" }} />
         <motion.p
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="relative text-xs uppercase tracking-[0.5em] text-gold/70"
+          className="relative text-[11px] uppercase tracking-[0.5em] text-gold/70 [@media(max-height:760px)]:hidden"
         >
           Welcome to
         </motion.p>
@@ -152,18 +157,19 @@ export function Dashboard() {
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.5 }}
-          className="gold-text relative mt-2 font-display text-5xl font-black tracking-tight sm:text-7xl"
+          className="gold-text-anim relative mt-2 font-display text-4xl font-black tracking-tight sm:text-6xl [@media(max-height:760px)]:mt-0 [@media(max-height:760px)]:text-3xl"
         >
           NEON ROYALE
         </motion.h1>
-        <p className="relative mx-auto mt-3 max-w-xl text-sm text-white/55 sm:text-base">
+        <p className="relative mx-auto mt-2 max-w-xl text-sm text-white/55 sm:text-base [@media(max-height:760px)]:hidden">
           {GAMES.length} legendary casino games. One neon floor. Play money only —
           chase the jackpot risk-free.
         </p>
 
         {/* Balance + reset */}
-        <div className="relative mt-6 flex flex-wrap items-center justify-center gap-3">
-          <div className="rounded-2xl border border-gold/30 bg-black/50 px-6 py-3">
+        <div className="relative mt-4 flex flex-wrap items-center justify-center gap-3 [@media(max-height:760px)]:mt-3">
+          <div className="relative overflow-hidden rounded-2xl border border-gold/30 bg-black/50 px-6 py-2.5">
+            <span className="sheen-layer" aria-hidden />
             <div className="text-[10px] uppercase tracking-widest text-white/40">
               Your Balance
             </div>

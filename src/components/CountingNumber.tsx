@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import { motion, useAnimationControls } from "framer-motion";
 import { formatChips } from "@/lib/format";
 
 interface CountingNumberProps {
@@ -30,16 +31,24 @@ export function CountingNumber({
   prefix = "",
   suffix = "",
   className = "",
-}: CountingNumberProps) {
+  pop = true,
+}: CountingNumberProps & { pop?: boolean }) {
   const [display, setDisplay] = useState(value);
   const raf = useRef<number | null>(null);
   const fromRef = useRef(value);
+  const controls = useAnimationControls();
 
   useEffect(() => {
     fromRef.current = display;
     const from = fromRef.current;
     const delta = value - from;
     if (delta === 0) return;
+    if (pop) {
+      controls.start({
+        scale: delta > 0 ? [1, 1.16, 1] : [1, 0.92, 1],
+        transition: { duration: 0.42, ease: "easeOut" },
+      });
+    }
     const start = performance.now();
 
     const tick = (now: number) => {
@@ -65,10 +74,14 @@ export function CountingNumber({
         : formatChips(display);
 
   return (
-    <span className={`tabular-nums ${className}`}>
+    <motion.span
+      animate={controls}
+      style={{ display: "inline-block" }}
+      className={`tabular-nums ${className}`}
+    >
       {prefix}
       {text}
       {suffix}
-    </span>
+    </motion.span>
   );
 }

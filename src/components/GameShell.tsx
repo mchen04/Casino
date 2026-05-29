@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useWallet } from "@/lib/wallet";
 import { formatChips } from "@/lib/format";
 import { isMuted, toggleMuted, sfx } from "@/lib/sound";
+import { FitToViewport } from "@/components/FitToViewport";
 
 interface GameShellProps {
   title: string;
@@ -115,8 +116,11 @@ export function GameShell({
         </div>
       </header>
 
-      {/* Play surface */}
-      <main className="mx-auto max-w-7xl px-3 py-4 sm:px-5 sm:py-6 [@media(max-height:600px)]:py-2">{children}</main>
+      {/* Play surface — auto-scaled to fit the viewport so every game lives on
+          one screen (no scroll) across desktop, laptop, phone & landscape. */}
+      <main className="mx-auto max-w-7xl px-3 py-3 sm:px-5 sm:py-4 [@media(max-height:600px)]:py-1.5">
+        <FitToViewport>{children}</FitToViewport>
+      </main>
     </div>
   );
 }
