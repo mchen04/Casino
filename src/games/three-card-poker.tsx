@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { PlayingCard } from "@/components/PlayingCard";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+import { Celebration } from "@/components/Celebration";
 
 const ACCENT = "#9b59b6";
 const ACCENT_SOFT = "rgba(155,89,182,0.5)";
@@ -564,6 +565,22 @@ export default function ThreeCardPoker() {
       ? playerRank.category
       : null;
 
+  // Win-celebration overlay: fire only on a notable win (>= ~2x wagered).
+  const celebrateStaked = ante * 2 + pairPlus;
+  const celebrateReturn = resolution?.totalReturn ?? 0;
+  const celebrateRatio = celebrateStaked > 0 ? celebrateReturn / celebrateStaked : 0;
+  const celebrate =
+    phase === "result" && resolution !== null && celebrateRatio >= 2;
+  const celebrateTier: "win" | "big" | "jackpot" =
+    playerRank?.category === ThreeCardCategory.StraightFlush ||
+    celebrateRatio >= 10
+      ? "jackpot"
+      : playerRank?.category === ThreeCardCategory.ThreeOfAKind ||
+          playerRank?.category === ThreeCardCategory.Straight ||
+          celebrateRatio >= 4
+        ? "big"
+        : "win";
+
   const resultColor =
     resolution?.outcome === "win"
       ? "#22e1ff"
@@ -594,6 +611,12 @@ export default function ThreeCardPoker() {
 
             <ChipFlight trigger={chipFlight} color={ACCENT} />
             <WinBurst show={burst.show} big={burst.big} />
+            <Celebration
+              show={celebrate}
+              seed={celebrateReturn}
+              tier={celebrateTier}
+              colors={["#9b59b6", "#ffd24a", "#22e1ff", "#ffffff"]}
+            />
 
             {/* Dealer row */}
             <div className="relative z-10">

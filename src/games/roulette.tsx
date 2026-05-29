@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { CountingNumber } from "@/components/CountingNumber";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+import { Celebration } from "@/components/Celebration";
 
 /* ----------------------------------------------------------------------------
  * ROULETTE — European (single 0) by default, American (0 + 00) toggle.
@@ -434,6 +435,10 @@ export default function Roulette() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [winningSpots, setWinningSpots] = useState<Set<string>>(new Set());
   const [winFlashes, setWinFlashes] = useState<WinFlash[]>([]);
+  const [celebration, setCelebration] = useState<{
+    seed: number;
+    tier: "win" | "big" | "jackpot";
+  } | null>(null);
 
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   useEffect(
@@ -519,6 +524,7 @@ export default function Roulette() {
     setPhase("spinning");
     setWinningSpots(new Set());
     setResultText("");
+    setCelebration(null);
     setLastNet(0);
     setBallRadius(118); // launch on the outer track
     // Clear any lingering timer IDs from prior spins to prevent array growth.
@@ -578,11 +584,13 @@ export default function Roulette() {
 
       // Pay out winners.
       let gross = 0;
+      let straightHit = false;
       const winners = new Set<string>();
       Object.values(bets).forEach((b) => {
         if (betWins(b.kind, b.ref, landed)) {
           gross += b.amount * b.payX;
           winners.add(b.id);
+          if (b.kind === "straight") straightHit = true;
         }
       });
 
@@ -591,6 +599,15 @@ export default function Roulette() {
 
       setWinningSpots(winners);
       setLastNet(net);
+      if (gross > 0) {
+        const tier: "win" | "big" | "jackpot" =
+          straightHit || gross >= stake * 20
+            ? "jackpot"
+            : gross >= stake * 5
+              ? "big"
+              : "win";
+        setCelebration({ seed: gross, tier });
+      }
       setHistory((h) => [{ id: `${Date.now()}-${pocketKey(landed)}`, pocket: landed, color: landedColor }, ...h].slice(0, 18));
 
       const label = pocketKey(landed);
@@ -1080,6 +1097,13 @@ export default function Roulette() {
             </span>
           )}
         </div>
+
+        <Celebration
+          show={celebration !== null}
+          seed={celebration?.seed ?? 0}
+          tier={celebration?.tier ?? "win"}
+          colors={["#e3342f", "#ffd24a", "#22e1ff", "#ffffff"]}
+        />
       </div>
     </div>
   );

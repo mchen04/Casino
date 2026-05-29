@@ -20,6 +20,7 @@ import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { PlayingCard } from "@/components/PlayingCard";
+import { Celebration } from "@/components/Celebration";
 
 const ACCENT = "#d4af37";
 const DECKS = 6;
@@ -102,6 +103,10 @@ export default function Blackjack() {
   const [roundResult, setRoundResult] = useState("");
   const [roundNet, setRoundNet] = useState<number | null>(null);
   const [showBurst, setShowBurst] = useState<"win" | "lose" | "push" | null>(null);
+  // Premium-win celebration: only naturals (3:2) and big multi-hand returns.
+  const [celebration, setCelebration] = useState<{ payout: number; tier: "big" | "jackpot" } | null>(
+    null,
+  );
 
   // generation token to abort async sequences if the player resets / re-deals.
   const genRef = useRef(0);
@@ -136,6 +141,7 @@ export default function Blackjack() {
     setRoundResult("");
     setRoundNet(null);
     setShowBurst(null);
+    setCelebration(null);
     setInsuranceBet(0);
     setMessage("");
     setHoleHidden(true);
@@ -570,6 +576,23 @@ export default function Blackjack() {
 
       setRoundResult(net > 0 ? `${banner}  ${formatDelta(net)}` : banner);
       setShowBurst(burst);
+
+      // Premium win only — natural blackjack (3:2) or a big multi-hand return.
+      // Gross return on the hands this round (excludes separate insurance).
+      const grossReturn = resolved.reduce((s, h) => s + h.payout, 0);
+      const isNatural =
+        resolved.length === 1 && resolved[0].outcome === "blackjack";
+      if (isNatural) {
+        setCelebration({ payout: grossReturn, tier: "big" });
+      } else if (wageredThisRound > 0 && grossReturn >= wageredThisRound * 2.5) {
+        setCelebration({
+          payout: grossReturn,
+          tier: grossReturn >= wageredThisRound * 4 ? "jackpot" : "big",
+        });
+      } else {
+        setCelebration(null);
+      }
+
       if (burst === "win") {
         if (net >= wageredThisRound * 2) sfx.jackpot();
         else sfx.win();
@@ -600,6 +623,7 @@ export default function Blackjack() {
     setRoundResult("");
     setRoundNet(null);
     setShowBurst(null);
+    setCelebration(null);
     setMessage("");
     sfx.click();
   }, []);
@@ -644,6 +668,14 @@ export default function Blackjack() {
         className="felt relative overflow-hidden rounded-3xl p-4 sm:p-6"
         style={{ boxShadow: `0 0 0 1px ${ACCENT}22, 0 30px 80px rgba(0,0,0,0.5)` }}
       >
+        {/* Premium-win celebration overlay (naturals & big multi-hand returns). */}
+        <Celebration
+          show={celebration !== null}
+          seed={celebration?.payout ?? 0}
+          tier={celebration?.tier ?? "big"}
+          colors={["#d4af37", "#ffd24a", "#22e1ff", "#ffffff"]}
+        />
+
         {/* table arc + rules text */}
         <div className="pointer-events-none absolute inset-x-0 top-1/2 -z-0 mx-auto h-[60%] w-[120%] -translate-x-[8%] rounded-[50%] border border-white/5" />
         <div className="pointer-events-none absolute left-1/2 top-[46%] -translate-x-1/2 text-center">

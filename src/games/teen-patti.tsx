@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { PlayingCard } from "@/components/PlayingCard";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+import { Celebration } from "@/components/Celebration";
 
 // ---------------------------------------------------------------------------
 // Theme — festive lotus / pink-gold
@@ -664,6 +665,25 @@ export default function TeenPatti() {
   const playerWon = resolution?.outcome === "win";
   const dealerWon = resolution?.outcome === "lose" || resolution?.outcome === "fold";
 
+  // Celebration overlay — fire only on a notable win (total return >= ~2x the
+  // total wagered this round, which only bonus hands reach; plain ~1.85x wins
+  // and 1:1 pushes are skipped). Tier follows the hand strength.
+  const celebrateWin =
+    phase === "result" &&
+    playerWon &&
+    !!resolution &&
+    resolution.totalReturn >= totalStake * 2;
+  const celebrationTier: "win" | "big" | "jackpot" =
+    playerRank?.category === TPCategory.Trail ||
+    playerRank?.category === TPCategory.PureSequence ||
+    (celebrateWin && resolution.totalReturn >= totalStake * 10)
+      ? "jackpot"
+      : playerRank?.category === TPCategory.Sequence ||
+          playerRank?.category === TPCategory.Color ||
+          (celebrateWin && resolution.totalReturn >= totalStake * 4)
+        ? "big"
+        : "win";
+
   // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
@@ -692,6 +712,12 @@ export default function TeenPatti() {
 
             <ChipFlight trigger={chipFlight} />
             <WinBurst show={burst.show} big={burst.big} />
+            <Celebration
+              show={celebrateWin}
+              seed={resolution?.totalReturn ?? 0}
+              tier={celebrationTier}
+              colors={["#e84393", "#ffd24a", "#22e1ff", "#ffffff"]}
+            />
 
             {/* Title flourish */}
             <div className="relative z-10 mb-2 text-center sm:mb-3 [@media(max-height:600px)]:mb-1">

@@ -16,6 +16,7 @@ import { sfx } from "@/lib/sound";
 import { clamp } from "@/lib/rng";
 import { HOUSE_EDGE, rollMultiplier, toCrashPoint } from "@/lib/cryptoGames";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+import { Celebration } from "@/components/Celebration";
 
 const ACCENT = "#ff2bd1";
 // Multiplier grows exponentially: m = GROWTH_RATE ^ elapsedSeconds.
@@ -651,6 +652,14 @@ export default function Crash() {
               {resultText}
             </motion.div>
           </div>
+
+          {/* Win confetti + coin fountain raining over the flight area. */}
+          <Celebration
+            show={won}
+            seed={lastProfit}
+            tier={(cashedAt ?? 0) >= 10 ? "jackpot" : (cashedAt ?? 0) >= 3 ? "big" : "win"}
+            colors={["#7CFFB2", "#22e1ff", "#ff2bd1", "#ffffff"]}
+          />
         </motion.div>
 
         {/* === SIDE PANEL === */}

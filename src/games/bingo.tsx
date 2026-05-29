@@ -10,6 +10,7 @@ import { CountingNumber } from "@/components/CountingNumber";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+import { Celebration } from "@/components/Celebration";
 
 /* ----------------------------------------------------------------------------
  * NEON ROYALE — BINGO (75-ball, single player vs the draw)
@@ -462,6 +463,13 @@ export default function Bingo() {
   const drawing = phase === "drawing";
   const callLabel = currentBall != null ? `${letterFor(currentBall)}-${currentBall}` : "—";
 
+  // Win celebration: fire only once the round has RESOLVED with a payout.
+  const won = phase === "resolved" && (result?.gross ?? 0) > 0;
+  // Payout measured in bet-per-card units feeds the intensity tier.
+  const winMult = result && bet > 0 ? result.gross / bet : 0;
+  const celebrationTier: "win" | "big" | "jackpot" =
+    result?.best === "blackout" || winMult >= 20 ? "jackpot" : winMult >= 5 ? "big" : "win";
+
   return (
     <div className="mx-auto w-full max-w-6xl px-3 pb-4 sm:pb-10">
       <div className="felt relative overflow-hidden rounded-3xl border border-white/10 p-3 shadow-felt sm:p-6 [@media(max-height:600px)]:p-2">
@@ -473,6 +481,14 @@ export default function Bingo() {
 
         {/* Big-win full-surface flash */}
         <AnimatePresence>{bigWin && <BlackoutOverlay key="bo" />}</AnimatePresence>
+
+        {/* Confetti + coin-fountain on any winning resolve */}
+        <Celebration
+          show={won}
+          seed={result?.gross ?? 0}
+          tier={celebrationTier}
+          colors={["#fd79a8", "#22e1ff", "#ffd24a", "#ffffff"]}
+        />
 
         <div className="relative grid gap-3 sm:gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
           {/* ============================ LEFT: hopper + controls ============= */}

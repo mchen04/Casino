@@ -11,6 +11,7 @@ import { PlayingCard } from "@/components/PlayingCard";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+import { Celebration } from "@/components/Celebration";
 
 /* ----------------------------------------------------------------------------
  * Andar Bahar — the classic Indian card game.
@@ -308,6 +309,21 @@ export default function AndarBahar() {
   const resolved = phase === "resolved";
   const winnerSide = outcome?.winner;
 
+  // A win is "notable" enough to celebrate when the round paid back a meaningful
+  // multiple of the stake — here, a *fast match* (few cards before the Joker's
+  // rank lands) is the standout moment. We gate the full-surface celebration on
+  // an effective return of ~2.5x+ of the stake so ordinary near-1:1 wins, losses
+  // and idle states stay quiet. The effective multiple folds the genuine payout
+  // (gross/stake, ≈1.9–2x) together with a fast-match excitement factor derived
+  // purely from the dealt card count — no money/payout values are altered.
+  const grossReturn = netDelta + lastStake;
+  const won = resolved && netDelta > 0;
+  const fastFactor = outcome ? Math.max(1, 6 / Math.max(1, outcome.cards)) : 1;
+  const effectiveMult = lastStake > 0 ? (grossReturn / lastStake) * fastFactor : 0;
+  const celebrate = won && effectiveMult >= 2.5;
+  const celebrateTier: "win" | "big" | "jackpot" =
+    effectiveMult >= 8 ? "jackpot" : effectiveMult >= 3 ? "big" : "win";
+
   return (
     <div className="mx-auto w-full max-w-5xl">
       {/* ---- Headline / streak summary ---- */}
@@ -498,6 +514,14 @@ export default function AndarBahar() {
             {showBurst && <WinBurst color={winnerSide === "bahar" ? BAHAR_COLOR : ANDAR_COLOR} />}
           </AnimatePresence>
         </div>
+
+        {/* Full-surface celebration for notable (fast-match) wins only. */}
+        <Celebration
+          show={celebrate}
+          seed={grossReturn}
+          tier={celebrateTier}
+          colors={["#16a085", "#ffd24a", "#22e1ff", "#ffffff"]}
+        />
       </div>
 
       {/* ---- Controls ---- */}

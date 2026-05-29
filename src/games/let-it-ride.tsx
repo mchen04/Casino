@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { PlayingCard } from "@/components/PlayingCard";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+import { Celebration } from "@/components/Celebration";
 
 const ACCENT = "#e67e22";
 const ACCENT_SOFT = "rgba(230,126,34,0.18)";
@@ -445,6 +446,22 @@ export default function LetItRide() {
       )
     : null;
 
+  // Win celebration: fire only on a notable resolved win (>= ~2x total wagered).
+  const celebrate =
+    phase === "resolved" && !!resolution?.win && resolution.gross >= totalWager * 2;
+  const celebrationTier: "win" | "big" | "jackpot" = resolution
+    ? resolution.rank.category === HandCategory.RoyalFlush ||
+      resolution.rank.category === HandCategory.StraightFlush ||
+      resolution.gross >= totalWager * 25
+      ? "jackpot"
+      : resolution.rank.category === HandCategory.FourOfAKind ||
+          resolution.rank.category === HandCategory.FullHouse ||
+          resolution.rank.category === HandCategory.Flush ||
+          resolution.gross >= totalWager * 6
+        ? "big"
+        : "win"
+    : "win";
+
   const cardSizeClass =
     "scale-[0.82] sm:scale-100 [@media(max-height:600px)]:scale-[0.7]";
 
@@ -475,6 +492,12 @@ export default function LetItRide() {
       <div className="grid gap-3 lg:grid-cols-[1fr_260px]">
         {/* ---------------------- FELT SURFACE ---------------------- */}
         <div className="felt relative overflow-hidden rounded-3xl border border-white/10 p-4 shadow-felt sm:p-6 [@media(max-height:600px)]:p-3">
+          <Celebration
+            show={celebrate}
+            seed={resolution?.gross ?? 0}
+            tier={celebrationTier}
+            colors={["#e67e22", "#ffd24a", "#22e1ff", "#ffffff"]}
+          />
           {/* accent corner glows */}
           <div
             className="pointer-events-none absolute -left-16 -top-16 h-56 w-56 rounded-full opacity-30 blur-3xl"

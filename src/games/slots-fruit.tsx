@@ -21,6 +21,7 @@ import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
 import { BetControls } from "@/components/BetControls";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+import { Celebration } from "@/components/Celebration";
 
 /* ------------------------------------------------------------------ *
  * Fruit Frenzy — 5×3 video slot, 10 fixed paylines.
@@ -836,6 +837,11 @@ export default function FruitFrenzy() {
   );
 
   const won = lastWin > 0 && phase === "resolved";
+  // Celebration intensity: a free-spins/scatter trigger or a huge win → jackpot.
+  const triggeredFree = (result?.scatterCount ?? 0) >= SCATTERS_FOR_FREE;
+  const winRatio = bet > 0 ? lastWin / bet : 0;
+  const celebrationTier: "win" | "big" | "jackpot" =
+    triggeredFree || winRatio >= 15 ? "jackpot" : winRatio >= 4 ? "big" : "win";
   const playDisabled = !ready || busy || freeSpins > 0 || !affordable;
   const buyDisabled = !ready || busy || freeSpins > 0 || buyCost > balance;
 
@@ -987,6 +993,14 @@ export default function FruitFrenzy() {
                 </motion.div>
               )}
             </AnimatePresence>
+
+            {/* win-celebration overlay (confetti + coin fountain) */}
+            <Celebration
+              show={won}
+              seed={lastWin}
+              tier={celebrationTier}
+              colors={["#2ecc71", "#ffd24a", "#ff5e7e", "#22e1ff", "#ffffff"]}
+            />
           </div>
 
           {/* result line */}

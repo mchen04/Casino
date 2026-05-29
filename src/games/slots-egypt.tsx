@@ -21,6 +21,7 @@ import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 import { formatChips } from "@/lib/format";
 import { sfx } from "@/lib/sound";
 import { clamp, randInt, shuffle, weightedPick } from "@/lib/rng";
+import { Celebration } from "@/components/Celebration";
 
 /* -------------------------------------------------------------------------- */
 /*  Theme                                                                     */
@@ -944,6 +945,20 @@ export default function PharaohsFortune() {
           style={{
             background: `radial-gradient(circle at 50% 120%, ${ACCENT}22, transparent 60%)`,
           }}
+        />
+
+        {/* Win celebration overlay (confetti + coin fountain) */}
+        <Celebration
+          show={anyWin && !spinning}
+          seed={result?.total ?? 0}
+          tier={
+            result?.expand || result?.triggeredFree || (result?.total ?? 0) >= bet * 15
+              ? "jackpot"
+              : (result?.total ?? 0) >= bet * 4
+                ? "big"
+                : "win"
+          }
+          colors={["#f1c40f", "#ffd24a", "#22e1ff", "#ffffff"]}
         />
 
         {/* header */}

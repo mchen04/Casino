@@ -17,6 +17,7 @@ import { BetControls } from "@/components/BetControls";
 import { PlayingCard } from "@/components/PlayingCard";
 import { CountingNumber } from "@/components/CountingNumber";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+import { Celebration } from "@/components/Celebration";
 
 const ACCENT = "#1abc9c";
 const MIN_BET = 5;
@@ -395,6 +396,24 @@ export default function CaribbeanStud() {
     phase === "result" && outcome === "win" && resultText !== "Folded";
   const dealerWon = phase === "result" && outcome === "lose";
 
+  // Win-celebration: fire only on a notable cash-out at result.
+  const totalWagered = staked.ante + staked.raise;
+  const grossPayout = netDelta + totalWagered;
+  const payoutRatio = totalWagered > 0 ? grossPayout / totalWagered : 0;
+  const celebrate =
+    phase === "result" && outcome === "win" && payoutRatio >= 2;
+  const celebrationTier: "win" | "big" | "jackpot" =
+    playerEval?.category === HandCategory.RoyalFlush ||
+    playerEval?.category === HandCategory.StraightFlush ||
+    payoutRatio >= 12
+      ? "jackpot"
+      : playerEval?.category === HandCategory.FullHouse ||
+        playerEval?.category === HandCategory.FourOfAKind ||
+        playerEval?.category === HandCategory.Flush ||
+        payoutRatio >= 4
+      ? "big"
+      : "win";
+
   return (
     <div className="mx-auto w-full max-w-5xl">
       <div
@@ -402,6 +421,12 @@ export default function CaribbeanStud() {
         style={{ boxShadow: `0 0 0 1px ${ACCENT}22, 0 24px 60px rgba(0,0,0,0.5)` }}
       >
         <WinBurst show={showBurst} big={bigWin} />
+        <Celebration
+          show={celebrate}
+          seed={grossPayout}
+          tier={celebrationTier}
+          colors={["#1abc9c", "#ffd24a", "#22e1ff", "#ffffff"]}
+        />
 
         {/* Header */}
         <div className="mb-2 flex flex-wrap items-center justify-between gap-3 sm:mb-4">

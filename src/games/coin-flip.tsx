@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/Button";
 import { BetControls } from "@/components/BetControls";
 import { CountingNumber } from "@/components/CountingNumber";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+import { Celebration } from "@/components/Celebration";
 
 // ---------------------------------------------------------------------------
 // Coin Flip — pick HEADS or TAILS, flip a gorgeous 3D coin.
@@ -448,6 +449,13 @@ export default function CoinFlip() {
   // Whether a streak is mid-flight and awaiting a cash-out / next flip.
   const ridable = mode === "streak" && streakActive && streak > 0 && phase === "resolved";
 
+  // Win-celebration intensity, keyed off how many times the pot beats the
+  // original stake (PAYOUT^streak). ~10×+ stake reads as a jackpot, ~4×+ big.
+  const celebrate = phase === "resolved" && result?.won === true && pot > 0;
+  const winMultiple = celebrate && streakStake > 0 ? pot / streakStake : 0;
+  const celebrationTier: "win" | "big" | "jackpot" =
+    winMultiple >= 10 ? "jackpot" : winMultiple >= 4 ? "big" : "win";
+
   // Primary button label & action.
   const flipLabel = streakActive
     ? `Flip Again (${formatChips(potentialPot)})`
@@ -511,7 +519,13 @@ export default function CoinFlip() {
         </div>
 
         {/* ===== Stage ===== */}
-        <div className="relative grid place-items-center rounded-2xl border border-white/5 bg-black/25 px-3 py-3 sm:py-8 [@media(max-height:600px)]:py-2">
+        <div className="relative grid place-items-center overflow-hidden rounded-2xl border border-white/5 bg-black/25 px-3 py-3 sm:py-8 [@media(max-height:600px)]:py-2">
+          <Celebration
+            show={celebrate}
+            seed={burst}
+            tier={celebrationTier}
+            colors={["#f5d060", "#bdc3c7", "#22e1ff", "#ffffff"]}
+          />
           {/* streak ladder (only in streak mode) */}
           {mode === "streak" && (
             <div className="mb-2 flex items-center gap-1.5 sm:mb-4">

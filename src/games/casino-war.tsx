@@ -11,6 +11,7 @@ import { PlayingCard } from "@/components/PlayingCard";
 import { BetControls } from "@/components/BetControls";
 import { CountingNumber } from "@/components/CountingNumber";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+import { Celebration } from "@/components/Celebration";
 import { sleep } from "@/lib/async";
 
 // ---------------------------------------------------------------------------
@@ -314,6 +315,18 @@ export default function CasinoWar() {
     !!result && result.good && (inWar ? !playerWarDown : !playerDown);
   const dealerHighlight =
     !!result && !result.good && result.outcome !== "surrender";
+
+  // ---- Celebration trigger -----------------------------------------------
+  // Fire only on the dramatic moments: winning a post-tie war (incl. the 2:1
+  // war-tie bonus), or any win whose gross return is >= ~3x the total wagered.
+  // Ordinary 1:1 wins, surrenders, and losses stay quiet.
+  const wagered = bet + warStake;
+  const payout = result && result.good ? result.net + wagered : 0;
+  const isWarWin =
+    result?.outcome === "war-win" || result?.outcome === "war-tie";
+  const celebrate =
+    !!result && result.good && (isWarWin || (wagered > 0 && payout >= wagered * 3));
+  const celebrationTier = isWarWin ? "big" : "win";
 
   return (
     <div className="mx-auto w-full max-w-4xl select-none px-2 py-2 sm:px-4 sm:py-3">
@@ -645,6 +658,14 @@ export default function CasinoWar() {
             <WinBurst key={burst} accent={ACCENT_LIGHT} />
           )}
         </AnimatePresence>
+
+        {/* ===== Big-moment celebration (war wins / 3x+ returns only) ===== */}
+        <Celebration
+          show={celebrate}
+          seed={payout}
+          tier={celebrationTier}
+          colors={["#c0392b", "#ffd24a", "#22e1ff", "#ffffff"]}
+        />
       </div>
 
       {/* ===== Paytable ===== */}

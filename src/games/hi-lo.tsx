@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/Button";
 import { PlayingCard } from "@/components/PlayingCard";
 import { BetControls } from "@/components/BetControls";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+import { Celebration } from "@/components/Celebration";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Hi-Lo — accent #00cec9. Predict whether the NEXT card is HIGHER (≥) or LOWER (<)
@@ -190,6 +191,8 @@ export default function HiLo() {
   const [resultKind, setResultKind] = useState<"" | "win" | "lose" | "info">("");
   const [delta, setDelta] = useState<number | null>(null);
   const [burst, setBurst] = useState(false);
+  // Banked cash-out result, used to drive the full-surface celebration overlay.
+  const [cashOutResult, setCashOutResult] = useState<{ gross: number; mult: number } | null>(null);
 
   const stakeRef = useRef(0); // active bet locked for this round
   const timerRefs = useRef<number[]>([]); // cleanup on unmount
@@ -244,6 +247,7 @@ export default function HiLo() {
     setResultKind("");
     setDelta(null);
     setBurst(false);
+    setCashOutResult(null);
     setNextCard(null);
     setNextFaceDown(true);
 
@@ -331,6 +335,7 @@ export default function HiLo() {
     setResultText(`Cashed out ${formatMultiplier(mult)} → ${formatChips(gross)}`);
     setResultKind("win");
     setDelta(profit);
+    if (profit > 0) setCashOutResult({ gross, mult });
     stakeRef.current = 0;
     setPhase("cashed");
   }, [phase, streak.length, mult, walletWin]);
@@ -346,6 +351,7 @@ export default function HiLo() {
     setResultText("");
     setResultKind("");
     setDelta(null);
+    setCashOutResult(null);
     setNextCard(null);
     setNextFaceDown(true);
     // Show a fresh teaser card.
@@ -374,6 +380,20 @@ export default function HiLo() {
         <div
           className="pointer-events-none absolute -top-24 left-1/2 h-64 w-64 -translate-x-1/2 rounded-full blur-3xl"
           style={{ background: `${ACCENT}22` }}
+        />
+
+        {/* Cash-out win celebration — confetti + coin fountain over the table. */}
+        <Celebration
+          show={phase === "cashed" && cashOutResult !== null}
+          seed={cashOutResult?.gross ?? 0}
+          tier={
+            (cashOutResult?.mult ?? 0) >= 10
+              ? "jackpot"
+              : (cashOutResult?.mult ?? 0) >= 3
+                ? "big"
+                : "win"
+          }
+          colors={["#00cec9", "#ffd24a", "#22e1ff", "#ffffff"]}
         />
 
         {/* Header: title + live multiplier */}

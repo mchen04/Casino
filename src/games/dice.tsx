@@ -12,6 +12,7 @@ import { CountingNumber } from "@/components/CountingNumber";
 import { sleep } from "@/lib/async";
 import { HOUSE_EDGE, payoutForChance } from "@/lib/cryptoGames";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+import { Celebration } from "@/components/Celebration";
 
 // ---------------------------------------------------------------------------
 // Dice — modern crypto-casino "over / under" game.
@@ -246,6 +247,20 @@ export default function Dice() {
             background: `radial-gradient(circle, ${ACCENT}22, transparent 70%)`,
             filter: "blur(10px)",
           }}
+        />
+
+        {/* win celebration overlay (confetti + coin fountain) */}
+        <Celebration
+          show={!busy && result !== null && result.won && result.delta > 0}
+          seed={result ? result.delta : 0}
+          tier={
+            result && result.multiplier >= 10
+              ? "jackpot"
+              : result && result.multiplier >= 3
+                ? "big"
+                : "win"
+          }
+          colors={["#22e1ff", "#ffd24a", "#8aff80", "#ffffff"]}
         />
 
         {/* ===== Header ===== */}

@@ -10,6 +10,7 @@ import { CountingNumber } from "@/components/CountingNumber";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
+import { Celebration } from "@/components/Celebration";
 
 /* ----------------------------------------------------------------------------
  * CRAPS — two dice on the felt.
@@ -275,6 +276,10 @@ export default function Craps() {
   const [resultTone, setResultTone] = useState<"win" | "lose" | "info" | "point">("info");
   const [lastDelta, setLastDelta] = useState(0);
   const [burst, setBurst] = useState(0);
+  // Win-celebration overlay: armed only on a notable roll (big multiple of the
+  // resolving stake or a high-pay prop). `celebrate` re-fires when `burst` bumps.
+  const [celebrate, setCelebrate] = useState(false);
+  const [celebrateTier, setCelebrateTier] = useState<"win" | "big" | "jackpot">("win");
 
   const [log, setLog] = useState<LogEntry[]>([]);
 
@@ -778,14 +783,26 @@ export default function Craps() {
 
         if (won) {
           setBurst((n) => n + 1);
+          // Did a high-pay prop (hardway / repeater, >= 7:1) cash this roll?
+          const propHit = out.events.some(
+            (e) => e.tone === "win" && (/the hard way/.test(e.text) || /^REPEATER/.test(e.text)),
+          );
+          // Chips that were riding the resolving bets this roll (net = gross - staked).
+          const staked = out.gross - out.net;
+          // Notable: a big prop, >= 3x the resolving stake, or a meaningful pile vs. chip.
+          const bigMultiple = staked > 0 && out.gross >= staked * 3;
+          const notable = propHit || bigMultiple || out.net >= chip * 8;
+          setCelebrate(notable);
+          setCelebrateTier(
+            propHit ? "jackpot" : staked > 0 && out.gross >= staked * 5 ? "big" : "win",
+          );
           if (out.net >= chip * 12) sfx.jackpot();
           else sfx.win();
-        } else if (lost) {
-          sfx.lose();
-        } else if (out.newPoint && comeOut) {
-          sfx.thud();
         } else {
-          sfx.card();
+          setCelebrate(false);
+          if (lost) sfx.lose();
+          else if (out.newPoint && comeOut) sfx.thud();
+          else sfx.card();
         }
       }, 1480),
     );
@@ -861,6 +878,14 @@ export default function Craps() {
         <div
           className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full blur-3xl"
           style={{ background: `${ACCENT}33` }}
+        />
+
+        {/* win celebration — only fires on a notable roll (see resolveRoll wiring) */}
+        <Celebration
+          show={celebrate}
+          seed={burst}
+          tier={celebrateTier}
+          colors={["#e67e22", "#ffd24a", "#22e1ff", "#ffffff"]}
         />
 
         {/* header row: title + puck */}

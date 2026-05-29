@@ -19,6 +19,7 @@ import {
   winChanceForTarget,
 } from "@/lib/cryptoGames";
 import { Button } from "@/components/ui/Button";
+import { Celebration } from "@/components/Celebration";
 import { BetControls } from "@/components/BetControls";
 import { CountingNumber } from "@/components/CountingNumber";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
@@ -503,6 +504,20 @@ export default function Limbo() {
               </motion.div>
             )}
           </AnimatePresence>
+
+          {/* Win celebration overlay (confetti + coin fountain) */}
+          <Celebration
+            show={phase === "resolved" && round !== null && round.won}
+            seed={round ? round.delta : 0}
+            tier={
+              round && round.target >= 10
+                ? "jackpot"
+                : round && round.target >= 3
+                ? "big"
+                : "win"
+            }
+            colors={["#8aff80", "#22e1ff", "#ffd24a", "#ffffff"]}
+          />
         </div>
 
         {/* ===== Round result banner ===== */}

@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/Button";
 import { BetControls } from "@/components/BetControls";
 import { CountingNumber } from "@/components/CountingNumber";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+import { Celebration } from "@/components/Celebration";
 
 // ---------------------------------------------------------------------------
 // PLINKO — Neon Royale
@@ -560,6 +561,14 @@ export default function Plinko() {
             className="relative w-full max-w-[440px] overflow-hidden rounded-2xl border border-white/5 bg-black/30 sm:max-w-[520px] [@media(max-height:600px)]:max-h-[260px] [@media(max-height:600px)]:w-auto"
             style={{ aspectRatio: "1 / 0.92" }}
           >
+            {/* confetti + coin fountain on a profitable landing (mult > 1) */}
+            <Celebration
+              show={burstMult > 1}
+              seed={burstKey}
+              tier={burstMult >= 10 ? "jackpot" : burstMult >= 3 ? "big" : "win"}
+              colors={["#22e1ff", "#ffd24a", "#8aff80", "#ffffff"]}
+            />
+
             {/* win burst overlay */}
             <AnimatePresence>
               {burstKey > 0 && (

@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { PlayingCard } from "@/components/PlayingCard";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+import { Celebration } from "@/components/Celebration";
 
 const ACCENT = "#27ae60";
 const ACCENT_SOFT = "rgba(39,174,96,0.18)";
@@ -621,6 +622,32 @@ export default function UltimateTexasHoldem() {
 
   const netDelta = settle?.net ?? 0;
 
+  // ----- celebration -------------------------------------------------------
+  // Total wagered this hand (Ante + Blind + Trips + the Play raise) and the
+  // gross return (wager back + profit). Celebrate a notable result only.
+  const totalWagered = ante * 2 + trips + playBet;
+  const totalReturn = netDelta + totalWagered;
+  const celebrate =
+    phase === "showdown" &&
+    settle != null &&
+    !settle.folded &&
+    totalWagered > 0 &&
+    totalReturn >= totalWagered * 2;
+  const isTopHand =
+    settle != null &&
+    (settle.playerCat === HandCategory.RoyalFlush ||
+      settle.playerCat === HandCategory.StraightFlush);
+  const isStrongHand =
+    settle != null &&
+    (settle.playerCat === HandCategory.FourOfAKind ||
+      settle.playerCat === HandCategory.FullHouse);
+  const celebrationTier: "win" | "big" | "jackpot" =
+    isTopHand || totalReturn >= totalWagered * 15
+      ? "jackpot"
+      : isStrongHand || totalReturn >= totalWagered * 5
+        ? "big"
+        : "win";
+
   // ===========================================================================
 
   return (
@@ -628,6 +655,12 @@ export default function UltimateTexasHoldem() {
       {/* ---------------- Table surface ---------------- */}
       <div className="felt relative overflow-hidden rounded-3xl p-4 shadow-felt sm:p-6">
         <WinBurst show={showBurst} big={bigBurst} />
+        <Celebration
+          show={celebrate}
+          seed={totalReturn}
+          tier={celebrationTier}
+          colors={["#27ae60", "#ffd24a", "#22e1ff", "#ffffff"]}
+        />
 
         {/* Title strip */}
         <div className="mb-3 flex items-center justify-between">

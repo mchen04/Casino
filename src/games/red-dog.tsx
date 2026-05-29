@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { PlayingCard } from "@/components/PlayingCard";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+import { Celebration } from "@/components/Celebration";
 
 const ACCENT = "#d35400";
 const ACCENT_LIGHT = "#ff8c42";
@@ -351,6 +352,14 @@ export default function RedDog() {
           ? "#cbd5e1"
           : "#ffffff";
 
+  // Fire confetti only on a notable win: trips (11:1) always, or a between-win
+  // paying >= ~4:1 (i.e. net profit >= ~4x the total wager). Skips push/lose
+  // and the slim 2:1 / 1:1 spread payouts.
+  const celebrate =
+    outcome === "trips" || (outcome === "win" && delta >= totalWager * 4);
+  const celebrateTier: "win" | "big" | "jackpot" =
+    outcome === "trips" ? "jackpot" : delta >= totalWager * 5 ? "big" : "win";
+
   // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
@@ -391,6 +400,13 @@ export default function RedDog() {
         style={{ boxShadow: `inset 0 0 120px ${ACCENT_DARK}33` }}
       >
         <RadialGlow />
+
+        <Celebration
+          show={celebrate}
+          seed={payout}
+          tier={celebrateTier}
+          colors={["#d35400", "#ffd24a", "#22e1ff", "#ffffff"]}
+        />
 
         {/* Spread meter */}
         <SpreadMeter phase={phase} spread={spread} sorted={sorted} accent={ACCENT_LIGHT} />

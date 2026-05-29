@@ -27,6 +27,7 @@ import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
 import { PlayingCard } from "@/components/PlayingCard";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+import { Celebration } from "@/components/Celebration";
 
 const ACCENT = "#22e1ff";
 
@@ -546,7 +547,26 @@ export default function VideoPoker() {
         <div className="relative z-10 grid gap-2 sm:gap-4 md:grid-cols-[1.65fr_1fr]">
           {/* ---------------- Table / cards ---------------- */}
           <div className="flex flex-col">
-            <div className="glass relative flex flex-1 flex-col items-center justify-center gap-2 rounded-2xl p-4 sm:gap-4 sm:p-6 [@media(max-height:600px)]:p-3">
+            <div className="glass relative flex flex-1 flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl p-4 sm:gap-4 sm:p-6 [@media(max-height:600px)]:p-3">
+              {/* Win celebration overlay */}
+              <Celebration
+                show={phase === "result" && (outcome?.gross ?? 0) > 0}
+                seed={outcome?.gross ?? 0}
+                tier={
+                  outcome?.key === "royal" ||
+                  outcome?.key === "straightFlush" ||
+                  (outcome?.perCoin ?? 0) >= 25
+                    ? "jackpot"
+                    : outcome?.key === "fourKind" ||
+                      outcome?.key === "fullHouse" ||
+                      outcome?.key === "flush" ||
+                      (outcome?.perCoin ?? 0) >= 6
+                    ? "big"
+                    : "win"
+                }
+                colors={["#22e1ff", "#ffd24a", "#8aff80", "#ffffff"]}
+              />
+
               {/* Win burst */}
               <AnimatePresence>
                 {outcome && outcome.gross > 0 && (

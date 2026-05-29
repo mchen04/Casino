@@ -17,6 +17,7 @@ import { useWallet } from "@/lib/wallet";
 import { BetControls } from "@/components/BetControls";
 import { Button } from "@/components/ui/Button";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+import { Celebration } from "@/components/Celebration";
 import { formatChips, formatDelta, formatMultiplier } from "@/lib/format";
 import { weightedPick, randInt } from "@/lib/rng";
 import { sfx } from "@/lib/sound";
@@ -587,6 +588,20 @@ export default function LuckySevens() {
           boxShadow: `0 0 0 2px rgba(245,208,96,0.35), 0 0 40px ${ACCENT}33, inset 0 0 60px rgba(0,0,0,0.6)`,
         }}
       >
+        {/* full-surface win celebration overlay */}
+        <Celebration
+          show={phase === "resolved" && payout > 0}
+          seed={payout}
+          tier={
+            outcome?.tier === "jackpot"
+              ? "jackpot"
+              : outcome?.tier === "big"
+                ? "big"
+                : "win"
+          }
+          colors={["#ffd24a", "#e74c3c", "#f5d060", "#ffffff"]}
+        />
+
         {/* marquee header */}
         <div className="mb-3 flex items-center justify-between gap-3 sm:mb-4">
           <div>

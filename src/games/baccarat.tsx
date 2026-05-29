@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { PlayingCard } from "@/components/PlayingCard";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+import { Celebration } from "@/components/Celebration";
 
 // ---------------------------------------------------------------------------
 // Theme
@@ -486,6 +487,26 @@ export default function Baccarat() {
               <WinBurst key={coupNo} big={delta >= totalStaked * 4} />
             )}
           </AnimatePresence>
+
+          {/* Confetti + coin fountain — only on a notable win: a true Tie hit
+              (8:1) or a big payout (net >= 4x wagered). Ordinary 1:1
+              Player/Banker wins, pushes and losses stay quiet. */}
+          <Celebration
+            show={
+              resolved &&
+              delta !== null &&
+              (winningSpots.has("tie") || delta >= totalStaked * 4)
+            }
+            seed={delta ?? 0}
+            tier={
+              winningSpots.has("tie")
+                ? "jackpot"
+                : delta !== null && delta >= totalStaked * 4
+                  ? "big"
+                  : "win"
+            }
+            colors={["#c0392b", "#ffd24a", "#22e1ff", "#ffffff"]}
+          />
         </div>
 
         {/* ============================ SIDEBAR ============================ */}

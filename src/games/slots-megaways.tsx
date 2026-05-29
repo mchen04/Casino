@@ -9,6 +9,7 @@ import { weightedPick, randInt } from "@/lib/rng";
 import { sfx } from "@/lib/sound";
 import { sleep } from "@/lib/async";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+import { Celebration } from "@/components/Celebration";
 
 const ACCENT = "#a855f7"; // neon violet
 
@@ -275,6 +276,18 @@ export default function NeonMegaways() {
   return (
     <div className="mx-auto max-w-5xl">
       <div className="glass relative overflow-hidden rounded-3xl border border-neon-violet/30 p-4 sm:p-6 [@media(max-height:600px)]:p-3">
+        <Celebration
+          show={!spinning && spinWin !== null && spinWin > 0}
+          seed={spinWin ?? 0}
+          tier={
+            MULT_LADDER[multIndex] >= 8 || (spinWin ?? 0) >= bet * 20
+              ? "jackpot"
+              : MULT_LADDER[multIndex] >= 3 || (spinWin ?? 0) >= bet * 5
+                ? "big"
+                : "win"
+          }
+          colors={["#a855f7", "#22e1ff", "#ff2bd1", "#8aff80", "#ffffff"]}
+        />
         {/* ambient neon glow */}
         <span className="pointer-events-none absolute -left-10 top-0 h-40 w-40 rounded-full bg-neon-violet/20 blur-3xl" />
         <span className="pointer-events-none absolute -right-10 bottom-0 h-40 w-40 rounded-full bg-neon-cyan/20 blur-3xl" />

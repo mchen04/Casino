@@ -10,6 +10,7 @@ import { CountingNumber } from "@/components/CountingNumber";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+import { Celebration } from "@/components/Celebration";
 
 /* ----------------------------------------------------------------------------
  * Sic Bo — three dice.
@@ -577,6 +578,21 @@ export default function SicBo() {
 
   const liveResult = result; // null while betting/rolling
 
+  // Celebration: total payout returned this round and its intensity tier.
+  const wonPayout = revealed && netDelta > 0 ? netDelta + lastStake : 0;
+  const celebrationTier = useMemo<"win" | "big" | "jackpot">(() => {
+    if (!(revealed && result && wonPayout > 0)) return "win";
+    const topMult = [...winningKeys].reduce(
+      (m, k) => Math.max(m, settleBet(k, result)),
+      0,
+    );
+    // Big specific hit (triple / 50:1 total) or >= ~20x staked -> jackpot.
+    if (topMult >= 50 || (lastStake > 0 && wonPayout >= lastStake * 20))
+      return "jackpot";
+    if (lastStake > 0 && wonPayout >= lastStake * 5) return "big";
+    return "win";
+  }, [revealed, result, wonPayout, winningKeys, lastStake]);
+
   const cellWin = useCallback((key: BetKey) => revealed && winningKeys.has(key), [
     revealed,
     winningKeys,
@@ -644,7 +660,7 @@ export default function SicBo() {
         {/* Dice arena */}
         <div className="relative mb-3 grid place-items-center sm:mb-4">
           <div
-            className="relative flex items-center justify-center gap-4 rounded-2xl px-6 py-4 sm:gap-7 sm:px-12 sm:py-6 [@media(max-height:600px)]:gap-3 [@media(max-height:600px)]:px-4 [@media(max-height:600px)]:py-2"
+            className="relative flex items-center justify-center gap-4 overflow-hidden rounded-2xl px-6 py-4 sm:gap-7 sm:px-12 sm:py-6 [@media(max-height:600px)]:gap-3 [@media(max-height:600px)]:px-4 [@media(max-height:600px)]:py-2"
             style={{
               background:
                 "radial-gradient(circle at 50% 40%, rgba(0,0,0,0.35), rgba(0,0,0,0.15))",
@@ -677,6 +693,12 @@ export default function SicBo() {
               </div>
             ))}
             <AnimatePresence>{showBurst && <WinBurst />}</AnimatePresence>
+            <Celebration
+              show={wonPayout > 0}
+              seed={wonPayout}
+              tier={celebrationTier}
+              colors={["#fd79a8", "#ffd24a", "#22e1ff", "#ffffff"]}
+            />
           </div>
 
           {/* total readout */}

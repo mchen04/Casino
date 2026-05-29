@@ -11,6 +11,7 @@ import { PlayingCard } from "@/components/PlayingCard";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+import { Celebration } from "@/components/Celebration";
 
 /* ----------------------------------------------------------------------------
  * Dragon Tiger — fast Sino-baccarat.
@@ -288,6 +289,14 @@ export default function DragonTiger() {
   const revealed = phase === "revealing" || phase === "resolved";
   const winnerSide = outcome?.winner;
 
+  // Celebration gating (visual only): fire on a notable win — a winning Tie
+  // bet (high multiplier) or a total return of >= ~4x the wagered stake.
+  const grossReturn = netDelta + lastStake; // net = gross - stake
+  const tieWin = phase === "resolved" && netDelta > 0 && (outcome?.isTie ?? false);
+  const bigWin = phase === "resolved" && lastStake > 0 && grossReturn >= lastStake * 4;
+  const celebrate = phase === "resolved" && netDelta > 0 && (tieWin || bigWin);
+  const celebrationTier: "win" | "big" | "jackpot" = tieWin ? "jackpot" : "big";
+
   return (
     <div className="mx-auto w-full max-w-5xl">
       {/* ---- Headline / streak summary ---- */}
@@ -315,6 +324,13 @@ export default function DragonTiger() {
 
       {/* ---- Table surface ---- */}
       <div className="felt relative overflow-hidden rounded-3xl p-3 sm:p-6 [@media(max-height:600px)]:p-3">
+        {/* full-surface win celebration — only fires on notable wins */}
+        <Celebration
+          show={celebrate}
+          seed={grossReturn}
+          tier={celebrationTier}
+          colors={["#f39c12", "#ffd24a", "#22e1ff", "#ffffff"]}
+        />
         {/* ambient glow halves */}
         <div
           className="pointer-events-none absolute inset-y-0 left-0 w-1/2 opacity-40"

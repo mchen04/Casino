@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { PlayingCard } from "@/components/PlayingCard";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+import { Celebration } from "@/components/Celebration";
 
 /* ------------------------------------------------------------------ */
 /* Theme                                                               */
@@ -333,6 +334,13 @@ export default function Spanish21() {
   const [delta, setDelta] = useState<number>(0);
   const [showBurst, setShowBurst] = useState<boolean>(false);
   const [bigBurst, setBigBurst] = useState<boolean>(false);
+  // Notable-win celebration overlay: confetti + coin fountain for naturals,
+  // 21 bonuses, and big multiples of the wager. Plain 1:1 wins are skipped.
+  const [celebrate, setCelebrate] = useState<{
+    show: boolean;
+    seed: number;
+    tier: "win" | "big" | "jackpot";
+  }>({ show: false, seed: 0, tier: "win" });
 
   // Clear any scheduled timers on unmount.
   useEffect(() => {
@@ -385,6 +393,7 @@ export default function Spanish21() {
     setDelta(0);
     setShowBurst(false);
     setBigBurst(false);
+    setCelebrate((c) => ({ ...c, show: false }));
     setDealerCards([]);
     setHands([]);
     setActive(0);
@@ -722,6 +731,23 @@ export default function Spanish21() {
         if (big) sfx.jackpot();
         else sfx.win();
         schedule(() => setShowBurst(false), big ? 1200 : 900);
+
+        // Celebration overlay: fire only on NOTABLE wins, never plain 1:1.
+        const hasNatural = resolved.some(
+          (h) => h.outcome === "blackjack" || h.outcome === "twentyone",
+        );
+        const hasBonus = resolved.some((h) => h.bonus);
+        const topBonus = resolved.some(
+          (h) => h.bonus?.kind === "777" && h.bonus.mult === 3,
+        );
+        const ret = totalReturn / Math.max(1, totalStake);
+        const notable = hasNatural || hasBonus || ret >= 2.5;
+        if (notable) {
+          const tier: "win" | "big" | "jackpot" =
+            topBonus || ret >= 10 ? "jackpot" : hasNatural || hasBonus || ret >= 2.5 ? "big" : "win";
+          setCelebrate({ show: true, seed: totalReturn, tier });
+          schedule(() => setCelebrate((c) => ({ ...c, show: false })), 1600);
+        }
       } else if (net < 0) {
         sfx.lose();
       } else {
@@ -788,6 +814,7 @@ export default function Spanish21() {
     setResult("");
     setDelta(0);
     setShowBurst(false);
+    setCelebrate((c) => ({ ...c, show: false }));
     setDealerCards([]);
     setHands([]);
     setActive(0);
@@ -844,6 +871,12 @@ export default function Spanish21() {
         {/* ============================ TABLE ============================ */}
         <div className="felt relative overflow-hidden rounded-3xl p-4 [@media(max-height:600px)]:p-3 sm:p-6">
           <WinBurst show={showBurst} big={bigBurst} />
+          <Celebration
+            show={celebrate.show}
+            seed={celebrate.seed}
+            tier={celebrate.tier}
+            colors={["#e0b341", "#ffd24a", "#e74c3c", "#ffffff"]}
+          />
 
           {/* "No tens" note */}
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2 [@media(max-height:600px)]:mb-2">

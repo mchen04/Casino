@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { CountingNumber } from "@/components/CountingNumber";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+import { Celebration } from "@/components/Celebration";
 import { sleep } from "@/lib/async";
 
 // ---------------------------------------------------------------------------
@@ -500,6 +501,15 @@ export default function Mines() {
 
   const roundOver = phase === "busted" || phase === "cashed";
 
+  // Win-celebration inputs. A win is a successful cash-out / perfect clear
+  // (phase "cashed", payout > 0). `won` gates the overlay; the gross payout
+  // seeds it so each cash-out re-fires; the realized multiplier sets intensity.
+  const cashedWon = phase === "cashed" && result?.won === true;
+  const winPayout = cashedWon && result ? result.amount + stake : 0; // gross return
+  const winMult = cashedWon && stake > 0 ? winPayout / stake : 0;
+  const winTier: "win" | "big" | "jackpot" =
+    winMult >= 10 ? "jackpot" : winMult >= 3 ? "big" : "win";
+
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-2 sm:gap-4">
       {/* ---- Surface ---- */}
@@ -509,6 +519,14 @@ export default function Mines() {
       >
         {/* ambient grid glow */}
         <div className="bg-grid pointer-events-none absolute inset-0 opacity-20" />
+
+        {/* win celebration — fires only on a successful cash-out, not on bust */}
+        <Celebration
+          show={cashedWon}
+          seed={winPayout}
+          tier={winTier}
+          colors={["#8aff80", "#22e1ff", "#ffd24a", "#ffffff"]}
+        />
 
         {/* ---- Header: title + live stats ---- */}
         <div className="relative mb-3 flex flex-wrap items-center justify-between gap-2 sm:mb-4 sm:gap-3">

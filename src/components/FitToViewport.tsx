@@ -11,7 +11,9 @@ interface FitToViewportProps {
   children: React.ReactNode;
   /** Never enlarge past this (1 = natural size). */
   maxScale?: number;
-  /** Never shrink below this; past it we allow a scroll fallback. */
+  /** Never shrink below this; past it we allow a scroll fallback. The floor is
+   *  low enough that even the densest tables (craps/bingo/keno) fit a phone in
+   *  landscape (~390px tall) with no scroll. */
   minScale?: number;
   /** Breathing room reserved below the surface (px). */
   bottomGap?: number;
@@ -32,7 +34,7 @@ interface FitToViewportProps {
 export function FitToViewport({
   children,
   maxScale = 1,
-  minScale = 0.4,
+  minScale = 0.3,
   bottomGap = 14,
   className = "",
 }: FitToViewportProps) {

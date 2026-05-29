@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/Button";
 import { BetControls } from "@/components/BetControls";
 import { CountingNumber } from "@/components/CountingNumber";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+import { Celebration } from "@/components/Celebration";
 
 /* ----------------------------------------------------------------------------
  * Big Six Money Wheel (Wheel of Fortune).
@@ -315,6 +316,20 @@ export default function MoneyWheel() {
           style={{
             background: `radial-gradient(circle at 50% 0%, ${ACCENT}33, transparent 60%)`,
           }}
+        />
+
+        {/* Win-celebration overlay: fires when a spin resolves with a payout. */}
+        <Celebration
+          show={phase === "resolved" && result != null && result.payout > 0}
+          seed={result?.payout ?? 0}
+          tier={
+            (result?.segment.spot.mult ?? 0) >= 20
+              ? "jackpot"
+              : (result?.segment.spot.mult ?? 0) >= 5
+                ? "big"
+                : "win"
+          }
+          colors={["#f5d060", "#ffd24a", "#22e1ff", "#ffffff"]}
         />
 
         <div className="relative grid gap-3 sm:gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">

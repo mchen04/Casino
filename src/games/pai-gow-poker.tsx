@@ -43,6 +43,7 @@ import { Button } from "@/components/ui/Button";
 import { PlayingCard } from "@/components/PlayingCard";
 import { BetControls } from "@/components/BetControls";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+import { Celebration } from "@/components/Celebration";
 
 const ACCENT = "#e74c3c";
 
@@ -638,6 +639,16 @@ export default function PaiGowPoker() {
             <ResultBurst outcome={resolution.outcome} delta={lastDelta} payout={payout} />
           )}
         </AnimatePresence>
+
+        {/* Win celebration — fires only when the player wins BOTH hands. */}
+        <Celebration
+          show={phase === "result" && resolution?.outcome === "win"}
+          seed={payout}
+          tier={
+            resolution && resolution.playerHigh.category >= 7 ? "big" : "win"
+          }
+          colors={["#e74c3c", "#ffd24a", "#22e1ff", "#ffffff"]}
+        />
       </div>
 
       {/* ---- Controls ---- */}

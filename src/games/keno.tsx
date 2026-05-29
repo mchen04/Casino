@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { CountingNumber } from "@/components/CountingNumber";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+import { Celebration } from "@/components/Celebration";
 import { sleep } from "@/lib/async";
 
 // ---------------------------------------------------------------------------
@@ -851,6 +852,14 @@ export default function Keno() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* full-surface confetti + coin fountain on a winning draw */}
+        <Celebration
+          show={phase === "resolved" && payout > 0 && multiplier > 1}
+          seed={payout}
+          tier={multiplier >= 20 ? "jackpot" : multiplier >= 5 ? "big" : "win"}
+          colors={["#22e1ff", "#ffd24a", "#8aff80", "#ffffff"]}
+        />
       </div>
     </div>
   );

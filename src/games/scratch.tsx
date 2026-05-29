@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/Button";
 import { BetControls } from "@/components/BetControls";
 import { CountingNumber } from "@/components/CountingNumber";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+import { Celebration } from "@/components/Celebration";
 
 /* ================================================================== *
  * Neon Royale — Scratch Cards
@@ -905,6 +906,20 @@ export default function ScratchCards() {
               </p>
             )}
           </div>
+
+          {/* full-surface win celebration (confetti + coin fountain) */}
+          <Celebration
+            show={won}
+            seed={lastWin}
+            tier={
+              stake > 0 && lastWin >= stake * 20
+                ? "jackpot"
+                : stake > 0 && lastWin >= stake * 5
+                  ? "big"
+                  : "win"
+            }
+            colors={["#f5d060", "#ffd24a", "#22e1ff", "#ffffff"]}
+          />
         </div>
 
         {/* ---- Side: bet + paytable ----------------------------------- */}

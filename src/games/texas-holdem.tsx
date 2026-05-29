@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { PlayingCard } from "@/components/PlayingCard";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+import { Celebration } from "@/components/Celebration";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -1008,6 +1009,24 @@ export default function TexasHoldem() {
   const idle = state.phase === "idle" || state.phase === "done";
   const lowBalance = wallet.ready && wallet.balance < BB;
 
+  // ---- Win celebration (visual only; pure reads of resolved state) --------
+  // Fire only when the PLAYER wins a meaningful pot: net winnings >= ~3 big
+  // blinds, OR a premium made hand at showdown (straight or better). This
+  // avoids confetti on tiny blind-steal folds. bestPlayerCat is null on a
+  // bot-fold win, so those qualify on pot size alone.
+  const playerWon = state.phase === "done" && state.resultKind === "win";
+  const cat = state.bestPlayerCat;
+  const premiumHand = cat != null && cat >= HandCategory.Straight;
+  const celebrate = playerWon && (state.netDelta >= BB * 3 || premiumHand);
+  const celebrateTier: "win" | "big" | "jackpot" =
+    (cat != null && cat >= HandCategory.StraightFlush) ||
+    cat === HandCategory.FourOfAKind ||
+    state.netDelta >= BB * 20
+      ? "jackpot"
+      : (cat != null && cat >= HandCategory.Flush) || state.netDelta >= BB * 8
+      ? "big"
+      : "win";
+
   // ---- Buy-in chip presets -------------------------------------------------
   const buyInPresets = [250, 500, 1000, 2000];
 
@@ -1245,6 +1264,14 @@ export default function TexasHoldem() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Win celebration overlay (z-30, pointer-events:none, reduced-motion safe) */}
+        <Celebration
+          show={celebrate}
+          seed={state.netDelta}
+          tier={celebrateTier}
+          colors={["#2ecc71", "#ffd24a", "#22e1ff", "#ffffff"]}
+        />
       </div>
 
       {/* ===== Controls ===== */}
