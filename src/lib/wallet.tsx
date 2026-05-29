@@ -9,41 +9,37 @@ import React, {
   useRef,
   useState,
 } from "react";
+import {
+  apiMe,
+  apiSync,
+  apiLogin,
+  apiRegister,
+  clearToken,
+  type SyncPayload,
+} from "./auth-client";
 
-const STORAGE_KEY = "neon-royale-wallet-v1";
 const STARTING_BALANCE = 10_000;
+const storageKey = (username: string | null) =>
+  username ? `neon-royale-wallet-${username}` : "neon-royale-wallet-guest";
 
 export interface WalletState {
-  /** Current chip balance. */
   balance: number;
-  /** Total chips wagered this profile (lifetime, persisted). */
   totalWagered: number;
-  /** Total chips returned from wins (lifetime, persisted). */
   totalReturned: number;
-  /** Number of bets resolved. */
   rounds: number;
-  /** Biggest single payout seen. */
   biggestWin: number;
 }
 
 export interface Wallet extends WalletState {
-  /**
-   * Attempt to place a bet of `amount` chips. Deducts immediately.
-   * Returns true if there were sufficient funds, false otherwise (no deduction).
-   */
   bet: (amount: number) => boolean;
-  /**
-   * Credit a gross payout to the balance. For an even-money win on a 100 bet,
-   * call win(200) (stake back + 100 profit). For a push, win(stake). For a
-   * loss, do nothing (or win(0)).
-   */
   win: (amount: number) => void;
-  /** Add free chips when broke (rescue). */
   topUp: (amount?: number) => void;
-  /** Reset to the starting balance and clear stats. */
   reset: () => void;
-  /** True once the persisted value has been read on the client (avoids hydration mismatch). */
   ready: boolean;
+  username: string | null;
+  login: (username: string, password: string) => Promise<void>;
+  register: (username: string, password: string) => Promise<void>;
+  logout: () => void;
 }
 
 const defaultState: WalletState = {
@@ -59,32 +55,71 @@ const WalletContext = createContext<Wallet | null>(null);
 export function WalletProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<WalletState>(defaultState);
   const [ready, setReady] = useState(false);
+  const [username, setUsername] = useState<string | null>(null);
   const loaded = useRef(false);
+  // Track the username at the time state was last synced to avoid stale closure issues
+  const usernameRef = useRef<string | null>(null);
 
-  // Load persisted state once on the client.
+  // Load persisted state + try to restore auth session on mount
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as Partial<WalletState>;
-        setState((s) => ({ ...s, ...parsed }));
+    async function init() {
+      // Try to restore session from server first
+      const user = await apiMe();
+
+      if (user) {
+        setUsername(user.username);
+        usernameRef.current = user.username;
+        setState({
+          balance: user.balance,
+          totalWagered: user.totalWagered,
+          totalReturned: user.totalReturned,
+          rounds: user.rounds,
+          biggestWin: user.biggestWin,
+        });
+      } else {
+        // Guest — load from localStorage
+        try {
+          const raw = localStorage.getItem(storageKey(null));
+          if (raw) {
+            const parsed = JSON.parse(raw) as Partial<WalletState>;
+            setState((s) => ({ ...s, ...parsed }));
+          }
+        } catch {
+          /* ignore corrupt storage */
+        }
       }
-    } catch {
-      /* ignore corrupt storage */
+
+      loaded.current = true;
+      setReady(true);
     }
-    loaded.current = true;
-    setReady(true);
+
+    init();
   }, []);
 
-  // Persist on change (after initial load).
+  // Persist to localStorage on every state change (after initial load)
   useEffect(() => {
     if (!loaded.current) return;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      localStorage.setItem(storageKey(username), JSON.stringify(state));
     } catch {
       /* storage full / unavailable */
     }
-  }, [state]);
+  }, [state, username]);
+
+  // Sync to server after every state change when logged in
+  useEffect(() => {
+    if (!loaded.current) return;
+    if (!username) return;
+    const payload: SyncPayload = {
+      balance: state.balance,
+      totalWagered: state.totalWagered,
+      totalReturned: state.totalReturned,
+      rounds: state.rounds,
+      biggestWin: state.biggestWin,
+    };
+    // Fire and forget — never block gameplay on network
+    apiSync(payload);
+  }, [state, username]);
 
   const bet = useCallback((amount: number): boolean => {
     const amt = Math.floor(amount);
@@ -122,9 +157,56 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     setState({ ...defaultState });
   }, []);
 
+  const login = useCallback(async (user: string, password: string) => {
+    const result = await apiLogin(user, password);
+    if (!result) throw new Error("Login failed");
+    setUsername(result.user.username);
+    usernameRef.current = result.user.username;
+    setState({
+      balance: result.user.balance,
+      totalWagered: result.user.totalWagered,
+      totalReturned: result.user.totalReturned,
+      rounds: result.user.rounds,
+      biggestWin: result.user.biggestWin,
+    });
+    loaded.current = true;
+  }, []);
+
+  const register = useCallback(async (user: string, password: string) => {
+    const result = await apiRegister(user, password);
+    if (!result) throw new Error("Registration failed");
+    setUsername(result.user.username);
+    usernameRef.current = result.user.username;
+    setState({
+      balance: result.user.balance,
+      totalWagered: result.user.totalWagered,
+      totalReturned: result.user.totalReturned,
+      rounds: result.user.rounds,
+      biggestWin: result.user.biggestWin,
+    });
+    loaded.current = true;
+  }, []);
+
+  const logout = useCallback(() => {
+    clearToken();
+    setUsername(null);
+    usernameRef.current = null;
+    // Load guest state from localStorage
+    try {
+      const raw = localStorage.getItem(storageKey(null));
+      if (raw) {
+        setState(JSON.parse(raw) as WalletState);
+      } else {
+        setState({ ...defaultState });
+      }
+    } catch {
+      setState({ ...defaultState });
+    }
+  }, []);
+
   const value = useMemo<Wallet>(
-    () => ({ ...state, bet, win, topUp, reset, ready }),
-    [state, bet, win, topUp, reset, ready],
+    () => ({ ...state, bet, win, topUp, reset, ready, username, login, register, logout }),
+    [state, bet, win, topUp, reset, ready, username, login, register, logout],
   );
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;

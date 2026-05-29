@@ -2,6 +2,7 @@
 
 import React, { useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { GAMES, CATEGORY_ORDER, type GameCategory, type GameMeta } from "@/lib/games";
 import { useWallet, STARTING_BALANCE } from "@/lib/wallet";
@@ -84,6 +85,7 @@ function GameCard({ game, index }: { game: GameMeta; index: number }) {
 
 export function Dashboard() {
   const wallet = useWallet();
+  const router = useRouter();
   const [filter, setFilter] = useState<GameCategory | "All">("All");
   const [query, setQuery] = useState("");
 
@@ -152,6 +154,25 @@ export function Dashboard() {
           <Button variant="ghost" size="sm" onClick={() => wallet.reset()}>
             Reset
           </Button>
+          <Link href="/leaderboard">
+            <Button variant="ghost" size="sm">🏆 Leaderboard</Button>
+          </Link>
+          {wallet.username ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                wallet.logout();
+                sfx.click();
+              }}
+            >
+              {wallet.username} · Sign out
+            </Button>
+          ) : (
+            <Button variant="gold" size="sm" onClick={() => router.push("/login")}>
+              Sign in
+            </Button>
+          )}
         </div>
       </section>
 
