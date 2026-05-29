@@ -13,6 +13,7 @@ export interface UserRecord {
   totalReturned: number;
   rounds: number;
   biggestWin: number;
+  resets: number;
   createdAt: number; // unix ms
   lastClaim?: number; // unix ms of last bonus claim
 }

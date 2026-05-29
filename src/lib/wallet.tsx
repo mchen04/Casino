@@ -14,6 +14,7 @@ import {
   apiSync,
   apiLogin,
   apiRegister,
+  apiDeleteAccount,
   clearToken,
   type SyncPayload,
 } from "./auth-client";
@@ -28,6 +29,7 @@ export interface WalletState {
   totalReturned: number;
   rounds: number;
   biggestWin: number;
+  resets: number;
 }
 
 export interface Wallet extends WalletState {
@@ -40,6 +42,7 @@ export interface Wallet extends WalletState {
   login: (username: string, password: string) => Promise<void>;
   register: (username: string, password: string) => Promise<void>;
   logout: () => void;
+  deleteAccount: () => Promise<void>;
 }
 
 const defaultState: WalletState = {
@@ -48,6 +51,7 @@ const defaultState: WalletState = {
   totalReturned: 0,
   rounds: 0,
   biggestWin: 0,
+  resets: 0,
 };
 
 const WalletContext = createContext<Wallet | null>(null);
@@ -75,6 +79,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
           totalReturned: user.totalReturned,
           rounds: user.rounds,
           biggestWin: user.biggestWin,
+          resets: user.resets ?? 0,
         });
       } else {
         // Guest — load from localStorage
@@ -116,6 +121,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       totalReturned: state.totalReturned,
       rounds: state.rounds,
       biggestWin: state.biggestWin,
+      resets: state.resets,
     };
     // Fire and forget — never block gameplay on network
     apiSync(payload);
@@ -154,7 +160,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const reset = useCallback(() => {
-    setState({ ...defaultState });
+    setState((s) => ({ ...s, balance: STARTING_BALANCE, resets: s.resets + 1 }));
   }, []);
 
   const login = useCallback(async (user: string, password: string) => {
@@ -168,6 +174,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       totalReturned: result.user.totalReturned,
       rounds: result.user.rounds,
       biggestWin: result.user.biggestWin,
+      resets: result.user.resets ?? 0,
     });
     loaded.current = true;
   }, []);
@@ -183,6 +190,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       totalReturned: result.user.totalReturned,
       rounds: result.user.rounds,
       biggestWin: result.user.biggestWin,
+      resets: result.user.resets ?? 0,
     });
     loaded.current = true;
   }, []);
@@ -204,9 +212,17 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const deleteAccount = useCallback(async () => {
+    await apiDeleteAccount();
+    clearToken();
+    setUsername(null);
+    usernameRef.current = null;
+    setState({ ...defaultState });
+  }, []);
+
   const value = useMemo<Wallet>(
-    () => ({ ...state, bet, win, topUp, reset, ready, username, login, register, logout }),
-    [state, bet, win, topUp, reset, ready, username, login, register, logout],
+    () => ({ ...state, bet, win, topUp, reset, ready, username, login, register, logout, deleteAccount }),
+    [state, bet, win, topUp, reset, ready, username, login, register, logout, deleteAccount],
   );
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
