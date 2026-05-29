@@ -545,10 +545,12 @@ export default function Roulette() {
 
     setRotation(finalDiscRotation);
     setBallRotation(finalBallRotation);
-    setResult(landed);
-    setResultColor(
-      landedColor === "green" ? GREEN : landedColor === "red" ? RED : BLACK,
-    );
+    // IMPORTANT: do NOT reveal the outcome here. `result` drives the "Last"
+    // badge and `resultColor` drives the ball glow — setting them now would
+    // spoil the number ~4.7s before the wheel stops. They are committed in the
+    // resolve callback below. Use a neutral gold glow on the ball while it's in
+    // flight so nothing hints at the landing pocket.
+    setResultColor("#f5d060");
 
     // Ticking SFX during the spin.
     for (let i = 0; i < 14; i++) {
@@ -560,6 +562,13 @@ export default function Roulette() {
       sfx.thud();
       // Settle ball into pocket radius.
       setBallRadius(86);
+
+      // NOW reveal the outcome — the wheel has stopped. This updates the "Last"
+      // badge and the ball glow to the true landing color.
+      setResult(landed);
+      setResultColor(
+        landedColor === "green" ? GREEN : landedColor === "red" ? RED : BLACK,
+      );
 
       // Pay out winners.
       let gross = 0;

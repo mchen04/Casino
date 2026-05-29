@@ -643,9 +643,22 @@ function WheelStage({
         )}
       </AnimatePresence>
 
+      {/* Rotation is applied to THIS wrapping HTML element, not the inner SVG
+          group. framer-motion's `rotate` on an SVG <g> was a silent no-op here
+          (transform never written) so the wheel never actually spun — rotating
+          an HTML wrapper, like the roulette wheel does, is reliable. */}
+      <motion.div
+        className="absolute inset-0"
+        style={{ transformOrigin: "50% 50%" }}
+        animate={{ rotate: rotation }}
+        transition={{
+          duration: spinning ? 4.6 : 0,
+          ease: spinning ? [0.18, 0.62, 0.12, 1] : "linear",
+        }}
+      >
       <svg
         viewBox={`0 0 ${VIEW} ${VIEW}`}
-        className="absolute inset-0 h-full w-full overflow-visible"
+        className="h-full w-full overflow-visible"
         role="img"
         aria-label="Money wheel"
       >
@@ -677,15 +690,8 @@ function WheelStage({
           opacity={0.6}
         />
 
-        {/* Rotating group: segments + labels + pegs + hub */}
-        <motion.g
-          style={{ transformOrigin: `${C}px ${C}px`, transformBox: "view-box" }}
-          animate={{ rotate: rotation }}
-          transition={{
-            duration: spinning ? 4.6 : 0,
-            ease: spinning ? [0.18, 0.62, 0.12, 1] : "linear",
-          }}
-        >
+        {/* Segments + labels + pegs + hub — rotated by the <motion.div> above. */}
+        <g>
           {segPaths.map(({ seg, d, lx, ly, centerDeg }) => {
             const sp = seg.spot;
             const isPicked = sp.key === selectedKey;
@@ -767,11 +773,12 @@ function WheelStage({
           >
             ROYALE
           </text>
-        </motion.g>
+        </g>
 
-        {/* center cap (static) */}
+        {/* center cap */}
         <circle cx={C} cy={C} r={6} fill="#fff7da" stroke="#8a6a14" strokeWidth={1.5} />
       </svg>
+      </motion.div>
 
       {/* Pointer (static, at top, pointing down into the wheel) */}
       <motion.div
