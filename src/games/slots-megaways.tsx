@@ -244,23 +244,29 @@ export default function NeonMegaways() {
     buyMultRef.current = BUY_MULT;
     sfx.jackpot();
 
-    let grand = 0;
-    for (let i = 0; i < BUY_SPINS; i++) {
-      setBonusLeft(BUY_SPINS - i);
-      const won = await playCascadeSpin();
-      if (!mountedRef.current) return;
-      grand += won;
-      setMessage(`Bonus ${i + 1}/${BUY_SPINS} · ${BUY_MULT}× · total ${formatChips(grand)}`);
-      await sleep(650);
-      if (!mountedRef.current) return;
+    // try/finally guarantees the multiplier + lock state are always cleared,
+    // even if the component unmounts mid-bonus (break out of the loop).
+    try {
+      let grand = 0;
+      for (let i = 0; i < BUY_SPINS; i++) {
+        setBonusLeft(BUY_SPINS - i);
+        const won = await playCascadeSpin();
+        if (!mountedRef.current) break;
+        grand += won;
+        setMessage(`Bonus ${i + 1}/${BUY_SPINS} · ${BUY_MULT}× · total ${formatChips(grand)}`);
+        await sleep(650);
+        if (!mountedRef.current) break;
+      }
+      if (mountedRef.current) {
+        setSpinWin(grand);
+        setMessage(`BONUS DONE · won ${formatChips(grand)} chips!`);
+      }
+    } finally {
+      buyMultRef.current = 1;
+      setBonusLeft(0);
+      setSpinning(false);
+      busy.current = false;
     }
-
-    buyMultRef.current = 1;
-    setBonusLeft(0);
-    setSpinWin(grand);
-    setMessage(`BONUS DONE · won ${formatChips(grand)} chips!`);
-    setSpinning(false);
-    busy.current = false;
   }, [bet, spinning, wallet, buyCost, playCascadeSpin]);
 
   return (

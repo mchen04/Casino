@@ -511,7 +511,9 @@ export default function LuckySevens() {
       if (gross > 0) {
         wallet.win(gross);
         setPayout(gross);
-        setLastDelta(gross - bet);
+        // On bonus spins the stake wasn't deducted this spin (it was pre-paid
+        // by the buy), so the net delta is the full gross, not gross − bet.
+        setLastDelta(isBonus ? gross : gross - bet);
         if (result.tier === "jackpot" || result.tier === "big") {
           sfx.jackpot();
         } else {
@@ -519,7 +521,8 @@ export default function LuckySevens() {
         }
       } else {
         setPayout(0);
-        setLastDelta(-bet);
+        // No stake was deducted on a bonus spin, so a loss nets zero this spin.
+        setLastDelta(isBonus ? 0 : -bet);
         sfx.lose();
       }
 

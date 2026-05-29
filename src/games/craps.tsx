@@ -503,9 +503,13 @@ export default function Craps() {
           if (stake <= 0) continue;
           if (t === hd.num) {
             if (isHard) {
-              const profit = stake * hd.pays; // bet stays working
-              payout += profit;
-              events.push({ text: `${hd.label} the hard way — pays ${hd.pays}:1 (+${profit})`, tone: "win" });
+              // Win resolves the hardway: return the stake AND the odds profit
+              // (gross = stake × (pays+1)), so the edge matches the verified
+              // 9.09% (6/8) / 11.11% (4/10). The bet is then taken down.
+              staked += stake;
+              payout += stake * (hd.pays + 1);
+              events.push({ text: `${hd.label} the hard way — pays ${hd.pays}:1 (+${stake * hd.pays})`, tone: "win" });
+              nextHard[hd.key] = 0;
             } else {
               staked += stake;
               events.push({ text: `${hd.label} down — ${hd.num} came easy (-${stake})`, tone: "lose" });

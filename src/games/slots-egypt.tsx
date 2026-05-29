@@ -570,7 +570,7 @@ function Paytable() {
         className="mb-2 font-display text-sm font-bold tracking-widest"
         style={{ color: ACCENT }}
       >
-        PAYTABLE · ×LINE BET
+        PAYTABLE · ×TOTAL BET
       </div>
       <div className="grid grid-cols-1 gap-1 text-xs sm:text-[13px]">
         {order.map((id) => {
