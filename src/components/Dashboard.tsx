@@ -3,7 +3,14 @@
 import React, { useMemo, useState } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { GAMES, CATEGORY_ORDER, type GameCategory, type GameMeta } from "@/lib/games";
+import {
+  GAMES,
+  CATEGORY_ORDER,
+  houseEdge,
+  formatHouseEdge,
+  type GameCategory,
+  type GameMeta,
+} from "@/lib/games";
 import { useWallet, STARTING_BALANCE } from "@/lib/wallet";
 import { formatChips } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
@@ -19,7 +26,16 @@ const CATEGORY_LABEL: Record<GameCategory, string> = {
   Lottery: "Lottery",
 };
 
+/** Color the house-edge badge: green = player-friendly, amber/red = steep. */
+function edgeColor(edge: number): string {
+  if (edge <= 1.5) return "#34d399"; // green
+  if (edge <= 3.5) return "#f5d060"; // gold
+  if (edge <= 6) return "#f59e0b"; // amber
+  return "#f87171"; // red
+}
+
 function GameCard({ game, index }: { game: GameMeta; index: number }) {
+  const edge = houseEdge(game.slug);
   return (
     <motion.div
       layout
@@ -73,6 +89,15 @@ function GameCard({ game, index }: { game: GameMeta; index: number }) {
           >
             {game.category}
           </span>
+          {edge !== undefined && (
+            <span
+              className="rounded-md px-2 py-0.5 text-[10px] font-semibold tabular-nums"
+              title={`House edge — the casino's long-run advantage on ${game.name}`}
+              style={{ color: edgeColor(edge), background: `${edgeColor(edge)}1a` }}
+            >
+              {formatHouseEdge(edge)} edge
+            </span>
+          )}
           <span className="ml-auto text-sm font-semibold text-gold opacity-0 transition-opacity duration-300 group-hover:opacity-100">
             Play →
           </span>

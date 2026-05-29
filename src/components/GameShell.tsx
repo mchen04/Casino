@@ -11,6 +11,10 @@ interface GameShellProps {
   title: string;
   subtitle?: string;
   accent?: string;
+  /** House edge (%) for this game, shown as a transparency chip in the header. */
+  houseEdge?: number;
+  /** Optional qualifier for the edge (e.g. "Pass line", "European"). */
+  edgeNote?: string;
   children: React.ReactNode;
 }
 
@@ -18,7 +22,14 @@ interface GameShellProps {
  * Standard chrome for every game: lobby link, title, live balance, mute,
  * top-up rescue, and a felt play surface. Game components render as children.
  */
-export function GameShell({ title, subtitle, accent = "#d4af37", children }: GameShellProps) {
+export function GameShell({
+  title,
+  subtitle,
+  accent = "#d4af37",
+  houseEdge,
+  edgeNote,
+  children,
+}: GameShellProps) {
   const wallet = useWallet();
   const [muted, setMuted] = useState(false);
 
@@ -47,6 +58,14 @@ export function GameShell({ title, subtitle, accent = "#d4af37", children }: Gam
             </h1>
             {subtitle && (
               <p className="truncate text-[11px] text-white/45">{subtitle}</p>
+            )}
+            {houseEdge !== undefined && (
+              <p className="truncate text-[10px] text-white/40">
+                <span className="text-white/55">
+                  House edge {houseEdge === 0 ? "0%" : `${houseEdge.toFixed(2)}%`}
+                </span>
+                {edgeNote ? ` · ${edgeNote}` : ""}
+              </p>
             )}
           </div>
 

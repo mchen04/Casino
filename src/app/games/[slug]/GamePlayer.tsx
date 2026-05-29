@@ -3,7 +3,7 @@
 import React, { useMemo } from "react";
 import dynamic from "next/dynamic";
 import { motion } from "framer-motion";
-import { getGame } from "@/lib/games";
+import { getGame, houseEdge, EDGE_NOTE } from "@/lib/games";
 import { GameShell } from "@/components/GameShell";
 
 function Loading({ accent }: { accent: string }) {
@@ -44,7 +44,13 @@ export function GamePlayer({ slug }: { slug: string }) {
   }
 
   return (
-    <GameShell title={meta.name} subtitle={meta.blurb} accent={meta.accent}>
+    <GameShell
+      title={meta.name}
+      subtitle={meta.blurb}
+      accent={meta.accent}
+      houseEdge={houseEdge(meta.slug)}
+      edgeNote={EDGE_NOTE[meta.slug]}
+    >
       <Game />
     </GameShell>
   );

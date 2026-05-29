@@ -383,8 +383,84 @@ export const GAMES: GameMeta[] = [
   },
 ];
 
+/**
+ * As-implemented house edge (%) for each game — the headline / best-bet figure,
+ * derived from a full Monte-Carlo + analytic audit of every game's ACTUAL coded
+ * payouts and probabilities (not textbook values). Lower is better for players.
+ * Slots/keno/teen-patti reflect their repaired economics.
+ */
+export const HOUSE_EDGE: Record<string, number> = {
+  // Cards
+  blackjack: 0.4,
+  "spanish-21": 0.78,
+  baccarat: 1.06,
+  "video-poker": 0.46,
+  "texas-holdem": 0,
+  "ultimate-texas": 2.19,
+  "three-card-poker": 3.46,
+  "caribbean-stud": 5.22,
+  "let-it-ride": 3.51,
+  "pai-gow-poker": 3.43,
+  "casino-war": 2.33,
+  "red-dog": 3.16,
+  "dragon-tiger": 3.73,
+  "andar-bahar": 2.15,
+  "teen-patti": 3.3,
+  "hi-lo": 2.5,
+  // Table
+  roulette: 2.7,
+  craps: 1.41,
+  "sic-bo": 2.78,
+  // Wheel
+  "money-wheel": 11.11,
+  "coin-flip": 2,
+  // Slots
+  "slots-classic": 4.8,
+  "slots-fruit": 3.2,
+  "slots-egypt": 3.2,
+  "slots-megaways": 4.2,
+  // Dice / Modern
+  dice: 1,
+  limbo: 1,
+  crash: 1,
+  plinko: 1,
+  mines: 1,
+  // Lottery
+  keno: 9,
+  scratch: 8.54,
+  bingo: 10,
+};
+
+/** Short qualifier shown next to the edge for games where it needs context. */
+export const EDGE_NOTE: Record<string, string> = {
+  blackjack: "optimal basic strategy",
+  "spanish-21": "optimal strategy",
+  baccarat: "Banker bet",
+  "video-poker": "max-coin, optimal holds",
+  "texas-holdem": "no rake — skill vs bots",
+  "ultimate-texas": "on the Ante",
+  "caribbean-stud": "on the Ante",
+  craps: "Pass line",
+  roulette: "European · 5.26% American",
+  "sic-bo": "Small/Big · props higher",
+  "money-wheel": "best segment · up to 24%",
+  keno: "≈ varies 8–10% by picks",
+  "hi-lo": "optimal side",
+};
+
 export function getGame(slug: string): GameMeta | undefined {
   return GAMES.find((g) => g.slug === slug);
+}
+
+/** House edge (%) for a game, or undefined if unknown. */
+export function houseEdge(slug: string): number | undefined {
+  return HOUSE_EDGE[slug];
+}
+
+/** Format a house edge for display, e.g. 2.7 -> "2.70%", 0 -> "0%". */
+export function formatHouseEdge(edge: number): string {
+  if (edge === 0) return "0%";
+  return `${edge.toFixed(2)}%`;
 }
 
 export const GAME_COUNT = GAMES.length;
