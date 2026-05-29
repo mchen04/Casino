@@ -127,6 +127,14 @@ export function Dashboard() {
 
   const categories: (GameCategory | "All")[] = ["All", ...CATEGORY_ORDER];
 
+  // Count games per category so the filter chips can show "Slots (4)" etc. —
+  // makes every category (slots especially) easy to find at a glance.
+  const categoryCounts = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const g of GAMES) m[g.category] = (m[g.category] ?? 0) + 1;
+    return m;
+  }, []);
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
       {/* Hero */}
@@ -198,7 +206,9 @@ export function Dashboard() {
                     : "border border-white/10 bg-white/5 text-white/60 hover:text-white"
                 }`}
               >
-                {c === "All" ? "All Games" : CATEGORY_LABEL[c]}
+                {c === "All"
+                  ? `All Games (${GAMES.length})`
+                  : `${CATEGORY_LABEL[c]} (${categoryCounts[c] ?? 0})`}
               </button>
             );
           })}
