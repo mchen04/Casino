@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   GAMES,
@@ -14,7 +15,10 @@ import {
 import { useWallet, STARTING_BALANCE } from "@/lib/wallet";
 import { formatChips } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
+import { ClaimBonus } from "@/components/ClaimBonus";
 import { sfx } from "@/lib/sound";
+import { apiLeaderboard } from "@/lib/auth-client";
+import type { LeaderboardEntry } from "@/lib/kv";
 
 const CATEGORY_LABEL: Record<GameCategory, string> = {
   Cards: "Card Games",
@@ -107,10 +111,260 @@ function GameCard({ game, index }: { game: GameMeta; index: number }) {
   );
 }
 
+const MEDALS = ["🥇", "🥈", "🥉"];
+
+function HeroLeaderboard() {
+  const wallet = useWallet();
+  const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    apiLeaderboard(10).then((data) => {
+      setEntries(data);
+      setLoading(false);
+    });
+  }, []);
+
+  return (
+    <div className="relative w-full lg:w-72 xl:w-80 shrink-0">
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-white/40">
+          🏆 Top Players
+        </span>
+        <Link
+          href="/leaderboard"
+          className="text-[10px] uppercase tracking-widest text-white/30 transition hover:text-gold"
+        >
+          View all →
+        </Link>
+      </div>
+
+      {loading ? (
+        <div className="space-y-1.5">
+          {[...Array(5)].map((_, i) => (
+            <div key={i} className="h-9 animate-pulse rounded-xl bg-white/5" />
+          ))}
+        </div>
+      ) : entries.length === 0 ? (
+        <p className="py-6 text-center text-xs text-white/30">No players yet.</p>
+      ) : (
+        <ul className="space-y-1">
+          {entries.map((entry) => {
+            const isMe = wallet.username?.toLowerCase() === entry.username.toLowerCase();
+            return (
+              <li
+                key={entry.username}
+                className={`flex items-center gap-3 rounded-xl px-3 py-2 ${
+                  isMe ? "border border-gold/25 bg-gold/10" : "border border-white/5 bg-white/5"
+                }`}
+              >
+                <span className="w-5 shrink-0 text-center text-sm leading-none">
+                  {entry.rank <= 3
+                    ? MEDALS[entry.rank - 1]
+                    : <span className="text-xs text-white/30">#{entry.rank}</span>}
+                </span>
+                <span className={`flex-1 truncate text-sm font-semibold ${isMe ? "gold-text" : "text-white/80"}`}>
+                  {entry.username}
+                  {isMe && <span className="ml-1.5 text-[9px] uppercase tracking-widest text-gold/50">you</span>}
+                </span>
+                <span className="shrink-0 text-xs tabular-nums text-white/40">
+                  {formatChips(entry.balance)}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+type ConfirmAction = "reset" | "delete" | null;
+
+function ProfileModal({ onClose }: { onClose: () => void }) {
+  const wallet = useWallet();
+  const router = useRouter();
+  const [confirm, setConfirm] = useState<ConfirmAction>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function handleReset() {
+    wallet.reset();
+    sfx.jackpot();
+    setConfirm(null);
+    onClose();
+  }
+
+  async function handleDelete() {
+    setLoading(true);
+    await wallet.deleteAccount();
+    sfx.click();
+    setLoading(false);
+    onClose();
+    router.push("/login");
+  }
+
+  const rtp =
+    wallet.totalWagered > 0
+      ? ((wallet.totalReturned / wallet.totalWagered) * 100).toFixed(1)
+      : "—";
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 10 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 10 }}
+        transition={{ duration: 0.2 }}
+        className="relative z-10 w-full max-w-sm overflow-hidden rounded-2xl border border-white/10 bg-ink-panel shadow-2xl"
+      >
+        {/* Header */}
+        <div className="border-b border-white/10 px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[10px] uppercase tracking-widest text-white/40">Logged in as</p>
+              <p className="font-display text-lg font-bold text-white">{wallet.username}</p>
+            </div>
+            <button
+              onClick={onClose}
+              className="grid h-8 w-8 place-items-center rounded-full text-white/40 transition hover:bg-white/10 hover:text-white"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+
+        {/* Stats */}
+        <div className="px-6 py-4">
+          <p className="mb-3 text-[10px] uppercase tracking-widest text-white/40">Your Stats</p>
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { label: "Balance", value: formatChips(wallet.balance) + " chips" },
+              { label: "Rounds Played", value: wallet.rounds.toLocaleString() },
+              { label: "Total Wagered", value: formatChips(wallet.totalWagered) },
+              { label: "Biggest Win", value: formatChips(wallet.biggestWin) },
+              { label: "Total Returned", value: formatChips(wallet.totalReturned) },
+              { label: "RTP", value: rtp === "—" ? "—" : rtp + "%" },
+              { label: "Balance Resets", value: wallet.resets.toLocaleString() },
+            ].map(({ label, value }) => (
+              <div key={label} className="rounded-xl border border-white/5 bg-black/30 px-3 py-2">
+                <p className="text-[10px] text-white/40">{label}</p>
+                <p className="mt-0.5 text-sm font-semibold text-white">{value}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Divider */}
+        <div className="mx-6 border-t border-white/10" />
+
+        {/* Settings */}
+        <div className="px-6 py-4">
+          <p className="mb-3 text-[10px] uppercase tracking-widest text-white/40">Settings</p>
+
+          <AnimatePresence mode="wait">
+            {confirm === "reset" ? (
+              <motion.div
+                key="confirm-reset"
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-4"
+              >
+                <p className="text-sm font-semibold text-yellow-300">Reset your balance?</p>
+                <p className="mt-1 text-xs text-white/50">
+                  Your balance will be set back to {formatChips(STARTING_BALANCE)} chips. Your stats will be kept. This cannot be undone.
+                </p>
+                <div className="mt-3 flex gap-2">
+                  <Button variant="ghost" size="sm" onClick={() => setConfirm(null)}>
+                    Cancel
+                  </Button>
+                  <Button variant="gold" size="sm" onClick={handleReset}>
+                    Yes, reset
+                  </Button>
+                </div>
+              </motion.div>
+            ) : confirm === "delete" ? (
+              <motion.div
+                key="confirm-delete"
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                className="rounded-xl border border-red-500/30 bg-red-500/10 p-4"
+              >
+                <p className="text-sm font-semibold text-red-400">Delete your account?</p>
+                <p className="mt-1 text-xs text-white/50">
+                  Your account, balance, and all stats will be permanently deleted. This cannot be undone.
+                </p>
+                <div className="mt-3 flex gap-2">
+                  <Button variant="ghost" size="sm" onClick={() => setConfirm(null)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={handleDelete}
+                    disabled={loading}
+                  >
+                    {loading ? "Deleting…" : "Yes, delete"}
+                  </Button>
+                </div>
+              </motion.div>
+            ) : (
+              <motion.div
+                key="settings-buttons"
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                className="flex flex-col gap-2"
+              >
+                <button
+                  onClick={() => setConfirm("reset")}
+                  className="flex w-full items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-left text-sm text-white/80 transition hover:bg-white/10 hover:text-white"
+                >
+                  <span>Reset balance to {formatChips(STARTING_BALANCE)} chips</span>
+                  <span className="text-white/30">→</span>
+                </button>
+                <button
+                  onClick={() => setConfirm("delete")}
+                  className="flex w-full items-center justify-between rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3 text-left text-sm text-red-400/80 transition hover:bg-red-500/10 hover:text-red-400"
+                >
+                  <span>Delete account</span>
+                  <span className="text-red-500/30">→</span>
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* Footer: Sign out */}
+        <div className="border-t border-white/10 px-6 py-4">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              wallet.logout();
+              sfx.click();
+              onClose();
+            }}
+          >
+            Sign out
+          </Button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
 export function Dashboard() {
   const wallet = useWallet();
+  const router = useRouter();
   const [filter, setFilter] = useState<GameCategory | "All">("All");
   const [query, setQuery] = useState("");
+  const [profileOpen, setProfileOpen] = useState(false);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -136,61 +390,90 @@ export function Dashboard() {
   }, []);
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 sm:py-7">
-      {/* Hero — compact on short / landscape viewports so game cards are
-          visible immediately without scrolling. */}
-      <section className="relative mb-6 overflow-hidden rounded-3xl border border-gold/20 bg-gradient-to-b from-ink-panel/90 to-ink/90 px-6 py-7 text-center sm:py-10 [@media(max-height:760px)]:py-4">
-        <div className="bg-grid pointer-events-none absolute inset-0 opacity-40" />
-        <span className="pointer-events-none absolute left-1/2 top-0 h-40 w-[60%] -translate-x-1/2 rounded-full bg-gold/10 blur-3xl" />
-        {/* drifting ambient motes */}
-        <span className="animate-floatSlow pointer-events-none absolute left-[12%] top-[30%] h-1.5 w-1.5 rounded-full bg-neon-cyan/60 blur-[1px]" />
-        <span className="animate-floatSlow pointer-events-none absolute right-[16%] top-[55%] h-1.5 w-1.5 rounded-full bg-neon-magenta/60 blur-[1px]" style={{ animationDelay: "2.5s" }} />
-        <span className="animate-floatSlow pointer-events-none absolute left-[70%] top-[20%] h-1 w-1 rounded-full bg-gold/70 blur-[1px]" style={{ animationDelay: "5s" }} />
-        <motion.p
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="relative text-[11px] uppercase tracking-[0.5em] text-gold/70 [@media(max-height:760px)]:hidden"
-        >
-          Welcome to
-        </motion.p>
-        <motion.h1
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.5 }}
-          className="gold-text-anim relative mt-2 font-display text-4xl font-black tracking-tight sm:text-6xl [@media(max-height:760px)]:mt-0 [@media(max-height:760px)]:text-3xl"
-        >
-          NEON ROYALE
-        </motion.h1>
-        <p className="relative mx-auto mt-2 max-w-xl text-sm text-white/55 sm:text-base [@media(max-height:760px)]:hidden">
-          {GAMES.length} legendary casino games. One neon floor. Play money only —
-          chase the jackpot risk-free.
-        </p>
+    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+      {/* Top nav */}
+      <div className="mb-4 flex items-center justify-end gap-2">
+        {wallet.username ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              sfx.click();
+              setProfileOpen(true);
+            }}
+          >
+            👤 {wallet.username}
+          </Button>
+        ) : (
+          <Button variant="gold" size="sm" onClick={() => router.push("/login")}>
+            Sign in
+          </Button>
+        )}
+      </div>
 
-        {/* Balance + reset */}
-        <div className="relative mt-4 flex flex-wrap items-center justify-center gap-3 [@media(max-height:760px)]:mt-3">
-          <div className="relative overflow-hidden rounded-2xl border border-gold/30 bg-black/50 px-6 py-2.5">
-            <span className="sheen-layer" aria-hidden />
-            <div className="text-[10px] uppercase tracking-widest text-white/40">
-              Your Balance
-            </div>
-            <div className="gold-text text-2xl font-black tabular-nums sm:text-3xl">
-              {wallet.ready ? formatChips(wallet.balance) : "—"}
+      {/* Hero */}
+      <section className="relative mb-6 overflow-hidden rounded-3xl border border-gold/20 bg-gradient-to-b from-ink-panel/90 to-ink/90 px-6 py-8 sm:px-10 sm:py-10 [@media(max-height:760px)]:py-5">
+        <div className="bg-grid pointer-events-none absolute inset-0 opacity-40" />
+        <span className="pointer-events-none absolute left-1/4 top-0 h-40 w-[50%] -translate-x-1/2 rounded-full bg-gold/10 blur-3xl" />
+        {/* drifting ambient motes */}
+        <span className="animate-floatSlow pointer-events-none absolute left-[10%] top-[28%] h-1.5 w-1.5 rounded-full bg-neon-cyan/60 blur-[1px]" />
+        <span className="animate-floatSlow pointer-events-none absolute left-[34%] top-[60%] h-1.5 w-1.5 rounded-full bg-neon-magenta/60 blur-[1px]" style={{ animationDelay: "2.5s" }} />
+        <span className="animate-floatSlow pointer-events-none absolute left-[24%] top-[18%] h-1 w-1 rounded-full bg-gold/70 blur-[1px]" style={{ animationDelay: "5s" }} />
+
+        <div className="relative flex flex-col gap-8 lg:flex-row lg:items-center">
+          {/* Left: title + balance */}
+          <div className="flex-1 text-center lg:text-left">
+            <motion.p
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="text-xs uppercase tracking-[0.5em] text-gold/70 [@media(max-height:760px)]:hidden"
+            >
+              Welcome to
+            </motion.p>
+            <motion.h1
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.5 }}
+              className="gold-text-anim mt-2 font-display text-5xl font-black tracking-tight sm:text-7xl"
+            >
+              NEON ROYALE
+            </motion.h1>
+            <p className="mx-auto mt-3 max-w-sm text-sm text-white/55 sm:text-base lg:mx-0 [@media(max-height:760px)]:hidden">
+              {GAMES.length} legendary casino games. One neon floor. Play money only —
+              chase the jackpot risk-free.
+            </p>
+
+            {/* Balance + actions */}
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-3 lg:justify-start">
+              <div className="relative overflow-hidden rounded-2xl border border-gold/30 bg-black/50 px-6 py-3">
+                <span className="sheen-layer" aria-hidden />
+                <div className="text-[10px] uppercase tracking-widest text-white/40">
+                  Your Balance
+                </div>
+                <div className="gold-text text-2xl font-black tabular-nums sm:text-3xl">
+                  {wallet.ready ? formatChips(wallet.balance) : "—"}
+                </div>
+              </div>
+              <ClaimBonus />
+              {wallet.ready && wallet.balance < STARTING_BALANCE / 2 && (
+                <Button
+                  variant="gold"
+                  onClick={() => {
+                    wallet.topUp(STARTING_BALANCE);
+                    sfx.jackpot();
+                  }}
+                >
+                  Claim {formatChips(STARTING_BALANCE)} chips
+                </Button>
+              )}
             </div>
           </div>
-          {wallet.ready && wallet.balance < STARTING_BALANCE / 2 && (
-            <Button
-              variant="gold"
-              onClick={() => {
-                wallet.topUp(STARTING_BALANCE);
-                sfx.jackpot();
-              }}
-            >
-              Claim {formatChips(STARTING_BALANCE)} chips
-            </Button>
-          )}
-          <Button variant="ghost" size="sm" onClick={() => wallet.reset()}>
-            Reset
-          </Button>
+
+          {/* Divider */}
+          <div className="hidden lg:block w-px self-stretch bg-white/10" />
+
+          {/* Right: leaderboard */}
+          <HeroLeaderboard />
         </div>
       </section>
 
@@ -243,13 +526,18 @@ export function Dashboard() {
       </motion.div>
 
       {filtered.length === 0 && (
-        <p className="py-16 text-center text-white/40">No games match “{query}”.</p>
+        <p className="py-16 text-center text-white/40">No games match "{query}".</p>
       )}
 
       <footer className="mt-16 border-t border-white/10 pt-6 text-center text-xs text-white/30">
         Neon Royale · For entertainment only · No real-money wagering · Play
         responsibly
       </footer>
+
+      {/* Profile modal */}
+      <AnimatePresence>
+        {profileOpen && <ProfileModal onClose={() => setProfileOpen(false)} />}
+      </AnimatePresence>
     </div>
   );
 }
