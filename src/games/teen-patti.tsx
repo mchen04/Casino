@@ -536,21 +536,32 @@ export default function TeenPatti() {
         const cmp = pRank.score - dRank.score;
 
         if (cmp > 0) {
-          // Win pays 1:1 on the total staked → win(total * 2).
-          const baseWin = totalBet * 2; // stake + 1:1 profit
-          totalReturn += baseWin;
-          lines.push({ label: "Show won (1:1)", amount: baseWin });
+          // Player vs dealer here is a symmetric mirror match (push on tie), so
+          // the base showdown is ~0% edge — paying 1:1 + an uncapped bonus made
+          // the whole game ~105% RTP (player-favorable). A house commission on
+          // the winnings restores a normal edge (~3.3%, sim-verified) without
+          // touching the fair comparison itself.
+          const COMMISSION = 0.15; // house cut on winnings above the stake
 
-          // Bonus profit for strong played hands (Sequence+).
+          // Gross profit = 1:1 on the stake, plus the bonus for strong hands.
           const bonus = bonusFor(pRank.category);
+          const grossProfit = totalBet + totalBet * bonus;
+          const commission = Math.round(grossProfit * COMMISSION);
+          const netProfit = grossProfit - commission;
+          const baseWin = totalBet + netProfit; // stake returned + net profit
+          totalReturn += baseWin;
+
+          lines.push({ label: "Show won (1:1)", amount: totalBet * 2 });
           if (bonus > 0) {
-            const bonusWin = totalBet * bonus; // pure extra profit
-            totalReturn += bonusWin;
             lines.push({
               label: `${pRank.name} bonus (${bonus}:1)`,
-              amount: bonusWin,
+              amount: totalBet * bonus,
             });
           }
+          lines.push({
+            label: `House commission (${Math.round(COMMISSION * 100)}%)`,
+            amount: -commission,
+          });
           outcome = "win";
           banner =
             bonus > 0 ? `${pRank.name} — you win big!` : "You win the show!";

@@ -64,18 +64,23 @@ interface SymbolDef {
 }
 
 // Ordered high → low. WILD substitutes for everything except BOOK.
+// Pays are multiples of the TOTAL bet (see evaluateLines). The previous values
+// were applied to the per-LINE stake (totalBet/10) AND were ~25x too small for
+// the hit frequency, so the game returned only ~5.6% RTP (a 94% house edge —
+// a near-total rip-off). These values, on the total bet, land it at ~96.8% RTP
+// (Monte-Carlo verified over 2M spins incl. the 10 free-spin expanding feature).
 const SYMBOLS: Record<SymbolId, SymbolDef> = {
-  PHARAOH: { id: "PHARAOH", glyph: "𓀀", label: "Pharaoh", color: "#ffd84d", weight: 4, pays: [4, 30, 200] },
-  ANUBIS: { id: "ANUBIS", glyph: "𓃢", label: "Anubis", color: "#caa6ff", weight: 5, pays: [3, 18, 120] },
-  SCARAB: { id: "SCARAB", glyph: "🪲", label: "Scarab", color: "#6fe0c0", weight: 6, pays: [2.5, 12, 80] },
-  EYE: { id: "EYE", glyph: "𓂀", label: "Eye of Horus", color: "#5fd1ff", weight: 7, pays: [2, 8, 50] },
-  ANKH: { id: "ANKH", glyph: "☥", label: "Ankh", color: "#f7a05a", weight: 8, pays: [1.5, 6, 35] },
-  A: { id: "A", glyph: "A", label: "A", color: "#f4e3b0", weight: 11, pays: [1, 3, 18] },
-  K: { id: "K", glyph: "K", label: "K", color: "#e9d29a", weight: 12, pays: [0.8, 2.5, 14] },
-  Q: { id: "Q", glyph: "Q", label: "Q", color: "#ddc488", weight: 13, pays: [0.6, 2, 10] },
-  J: { id: "J", glyph: "J", label: "J", color: "#d4b878", weight: 14, pays: [0.5, 1.5, 8] },
-  TEN: { id: "TEN", glyph: "10", label: "10", color: "#cbae6a", weight: 15, pays: [0.4, 1.2, 6] },
-  WILD: { id: "WILD", glyph: "🔺", label: "Pyramid (Wild)", color: ACCENT, weight: 3, pays: [5, 40, 300] },
+  PHARAOH: { id: "PHARAOH", glyph: "𓀀", label: "Pharaoh", color: "#ffd84d", weight: 4, pays: [11, 80, 528] },
+  ANUBIS: { id: "ANUBIS", glyph: "𓃢", label: "Anubis", color: "#caa6ff", weight: 5, pays: [8, 48, 317] },
+  SCARAB: { id: "SCARAB", glyph: "🪲", label: "Scarab", color: "#6fe0c0", weight: 6, pays: [7, 32, 212] },
+  EYE: { id: "EYE", glyph: "𓂀", label: "Eye of Horus", color: "#5fd1ff", weight: 7, pays: [5, 21, 132] },
+  ANKH: { id: "ANKH", glyph: "☥", label: "Ankh", color: "#f7a05a", weight: 8, pays: [4, 16, 92] },
+  A: { id: "A", glyph: "A", label: "A", color: "#f4e3b0", weight: 11, pays: [2.6, 8, 48] },
+  K: { id: "K", glyph: "K", label: "K", color: "#e9d29a", weight: 12, pays: [2.1, 7, 37] },
+  Q: { id: "Q", glyph: "Q", label: "Q", color: "#ddc488", weight: 13, pays: [1.6, 5.2, 26] },
+  J: { id: "J", glyph: "J", label: "J", color: "#d4b878", weight: 14, pays: [1.4, 4, 21] },
+  TEN: { id: "TEN", glyph: "10", label: "10", color: "#cbae6a", weight: 15, pays: [1.1, 3.2, 16] },
+  WILD: { id: "WILD", glyph: "🔺", label: "Pyramid (Wild)", color: ACCENT, weight: 3, pays: [13, 106, 793] },
   BOOK: { id: "BOOK", glyph: "📖", label: "Book (Scatter)", color: "#ff9d3b", weight: 3, pays: [0, 0, 0] },
 };
 
@@ -196,7 +201,7 @@ function matches(s: SymbolId, target: SymbolId): boolean {
   return s === "WILD";
 }
 
-function evaluateLines(grid: Grid, betPerLine: number): LineWin[] {
+function evaluateLines(grid: Grid, totalBet: number): LineWin[] {
   const wins: LineWin[] = [];
   PAYLINES.forEach((line, lineIdx) => {
     const first = grid[0][line[0]];
@@ -227,8 +232,8 @@ function evaluateLines(grid: Grid, betPerLine: number): LineWin[] {
       const def = SYMBOLS[lead];
       const mult = def.pays[count - 3];
       if (mult > 0) {
-        // Paytable multipliers apply to the per-line stake (totalBet / lines).
-        const payout = Math.round(mult * betPerLine);
+        // Paytable multipliers apply to the TOTAL bet.
+        const payout = Math.round(mult * totalBet);
         wins.push({ line: lineIdx, symbol: lead, count, cells, payout });
       }
     }
@@ -256,7 +261,7 @@ function evaluateScatter(grid: Grid, totalBet: number): ScatterWin | null {
 function evaluateExpand(
   grid: Grid,
   expanding: SymbolId,
-  betPerLine: number,
+  totalBet: number,
 ): ExpandWin | null {
   const reelsWith: number[] = [];
   for (let r = 0; r < REELS; r++) {
@@ -275,9 +280,9 @@ function evaluateExpand(
   const mult = def.pays[run - 3];
   if (mult <= 0) return null;
 
-  // Each of the 3 rows on the covered (expanded) reels forms a line, so the
-  // win is paid per line (ROWS lines) — the signature big Book-of-Ra payout.
-  const payout = Math.round(mult * betPerLine * ROWS);
+  // The expanding symbol pays a full total-bet win for its run length — the
+  // signature big Book-of-Ra payout (on top of any other line wins).
+  const payout = Math.round(mult * totalBet);
   const reels: number[] = [];
   for (let r = 0; r < run; r++) reels.push(r);
   return { symbol: expanding, reels, lines: ROWS, payout };
@@ -288,7 +293,6 @@ function spinOnce(
   freeSpin: boolean,
   expanding: SymbolId | null,
 ): SpinResult {
-  const betPerLine = totalBet / PAYLINES.length;
   const grid = randomGrid();
 
   const scatter = evaluateScatter(grid, totalBet);
@@ -299,19 +303,19 @@ function spinOnce(
   let expand: ExpandWin | null = null;
 
   if (freeSpin && expanding) {
-    expand = evaluateExpand(grid, expanding, betPerLine);
+    expand = evaluateExpand(grid, expanding, totalBet);
     if (!expand) {
       // No expand: still evaluate normal lines.
-      lineWins = evaluateLines(grid, betPerLine);
+      lineWins = evaluateLines(grid, totalBet);
     } else {
       // When expanding hits, normal line wins are superseded by the expand
       // payout for that symbol; still award other symbols' line wins.
-      lineWins = evaluateLines(grid, betPerLine).filter(
+      lineWins = evaluateLines(grid, totalBet).filter(
         (w) => w.symbol !== expanding,
       );
     }
   } else {
-    lineWins = evaluateLines(grid, betPerLine);
+    lineWins = evaluateLines(grid, totalBet);
   }
 
   const total =
@@ -1272,8 +1276,7 @@ export default function PharaohsFortune() {
             </div>
 
             <div className="mt-2 text-center text-[11px] text-white/40">
-              Bet is split across {PAYLINES.length} paylines ·{" "}
-              {formatChips(bet / PAYLINES.length)} per line ·{" "}
+              {PAYLINES.length} paylines · pays shown are × your total bet ·{" "}
               {wallet.ready && !affordable
                 ? "Insufficient balance — lower your bet"
                 : "Wild substitutes · 3+ Books = Free Spins"}

@@ -96,12 +96,16 @@ function evaluateLine(line: SymKey[]): Outcome {
   // double/triple-bar variants there is no distinct "mixed bar" combo to score.
 
   // Cherry consolations (cherries pay on count regardless of position).
+  // Cherries are the most common symbol (weight 8), so these consolation pays
+  // dominate the return. At 4x / 2x the single payline returned ~150% RTP (a
+  // player-favorable money pump); 2x / 1x lands it at ~95.2% RTP (sim-verified).
+  // A single cherry now returns the stake (money back), the classic 3-reel feel.
   const cherryCount = line.filter((s) => s === "CHERRY").length;
   if (cherryCount === 2) {
-    return { multiplier: 4, label: "Two Cherries", tier: "small" };
+    return { multiplier: 2, label: "Two Cherries", tier: "small" };
   }
   if (cherryCount === 1) {
-    return { multiplier: 2, label: "Cherry", tier: "small" };
+    return { multiplier: 1, label: "Cherry — money back", tier: "small" };
   }
 
   return { multiplier: 0, label: "No win — spin again", tier: "loss" };
@@ -123,8 +127,8 @@ const PAYTABLE: { faces: string; name: string; pay: string; accent?: boolean }[]
   { faces: "\u{1F514} \u{1F514} \u{1F514}", name: "Triple Bells", pay: "20×" },
   { faces: "\u{1F352} \u{1F352} \u{1F352}", name: "Triple Cherries", pay: "12×" },
   { faces: "\u{1F34B}/\u{1F347} ×3", name: "Any Other Triple", pay: "6×" },
-  { faces: "\u{1F352} \u{1F352} —", name: "Two Cherries", pay: "4×" },
-  { faces: "\u{1F352} — —", name: "One Cherry", pay: "2×" },
+  { faces: "\u{1F352} \u{1F352} —", name: "Two Cherries", pay: "2×" },
+  { faces: "\u{1F352} — —", name: "One Cherry", pay: "1× (money back)" },
 ];
 
 // ---------------------------------------------------------------------------

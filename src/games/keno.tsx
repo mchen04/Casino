@@ -46,19 +46,22 @@ type Phase = "betting" | "drawing" | "resolved";
 // ---------------------------------------------------------------------------
 // Paytable. PAYTABLE[spots][hits] = gross multiplier (includes stake).
 // Index 0 of each row is "hits === 0". Entries of 0 are losses; 1 is a push.
-// Tuned for roughly a 90-95% RTP at typical play and a 1000× top jackpot.
+// Re-tuned so EVERY pick count returns ~90-92% (exact hypergeometric RTP,
+// computed from P(s,h)=C(s,h)C(80-s,20-h)/C(80,20)). The previous table only
+// paid ~92% on pick-2 and as little as 32% on pick-10 — most rows were a
+// 45-68% house edge. The pick-10/hit-10 1000x jackpot is preserved.
 // ---------------------------------------------------------------------------
 const PAYTABLE: Record<number, number[]> = {
-  1: [0, 3],
+  1: [0, 3.6],
   2: [0, 1, 9],
-  3: [0, 0, 2, 16],
-  4: [0, 0, 1, 5, 40],
-  5: [0, 0, 0, 2, 12, 100],
-  6: [0, 0, 0, 1, 4, 24, 200],
-  7: [0, 0, 0, 1, 2, 12, 80, 400],
-  8: [0, 0, 0, 0, 2, 8, 40, 200, 600],
-  9: [0, 0, 0, 0, 1, 4, 20, 80, 350, 800],
-  10: [0, 0, 0, 0, 0, 2, 10, 50, 150, 500, 1000],
+  3: [0, 0, 3.6, 29],
+  4: [0, 0, 1.7, 8.3, 66],
+  5: [0, 0, 0, 4.8, 29, 240],
+  6: [0, 0, 0, 2.6, 11, 63, 530],
+  7: [0, 0, 0, 2, 4, 24, 160, 805],
+  8: [0, 0, 0, 0, 4.1, 17, 83, 415, 1245],
+  9: [0, 0, 0, 0, 2.2, 8.7, 44, 175, 760, 1740],
+  10: [0, 0, 0, 0, 0, 5.7, 28, 140, 425, 1415, 1000],
 };
 
 function payoutMultiplier(spots: number, hits: number): number {
