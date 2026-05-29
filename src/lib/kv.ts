@@ -14,6 +14,7 @@ export interface UserRecord {
   rounds: number;
   biggestWin: number;
   createdAt: number; // unix ms
+  lastClaim?: number; // unix ms of last bonus claim
 }
 
 export interface LeaderboardEntry {

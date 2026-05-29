@@ -8,6 +8,7 @@ import { GAMES, CATEGORY_ORDER, type GameCategory, type GameMeta } from "@/lib/g
 import { useWallet, STARTING_BALANCE } from "@/lib/wallet";
 import { formatChips } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
+import { ClaimBonus } from "@/components/ClaimBonus";
 import { sfx } from "@/lib/sound";
 
 const CATEGORY_LABEL: Record<GameCategory, string> = {
@@ -130,7 +131,7 @@ export function Dashboard() {
           chase the jackpot risk-free.
         </p>
 
-        {/* Balance + reset */}
+        {/* Balance + actions */}
         <div className="relative mt-6 flex flex-wrap items-center justify-center gap-3">
           <div className="rounded-2xl border border-gold/30 bg-black/50 px-6 py-3">
             <div className="text-[10px] uppercase tracking-widest text-white/40">
@@ -140,6 +141,7 @@ export function Dashboard() {
               {wallet.ready ? formatChips(wallet.balance) : "—"}
             </div>
           </div>
+          <ClaimBonus />
           {wallet.ready && wallet.balance < STARTING_BALANCE / 2 && (
             <Button
               variant="gold"

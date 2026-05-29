@@ -114,6 +114,40 @@ export async function apiSync(payload: SyncPayload): Promise<boolean> {
   }
 }
 
+export interface ClaimStatus {
+  eligible: boolean;
+  nextClaimAt: number | null;
+}
+
+export interface ClaimResult {
+  balance: number;
+  claimed: number;
+  nextClaimAt: number;
+}
+
+export async function apiClaimStatus(): Promise<ClaimStatus | null> {
+  try {
+    const res = await fetch("/api/claim", { headers: authHeaders() });
+    if (!res.ok) return null;
+    return res.json() as Promise<ClaimStatus>;
+  } catch {
+    return null;
+  }
+}
+
+export async function apiClaim(): Promise<ClaimResult | null> {
+  try {
+    const res = await fetch("/api/claim", {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    if (!res.ok) return null;
+    return res.json() as Promise<ClaimResult>;
+  } catch {
+    return null;
+  }
+}
+
 export async function apiLeaderboard(limit = 50): Promise<LeaderboardEntry[]> {
   try {
     const res = await fetch(`/api/leaderboard?limit=${limit}`);
