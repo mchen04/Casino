@@ -23,6 +23,15 @@ const STARTING_BALANCE = 10_000;
 const storageKey = (username: string | null) =>
   username ? `neon-royale-wallet-${username}` : "neon-royale-wallet-guest";
 
+/**
+ * Round to the cent (2 decimals). Chips are tracked at cent precision so that
+ * fair payouts (e.g. a 1.95× banker win or a 0.99/p dice multiplier) credit the
+ * EXACT return at any stake — integer truncation at small bets used to distort
+ * the house edge in both directions (player-favorable rounding-up exploits and
+ * house-favorable shaving). Bets remain whole chips; only winnings carry cents.
+ */
+const round2 = (n: number): number => Math.round(n * 100) / 100;
+
 export interface WalletState {
   balance: number;
   totalWagered: number;
@@ -136,7 +145,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       ok = true;
       return {
         ...s,
-        balance: s.balance - amt,
+        balance: round2(s.balance - amt),
         totalWagered: s.totalWagered + amt,
         rounds: s.rounds + 1,
       };
@@ -145,18 +154,20 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const win = useCallback((amount: number) => {
-    const amt = Math.max(0, Math.floor(amount));
+    // Credit the EXACT total return rounded to the cent (not floored to a whole
+    // chip). This keeps every game's coded house edge intact at any stake.
+    const amt = Math.max(0, round2(amount));
     if (amt <= 0) return;
     setState((s) => ({
       ...s,
-      balance: s.balance + amt,
-      totalReturned: s.totalReturned + amt,
+      balance: round2(s.balance + amt),
+      totalReturned: round2(s.totalReturned + amt),
       biggestWin: Math.max(s.biggestWin, amt),
     }));
   }, []);
 
   const topUp = useCallback((amount = STARTING_BALANCE) => {
-    setState((s) => ({ ...s, balance: s.balance + Math.max(0, Math.floor(amount)) }));
+    setState((s) => ({ ...s, balance: round2(s.balance + Math.max(0, Math.floor(amount))) }));
   }, []);
 
   const reset = useCallback(() => {

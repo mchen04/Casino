@@ -402,7 +402,7 @@ export const HOUSE_EDGE: Record<string, number> = {
   "let-it-ride": 3.51,
   "pai-gow-poker": 3.43,
   "casino-war": 2.33,
-  "red-dog": 3.16,
+  "red-dog": 2.67,
   "dragon-tiger": 3.73,
   "andar-bahar": 2.58,
   "teen-patti": 3.3,
@@ -418,7 +418,7 @@ export const HOUSE_EDGE: Record<string, number> = {
   "slots-classic": 4.8,
   "slots-fruit": 3.2,
   "slots-egypt": 3.2,
-  "slots-megaways": 4.2,
+  "slots-megaways": 4.7,
   // Dice / Modern
   dice: 1,
   limbo: 1,
@@ -446,6 +446,9 @@ export const EDGE_NOTE: Record<string, string> = {
   "money-wheel": "best segment · up to 24%",
   keno: "≈ varies 8–10% by picks",
   "hi-lo": "3% per correct guess",
+  "three-card-poker": "on the Ante · Pair Plus ~7.3%",
+  "red-dog": "optimal play · raise on spread ≥ 7",
+  "slots-megaways": "rises steeply at small bets",
 };
 
 export function getGame(slug: string): GameMeta | undefined {
