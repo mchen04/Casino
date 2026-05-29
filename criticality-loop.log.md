@@ -22,3 +22,26 @@ files + shared engine (`src/lib`, `src/components`). Baseline tsc: GREEN.
 - **False positives correctly declined (no change):** craps Place 6/8 profit-only (bets stay working, refunded via clearBets); pai-gow/baccarat banker 1.95× (even money less 5% commission on winnings).
 - **Structural:** extracted shared CountingNumber, lib/async(sleep), lib/cryptoGames, lib/baccarat, lib/paiGow; deduped count-up/sleep/crypto math across 21 games. Net ≈ −390 LOC.
 - **Tests:** `npx tsc --noEmit` + `next build` green every cycle.
+
+---
+
+# Criticality Loop — SOTA animation/UX diff (2026-05-29)
+
+base: d266c4a (pre-animation)  •  aggressiveness: aggressive (all changes, no defer)  •  test: npx tsc --noEmit  •  converge: 2
+Method: multi-agent workflow — 7 parallel auditor slices → adversarial verify (kill false positives) → per-file fixer → tsc. Scope: the animation/one-screen-fit diff only.
+
+| # | findings (raw→confirmed) | files | tests | notes |
+|---|---|---|---|---|
+| 1 | 6→6 | FitToViewport, baccarat, video-poker, slots-classic, limbo, bingo | ✅ tsc | celebrations firing on net-loss/push; overflow-hidden clipping deal-in; first-paint shrink flash |
+| 2 | 4→4 | roulette, slots-fruit, slots-megaways, bingo | ✅ tsc | CRITICAL roulette celebrate on net loss; gross→net gating (fruit/megaways); bingo gate |
+| 3 | 5→3 | craps, plinko, bingo | ✅ tsc | plinko show stuck-true; craps celebrate not reset; (2 FPs declined) |
+| 4 | 6→5 | coin-flip, sic-bo, slots-fruit, mines, plinko | ✅ tsc | overflow clipping coin/dice; fires on bonus-BUY; break-even cash-out; plinko readout corruption |
+| 5 | 3→3 | blackjack, video-poker, sic-bo | ✅ tsc | unreachable blackjack branch; net-zero confetti; sic-bo Celebration moved into felt |
+
+Confirmation run (fresh, base d266c4a): cycle 1 clean(0) · cycle 2 1 fix(bingo, no-op) · cycle 3 clean(1 FP) · cycle 4 clean(0) → **CONVERGED (2 consecutive clean)**.
+
+## Summary
+- **Exit:** CONVERGED — 2 consecutive clean cycles on the confirmation run after 21 confirmed fixes.
+- **Real bugs fixed (21):** win-celebration overlays firing on net losses / pushes / refunds / bonus-buys across ~12 games (now net-profit gated); `overflow-hidden` added with the overlay clipping deal-in/coin-toss/dice-roll animations (video-poker, coin-flip, sic-bo); plinko Celebration `show` stuck-true + push/loss corrupting the burst readout; craps celebrate not reset between rolls; sic-bo Celebration nested in the tiny dice box (moved to felt); FitToViewport first-paint shrink-in flash; removed an unreachable blackjack branch.
+- **False positives correctly declined:** bingo sub-1× "partial refund" indicator (pre-existing label/sound behavior, not introduced by the diff); 2 others in cycle 3.
+- **Tests:** `npx tsc --noEmit` green every cycle; final `next build` green (38/38 routes).
