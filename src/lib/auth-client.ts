@@ -15,6 +15,7 @@ export interface SyncPayload {
   totalReturned: number;
   rounds: number;
   biggestWin: number;
+  resets: number;
 }
 
 export function getToken(): string | null {
@@ -145,6 +146,18 @@ export async function apiClaim(): Promise<ClaimResult | null> {
     return res.json() as Promise<ClaimResult>;
   } catch {
     return null;
+  }
+}
+
+export async function apiDeleteAccount(): Promise<boolean> {
+  try {
+    const res = await fetch("/api/auth/delete", {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+    return res.ok;
+  } catch {
+    return false;
   }
 }
 

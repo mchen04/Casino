@@ -36,6 +36,7 @@ export async function POST(req: NextRequest) {
       totalReturned: 0,
       rounds: 0,
       biggestWin: 0,
+      resets: 0,
       createdAt: Date.now(),
     };
 

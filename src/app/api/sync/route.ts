@@ -16,10 +16,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { balance, totalWagered, totalReturned, rounds, biggestWin } = await req.json();
+    const { balance, totalWagered, totalReturned, rounds, biggestWin, resets } = await req.json();
 
     // Validate all fields are non-negative numbers
-    const fields = { balance, totalWagered, totalReturned, rounds, biggestWin };
+    const fields = { balance, totalWagered, totalReturned, rounds, biggestWin, resets };
     for (const [key, val] of Object.entries(fields)) {
       if (typeof val !== "number" || !Number.isFinite(val) || val < 0) {
         return NextResponse.json({ error: `Invalid field: ${key}` }, { status: 400 });
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    const user: UserRecord = { ...existing, balance, totalWagered, totalReturned, rounds, biggestWin };
+    const user: UserRecord = { ...existing, balance, totalWagered, totalReturned, rounds, biggestWin, resets };
     await kv.set(USER_KEY(username), user);
     await kv.zadd(LEADERBOARD_KEY, { score: balance, member: username.toLowerCase() });
 
