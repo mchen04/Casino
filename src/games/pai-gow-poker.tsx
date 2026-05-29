@@ -42,6 +42,7 @@ import { useWallet } from "@/lib/wallet";
 import { Button } from "@/components/ui/Button";
 import { PlayingCard } from "@/components/PlayingCard";
 import { BetControls } from "@/components/BetControls";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 
 const ACCENT = "#e74c3c";
 
@@ -445,7 +446,7 @@ export default function PaiGowPoker() {
   // Render
   // -------------------------------------------------------------------------
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-2 sm:gap-4">
       {/* ---- Title / odds strip ---- */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -465,7 +466,7 @@ export default function PaiGowPoker() {
 
       {/* ---- Felt table ---- */}
       <div
-        className="felt relative overflow-hidden rounded-3xl p-4 sm:p-6"
+        className="felt relative overflow-hidden rounded-3xl p-3 sm:p-6 [@media(max-height:600px)]:p-2"
         style={{ boxShadow: `inset 0 0 90px rgba(0,0,0,0.5), 0 0 0 1px ${ACCENT}22` }}
       >
         {/* ambient accent glow */}
@@ -476,7 +477,7 @@ export default function PaiGowPoker() {
 
         {/* ===== DEALER ===== */}
         <section className="relative">
-          <div className="mb-2 flex items-center gap-2">
+          <div className="mb-1 sm:mb-2 flex items-center gap-2">
             <span className="text-xs font-semibold uppercase tracking-widest text-white/55">
               Dealer
             </span>
@@ -491,7 +492,7 @@ export default function PaiGowPoker() {
           {!showCards ? (
             <EmptySlots label="Dealer's 7" />
           ) : (
-            <div className="flex flex-wrap items-end gap-4">
+            <div className="flex flex-wrap items-end gap-2 sm:gap-4">
               {/* Dealer BACK (5) */}
               <HandGroup
                 title="Back (5)"
@@ -531,7 +532,7 @@ export default function PaiGowPoker() {
         </section>
 
         {/* center divider */}
-        <div className="my-5 flex items-center gap-3">
+        <div className="my-3 sm:my-5 [@media(max-height:600px)]:my-2 flex items-center gap-3">
           <div className="h-px flex-1 bg-white/10" />
           <span
             className="rounded-full border border-white/15 px-3 py-1 text-[10px] uppercase tracking-[0.25em] text-white/45"
@@ -550,7 +551,7 @@ export default function PaiGowPoker() {
 
         {/* ===== PLAYER ===== */}
         <section className="relative">
-          <div className="mb-2 flex items-center gap-2">
+          <div className="mb-1 sm:mb-2 flex items-center gap-2">
             <span
               className="text-xs font-semibold uppercase tracking-widest"
               style={{ color: ACCENT }}
@@ -573,7 +574,7 @@ export default function PaiGowPoker() {
           {!showCards ? (
             <EmptySlots label="Your 7" />
           ) : (
-            <div className="flex flex-wrap items-end gap-4">
+            <div className="flex flex-wrap items-end gap-2 sm:gap-4">
               {/* Player BACK (5) */}
               <HandGroup
                 title="Back (5) — high hand"
@@ -624,7 +625,7 @@ export default function PaiGowPoker() {
           )}
 
           {phase === "arranging" && (
-            <p className="mt-2 text-[11px] text-white/45">
+            <p className="mt-2 text-[11px] text-white/45 [@media(max-height:600px)]:hidden">
               Tap a card in the back hand and one in the front hand to swap them.
               Illegal (fouling) swaps are blocked.
             </p>
@@ -640,7 +641,7 @@ export default function PaiGowPoker() {
       </div>
 
       {/* ---- Controls ---- */}
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-2 sm:gap-3">
         {(phase === "betting" || phase === "result") && (
           <BetControls
             bet={bet}
@@ -696,7 +697,7 @@ export default function PaiGowPoker() {
         </div>
 
         {/* ---- Result line + foul notice ---- */}
-        <div className="min-h-[2rem] text-center">
+        <div className="min-h-[1.25rem] sm:min-h-[2rem] text-center">
           <AnimatePresence mode="wait">
             {foulWarning && phase === "arranging" && (
               <motion.div
@@ -951,11 +952,13 @@ function Paytable() {
     { label: "Lose both", value: "Lose", tone: "#e74c3c" },
   ];
   return (
-    <div className="glass rounded-2xl px-4 py-3">
-      <div className="mb-1.5 text-[10px] uppercase tracking-widest text-white/45">
-        Payouts
-      </div>
-      <ul className="space-y-1 text-xs">
+    <CollapsiblePanel
+      title="Payouts"
+      accent={ACCENT}
+      summary={<>win both 1:1 − 5%</>}
+      className="w-full sm:w-auto"
+    >
+      <ul className="space-y-1 pt-2 text-xs">
         {rows.map((r) => (
           <li key={r.label} className="flex items-center justify-between gap-6">
             <span className="text-white/65">{r.label}</span>
@@ -968,6 +971,6 @@ function Paytable() {
       <div className="mt-2 text-[10px] text-white/35">
         Joker is wild for straights &amp; flushes, else an Ace.
       </div>
-    </div>
+    </CollapsiblePanel>
   );
 }

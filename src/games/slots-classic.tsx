@@ -16,6 +16,7 @@ import { motion, AnimatePresence, useMotionValue, animate } from "framer-motion"
 import { useWallet } from "@/lib/wallet";
 import { BetControls } from "@/components/BetControls";
 import { Button } from "@/components/ui/Button";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 import { formatChips, formatDelta, formatMultiplier } from "@/lib/format";
 import { weightedPick, randInt } from "@/lib/rng";
 import { sfx } from "@/lib/sound";
@@ -579,7 +580,7 @@ export default function LuckySevens() {
     <div className="mx-auto w-full max-w-4xl">
       {/* ----- Cabinet ----- */}
       <div
-        className="felt relative overflow-hidden rounded-3xl p-4 sm:p-6"
+        className="felt relative overflow-hidden rounded-3xl p-4 sm:p-6 [@media(max-height:600px)]:p-3"
         style={{
           background:
             "radial-gradient(120% 120% at 50% 0%, #3a0f0f 0%, #220909 55%, #160505 100%)",
@@ -587,7 +588,7 @@ export default function LuckySevens() {
         }}
       >
         {/* marquee header */}
-        <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="mb-3 flex items-center justify-between gap-3 sm:mb-4">
           <div>
             <motion.h2
               className="font-display text-2xl font-bold tracking-wider sm:text-3xl"
@@ -627,11 +628,11 @@ export default function LuckySevens() {
           </div>
         </div>
 
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_220px]">
+        <div className="grid gap-3 sm:gap-5 lg:grid-cols-[minmax(0,1fr)_220px]">
           {/* ----- Reels + readout ----- */}
           <div>
             <div
-              className="relative mx-auto flex items-center justify-center gap-3 rounded-2xl p-4"
+              className="relative mx-auto flex items-center justify-center gap-2 rounded-2xl p-2 sm:gap-3 sm:p-4 [@media(max-height:600px)]:p-1.5"
               style={{
                 background:
                   "linear-gradient(180deg, #1a0606, #2a0a0a)",
@@ -667,7 +668,7 @@ export default function LuckySevens() {
             </div>
 
             {/* result readout */}
-            <div className="mt-4 min-h-[84px]">
+            <div className="mt-3 min-h-[64px] sm:mt-4 sm:min-h-[84px] [@media(max-height:600px)]:mt-2 [@media(max-height:600px)]:min-h-[52px]">
               <AnimatePresence mode="wait">
                 {phase === "resolved" && outcome ? (
                   <motion.div
@@ -727,10 +728,7 @@ export default function LuckySevens() {
           </div>
 
           {/* ----- Paytable ----- */}
-          <div className="rounded-2xl border border-amber-300/20 bg-black/30 p-3">
-            <div className="mb-2 text-center text-[11px] font-bold uppercase tracking-widest text-amber-200/70">
-              Paytable
-            </div>
+          <CollapsiblePanel title="Paytable" accent={ACCENT} summary={<>tap to view</>}>
             <ul className="space-y-1.5">
               {PAYTABLE.map((row) => (
                 <li
@@ -760,11 +758,11 @@ export default function LuckySevens() {
             <div className="mt-2 border-t border-white/10 pt-2 text-[9px] leading-relaxed text-white/35">
               Pays on the center line only. Cherries pay anywhere on the line.
             </div>
-          </div>
+          </CollapsiblePanel>
         </div>
 
         {/* ----- Bet controls ----- */}
-        <div className="mt-5">
+        <div className="mt-3 sm:mt-5">
           <BetControls
             bet={bet}
             setBet={setBet}
@@ -776,7 +774,7 @@ export default function LuckySevens() {
         </div>
 
         {/* ----- Action row ----- */}
-        <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+        <div className="mt-3 flex flex-wrap items-center justify-center gap-3 sm:mt-4">
           <Button
             data-testid="play-btn"
             size="lg"

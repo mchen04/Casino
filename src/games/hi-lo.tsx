@@ -16,6 +16,7 @@ import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
 import { PlayingCard } from "@/components/PlayingCard";
 import { BetControls } from "@/components/BetControls";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Hi-Lo — accent #00cec9. Predict whether the NEXT card is HIGHER (≥) or LOWER (<)
@@ -366,7 +367,7 @@ export default function HiLo() {
     <div className="mx-auto w-full max-w-3xl">
       {/* ── Table surface ─────────────────────────────────────────────────── */}
       <div
-        className="felt relative overflow-hidden rounded-3xl p-5 sm:p-8"
+        className="felt relative overflow-hidden rounded-3xl p-5 sm:p-8 [@media(max-height:600px)]:p-3"
         style={{ boxShadow: `0 0 0 1px ${ACCENT}33, 0 24px 70px rgba(0,0,0,0.6)` }}
       >
         {/* accent ambient glow */}
@@ -402,7 +403,7 @@ export default function HiLo() {
         </div>
 
         {/* Streak rail */}
-        <div className="relative z-10 mt-4 flex min-h-[16px] flex-wrap items-center gap-1.5">
+        <div className="relative z-10 mt-4 [@media(max-height:600px)]:mt-2 flex min-h-[16px] flex-wrap items-center gap-1.5">
           <AnimatePresence initial={false}>
             {streak.map((e) => (
               <motion.span
@@ -430,7 +431,7 @@ export default function HiLo() {
         </div>
 
         {/* ── Card arena ──────────────────────────────────────────────────── */}
-        <div className="relative z-10 mt-3 grid place-items-center rounded-2xl bg-black/25 px-4 py-7">
+        <div className="relative z-10 mt-3 grid place-items-center rounded-2xl bg-black/25 px-4 py-7 [@media(max-height:600px)]:py-2 [@media(max-height:600px)]:max-h-[140px]">
           <WinBurst show={burst} color={resultKind === "lose" ? "#ff5b6e" : ACCENT} />
 
           <div className="flex items-center justify-center gap-6 sm:gap-10">
@@ -637,53 +638,61 @@ export default function HiLo() {
         </div>
 
         {/* ── Odds / paytable panel ───────────────────────────────────────── */}
-        <div className="relative z-10 mt-5 grid gap-3 sm:grid-cols-2">
-          <div className="glass rounded-2xl p-3.5">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-[10px] uppercase tracking-[0.25em] text-white/45">
-                Live Odds
-              </span>
-              <span className="text-[10px] text-white/30">house edge {(HOUSE_EDGE * 100).toFixed(0)}%</span>
-            </div>
-            {current ? (
-              <div className="grid grid-cols-2 gap-2 text-center text-xs">
-                <OddsTile
-                  label="Higher ≥"
-                  pctText={pct(liveOdds.pHigher)}
-                  multText={liveOdds.pHigher > 0 ? formatMultiplier(higherStep) : "—"}
-                />
-                <OddsTile
-                  label="Lower <"
-                  pctText={pct(liveOdds.pLower)}
-                  multText={liveOdds.pLower > 0 ? formatMultiplier(lowerStep) : "—"}
-                />
+        <div className="relative z-10 mt-5 [@media(max-height:600px)]:mt-2">
+          <CollapsiblePanel
+            title="Odds & Rules"
+            accent={ACCENT}
+            summary={<>house edge {(HOUSE_EDGE * 100).toFixed(0)}%</>}
+          >
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-[10px] uppercase tracking-[0.25em] text-white/45">
+                    Live Odds
+                  </span>
+                  <span className="text-[10px] text-white/30">house edge {(HOUSE_EDGE * 100).toFixed(0)}%</span>
+                </div>
+                {current ? (
+                  <div className="grid grid-cols-2 gap-2 text-center text-xs">
+                    <OddsTile
+                      label="Higher ≥"
+                      pctText={pct(liveOdds.pHigher)}
+                      multText={liveOdds.pHigher > 0 ? formatMultiplier(higherStep) : "—"}
+                    />
+                    <OddsTile
+                      label="Lower <"
+                      pctText={pct(liveOdds.pLower)}
+                      multText={liveOdds.pLower > 0 ? formatMultiplier(lowerStep) : "—"}
+                    />
+                  </div>
+                ) : (
+                  <div className="text-xs text-white/40">Deal to see odds…</div>
+                )}
               </div>
-            ) : (
-              <div className="text-xs text-white/40">Deal to see odds…</div>
-            )}
-          </div>
 
-          <div className="glass rounded-2xl p-3.5 text-xs leading-relaxed text-white/55">
-            <span className="text-[10px] uppercase tracking-[0.25em] text-white/45">
-              How it pays
-            </span>
-            <ul className="mt-2 space-y-1">
-              <li>
-                <span style={{ color: ACCENT }}>Higher</span> wins on a higher{" "}
-                <em>or equal</em> rank. <span style={{ color: ACCENT }}>Lower</span> needs strictly
-                lower.
-              </li>
-              <li>Each correct guess multiplies your stake by its fair-odds step.</li>
-              <li>
-                <span style={{ color: ACCENT }}>Cash out</span> anytime to bank the running
-                multiplier. One miss loses the bet.
-              </li>
-            </ul>
-          </div>
+              <div className="text-xs leading-relaxed text-white/55">
+                <span className="text-[10px] uppercase tracking-[0.25em] text-white/45">
+                  How it pays
+                </span>
+                <ul className="mt-2 space-y-1">
+                  <li>
+                    <span style={{ color: ACCENT }}>Higher</span> wins on a higher{" "}
+                    <em>or equal</em> rank. <span style={{ color: ACCENT }}>Lower</span> needs strictly
+                    lower.
+                  </li>
+                  <li>Each correct guess multiplies your stake by its fair-odds step.</li>
+                  <li>
+                    <span style={{ color: ACCENT }}>Cash out</span> anytime to bank the running
+                    multiplier. One miss loses the bet.
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </CollapsiblePanel>
         </div>
 
         {/* Footer status */}
-        <div className="relative z-10 mt-4 flex items-center justify-between text-xs text-white/45">
+        <div className="relative z-10 mt-4 [@media(max-height:600px)]:mt-2 flex items-center justify-between text-xs text-white/45">
           <span>
             Balance{" "}
             <span className="font-semibold text-white/80">{ready ? formatChips(balance) : "…"}</span>

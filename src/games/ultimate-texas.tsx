@@ -21,6 +21,7 @@ import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { PlayingCard } from "@/components/PlayingCard";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 
 const ACCENT = "#27ae60";
 const ACCENT_SOFT = "rgba(39,174,96,0.18)";
@@ -671,7 +672,7 @@ export default function UltimateTexasHoldem() {
               </span>
             )}
           </div>
-          <div className="flex min-h-[96px] items-center gap-2">
+          <div className="flex min-h-[72px] items-center gap-2 sm:min-h-[96px]">
             {dealerHole.length === 0 ? (
               <div className="text-sm text-white/30">—</div>
             ) : (
@@ -696,7 +697,7 @@ export default function UltimateTexasHoldem() {
         </div>
 
         {/* ---------------- Community row ---------------- */}
-        <div className="my-3 rounded-2xl border border-white/5 bg-black/10 p-3">
+        <div className="my-2 rounded-2xl border border-white/5 bg-black/10 p-3 sm:my-3">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-[11px] font-bold uppercase tracking-widest text-white/55">
               Community
@@ -705,7 +706,7 @@ export default function UltimateTexasHoldem() {
               Flop · Turn · River
             </span>
           </div>
-          <div className="flex min-h-[96px] flex-wrap items-center justify-center gap-2 sm:gap-3">
+          <div className="flex min-h-[72px] flex-wrap items-center justify-center gap-2 sm:min-h-[96px] sm:gap-3">
             {community.length === 0 ? (
               <div className="text-sm text-white/30">Waiting for deal…</div>
             ) : (
@@ -747,7 +748,7 @@ export default function UltimateTexasHoldem() {
               </span>
             )}
           </div>
-          <div className="flex min-h-[96px] items-center gap-2">
+          <div className="flex min-h-[72px] items-center gap-2 sm:min-h-[96px]">
             {playerHole.length === 0 ? (
               <div className="text-sm text-white/30">—</div>
             ) : (
@@ -764,7 +765,7 @@ export default function UltimateTexasHoldem() {
         </div>
 
         {/* ---------------- Bet spots strip ---------------- */}
-        <div className="mt-3 flex items-end justify-center gap-4 sm:gap-8">
+        <div className="mt-2 flex items-end justify-center gap-4 sm:mt-3 sm:gap-8">
           <BetSpot
             label="Ante"
             amount={inRound || ante > 0 ? ante : 0}
@@ -871,7 +872,7 @@ export default function UltimateTexasHoldem() {
         </AnimatePresence>
 
         {/* ---------------- Action area ---------------- */}
-        <div className="relative z-20 mt-4">
+        <div className="relative z-20 mt-2 sm:mt-4">
           {/* BETTING phase — set ante / trips and deal */}
           {phase === "betting" && (
             <div className="space-y-3">
@@ -1118,14 +1119,12 @@ export default function UltimateTexasHoldem() {
       </div>
 
       {/* ---------------- Paytables ---------------- */}
-      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div className="glass rounded-2xl p-4">
-          <h3
-            className="mb-2 text-sm font-bold uppercase tracking-widest"
-            style={{ color: ACCENT }}
-          >
-            Blind Bonus
-          </h3>
+      <div className="mt-2 grid grid-cols-1 gap-3 sm:mt-4 sm:grid-cols-2">
+        <CollapsiblePanel
+          title="Blind Bonus"
+          accent={ACCENT}
+          summary={<>up to 500 : 1</>}
+        >
           <p className="mb-2 text-[11px] text-white/45">
             Pays on a winning hand. Below a straight pushes.
           </p>
@@ -1142,15 +1141,13 @@ export default function UltimateTexasHoldem() {
               </li>
             ))}
           </ul>
-        </div>
+        </CollapsiblePanel>
 
-        <div className="glass rounded-2xl p-4">
-          <h3
-            className="mb-2 text-sm font-bold uppercase tracking-widest"
-            style={{ color: ACCENT }}
-          >
-            Trips Side Bet
-          </h3>
+        <CollapsiblePanel
+          title="Trips Side Bet"
+          accent={ACCENT}
+          summary={<>up to 50 : 1</>}
+        >
           <p className="mb-2 text-[11px] text-white/45">
             Pays on your final hand regardless of the result.
           </p>
@@ -1167,17 +1164,21 @@ export default function UltimateTexasHoldem() {
               </li>
             ))}
           </ul>
-        </div>
+        </CollapsiblePanel>
       </div>
 
       {/* Rules note */}
-      <div className="mt-3 rounded-2xl border border-white/5 bg-black/20 p-3 text-[11px] leading-relaxed text-white/45">
-        <span className="font-semibold text-white/65">How it works:</span>{" "}
-        Post equal Ante &amp; Blind. Pre-flop raise 3× or 4×, or check. After the
-        flop raise 2× or check. After the turn &amp; river make a 1× Play or fold.
-        Play pays 1:1 if you beat the dealer (push on tie). The dealer needs a pair
-        or better to qualify — if not, your Ante pushes. The Blind pays the bonus
-        table only when you win.
+      <div className="mt-3">
+        <CollapsiblePanel title="How to play" accent={ACCENT}>
+          <p className="text-[11px] leading-relaxed text-white/45">
+            <span className="font-semibold text-white/65">How it works:</span>{" "}
+            Post equal Ante &amp; Blind. Pre-flop raise 3× or 4×, or check. After the
+            flop raise 2× or check. After the turn &amp; river make a 1× Play or fold.
+            Play pays 1:1 if you beat the dealer (push on tie). The dealer needs a pair
+            or better to qualify — if not, your Ante pushes. The Blind pays the bonus
+            table only when you win.
+          </p>
+        </CollapsiblePanel>
       </div>
     </div>
   );

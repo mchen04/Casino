@@ -9,6 +9,7 @@ import { shuffle, randFloat, randInt } from "@/lib/rng";
 import { CountingNumber } from "@/components/CountingNumber";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 
 /* ----------------------------------------------------------------------------
  * NEON ROYALE — BINGO (75-ball, single player vs the draw)
@@ -462,8 +463,8 @@ export default function Bingo() {
   const callLabel = currentBall != null ? `${letterFor(currentBall)}-${currentBall}` : "—";
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-3 pb-10">
-      <div className="felt relative overflow-hidden rounded-3xl border border-white/10 p-4 shadow-felt sm:p-6">
+    <div className="mx-auto w-full max-w-6xl px-3 pb-4 sm:pb-10">
+      <div className="felt relative overflow-hidden rounded-3xl border border-white/10 p-3 shadow-felt sm:p-6 [@media(max-height:600px)]:p-2">
         {/* ambient accent glow */}
         <div
           className="pointer-events-none absolute -inset-24 opacity-30 blur-3xl"
@@ -473,9 +474,9 @@ export default function Bingo() {
         {/* Big-win full-surface flash */}
         <AnimatePresence>{bigWin && <BlackoutOverlay key="bo" />}</AnimatePresence>
 
-        <div className="relative grid gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
+        <div className="relative grid gap-3 sm:gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
           {/* ============================ LEFT: hopper + controls ============= */}
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2 sm:gap-4">
             <Hopper
               label={callLabel}
               ball={currentBall}
@@ -503,7 +504,7 @@ export default function Bingo() {
             </div>
 
             {/* result banner */}
-            <div className="min-h-[58px]">
+            <div className="min-h-[44px] sm:min-h-[58px]">
               <AnimatePresence mode="wait">
                 {resultText ? (
                   <motion.div
@@ -701,14 +702,16 @@ export default function Bingo() {
             )}
 
             {/* paytable */}
-            <Paytable best={result?.best} firstLineBall={result?.earliestLineBall} />
+            <CollapsiblePanel title="Paytable" accent={ACCENT} summary={<>speed bingo · 80×</>}>
+              <Paytable best={result?.best} firstLineBall={result?.earliestLineBall} />
+            </CollapsiblePanel>
           </div>
 
           {/* ============================ RIGHT: cards + board =============== */}
-          <div className="flex flex-col gap-5">
+          <div className="flex flex-col gap-3 sm:gap-5">
             {/* the cards */}
             <div
-              className={`grid gap-4 ${
+              className={`grid gap-2 sm:gap-4 ${
                 numCards === 1
                   ? "grid-cols-1 place-items-center"
                   : "grid-cols-1 sm:grid-cols-2"
@@ -731,7 +734,13 @@ export default function Bingo() {
             </div>
 
             {/* called-numbers board */}
-            <CalledBoard calls={callsSet} current={currentBall} />
+            <CollapsiblePanel
+              title="Called Board"
+              accent={ACCENT}
+              summary={<>{callsSet.size} called</>}
+            >
+              <CalledBoard calls={callsSet} current={currentBall} />
+            </CollapsiblePanel>
           </div>
         </div>
       </div>
@@ -762,7 +771,7 @@ function Hopper({
 }) {
   const letter = ball != null ? letterFor(ball) : null;
   return (
-    <div className="glass relative grid place-items-center overflow-hidden rounded-2xl p-4">
+    <div className="glass relative grid place-items-center overflow-hidden rounded-2xl p-3 sm:p-4 [@media(max-height:600px)]:p-2">
       {/* burst ring on resolve */}
       <AnimatePresence>
         {burst > 0 && win && <WinBurst key={burst} color={ACCENT} />}
@@ -808,7 +817,7 @@ function Hopper({
         </AnimatePresence>
 
         {/* the called ball */}
-        <div className="relative mt-2 grid place-items-center" style={{ width: 132, height: 132 }}>
+        <div className="relative mt-2 grid h-[132px] w-[132px] place-items-center [@media(max-height:600px)]:h-[92px] [@media(max-height:600px)]:w-[92px]">
           {/* glow halo */}
           <motion.div
             className="absolute inset-0 rounded-full"
@@ -826,10 +835,8 @@ function Hopper({
               animate={{ scale: 1, rotate: 0, opacity: 1, y: 0 }}
               exit={{ scale: 0.4, opacity: 0, y: 30 }}
               transition={{ type: "spring", stiffness: 260, damping: 16 }}
-              className="grid place-items-center rounded-full"
+              className="grid h-[116px] w-[116px] place-items-center rounded-full [@media(max-height:600px)]:h-[80px] [@media(max-height:600px)]:w-[80px]"
               style={{
-                width: 116,
-                height: 116,
                 background:
                   ball != null
                     ? "radial-gradient(circle at 38% 30%, #ffffff 0%, #fff 18%, #f4f4f4 45%, #d6d6d6 100%)"
@@ -920,7 +927,7 @@ function CardView({
           : "0 6px 18px rgba(0,0,0,0.4)",
       }}
       transition={{ delay: index * 0.06, type: "spring", stiffness: 220, damping: 22 }}
-      className="relative w-full max-w-[300px] overflow-hidden rounded-2xl border border-white/10 bg-black/40 p-2.5"
+      className="relative w-full max-w-[300px] overflow-hidden rounded-2xl border border-white/10 bg-black/40 p-2.5 [@media(max-height:600px)]:max-w-[210px]"
     >
       {/* card header / banner */}
       <div className="mb-2 flex items-center justify-between px-0.5">
@@ -1078,11 +1085,7 @@ function Cell({
 
 function CalledBoard({ calls, current }: { calls: Set<number>; current: number | null }) {
   return (
-    <div className="glass rounded-2xl p-3">
-      <div className="mb-2 flex items-center justify-between">
-        <span className="text-[10px] uppercase tracking-widest text-white/40">Called Board</span>
-        <span className="text-[10px] text-white/40">{calls.size} called</span>
-      </div>
+    <div className="pt-1">
       <div className="space-y-1">
         {COLS.map((L, ci) => {
           const [lo, hi] = COL_RANGES[L];
@@ -1154,12 +1157,9 @@ function Paytable({
       ? SPEED_LADDER.findIndex((s) => firstLineBall <= s.maxBalls)
       : -1;
   return (
-    <div className="glass rounded-2xl p-3">
-      <div className="mb-2 flex items-center justify-between">
-        <span className="text-[10px] uppercase tracking-widest text-white/40">
-          Paytable (per card)
-        </span>
-        <span className="text-[10px] text-white/40">speed bingo</span>
+    <div className="pt-1">
+      <div className="mb-2 text-[10px] uppercase tracking-widest text-white/40">
+        Per card
       </div>
 
       {/* Blackout headline */}

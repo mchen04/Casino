@@ -18,6 +18,7 @@ import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
 import { BetControls } from "@/components/BetControls";
 import { CountingNumber } from "@/components/CountingNumber";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 
 /* ================================================================== *
  * Neon Royale — Scratch Cards
@@ -700,10 +701,10 @@ export default function ScratchCards() {
         })}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1.55fr_1fr]">
+      <div className="grid gap-2 sm:gap-4 lg:grid-cols-[1.55fr_1fr]">
         {/* ---- The ticket --------------------------------------------- */}
         <div
-          className="felt relative overflow-hidden rounded-3xl p-4 sm:p-6"
+          className="felt relative overflow-hidden rounded-3xl p-3 sm:p-6 [@media(max-height:600px)]:p-3"
           style={{ boxShadow: `inset 0 0 60px rgba(0,0,0,0.45)` }}
         >
           {/* ticket backdrop tinted by theme */}
@@ -732,7 +733,7 @@ export default function ScratchCards() {
             </div>
 
             {/* 3×3 grid */}
-            <div className="relative">
+            <div className="relative mx-auto [@media(max-height:600px)]:max-w-[260px]">
               <AnimatePresence mode="wait">
                 {phase === "betting" || !card ? (
                   <motion.div
@@ -762,7 +763,7 @@ export default function ScratchCards() {
                 ) : (
                   <motion.div
                     key={`grid-${roundId}`}
-                    className="grid grid-cols-3 gap-2 sm:gap-3"
+                    className="grid grid-cols-3 gap-1.5 sm:gap-3 [@media(max-height:600px)]:gap-1.5"
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
@@ -850,7 +851,7 @@ export default function ScratchCards() {
               data-testid="round-result"
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
-              className="mt-4 min-h-[2.5rem] rounded-xl px-4 py-2 text-center text-sm font-semibold"
+              className="mt-3 min-h-[2.5rem] rounded-xl px-4 py-2 text-center text-sm font-semibold sm:mt-4"
               style={{
                 background: won
                   ? `${theme.accent}1f`
@@ -876,7 +877,7 @@ export default function ScratchCards() {
             </motion.div>
 
             {/* actions */}
-            <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+            <div className="mt-3 flex flex-wrap items-center justify-center gap-3 sm:mt-4">
               {phase === "scratching" ? (
                 <Button
                   data-testid="reveal-all-btn"
@@ -907,7 +908,7 @@ export default function ScratchCards() {
         </div>
 
         {/* ---- Side: bet + paytable ----------------------------------- */}
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2 sm:gap-4">
           <BetControls
             bet={bet}
             setBet={setBet}
@@ -918,19 +919,12 @@ export default function ScratchCards() {
           />
 
           {/* Prize legend / paytable */}
-          <div className="glass rounded-2xl p-4">
-            <div className="mb-2 flex items-center justify-between">
-              <h3
-                className="font-display text-sm font-bold tracking-wide"
-                style={{ color: theme.accent }}
-              >
-                {theme.name} — Prizes
-              </h3>
-              <span className="text-[10px] uppercase tracking-widest text-white/40">
-                3 of a kind
-              </span>
-            </div>
-            <div className="flex flex-col gap-1.5">
+          <CollapsiblePanel
+            title={`${theme.name} — Prizes`}
+            accent={theme.accent}
+            summary={<>3 of a kind</>}
+          >
+            <div className="mt-2 flex flex-col gap-1.5">
               {theme.prizes
                 .slice()
                 .sort((a, b) => b.mult - a.mult)
@@ -972,7 +966,7 @@ export default function ScratchCards() {
               Reveal all nine panels. Three matching symbols pay that prize ×
               your bet. The card&apos;s outcome is locked the moment you buy it.
             </p>
-          </div>
+          </CollapsiblePanel>
         </div>
       </div>
     </div>

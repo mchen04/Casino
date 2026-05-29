@@ -9,6 +9,7 @@ import { formatChips, formatDelta } from "@/lib/format";
 import { CountingNumber } from "@/components/CountingNumber";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 
 /* ----------------------------------------------------------------------------
  * Sic Bo — three dice.
@@ -632,7 +633,7 @@ export default function SicBo() {
       </div>
 
       {/* Table surface */}
-      <div className="felt relative overflow-hidden rounded-3xl p-4 sm:p-6">
+      <div className="felt relative overflow-hidden rounded-3xl p-4 sm:p-6 [@media(max-height:600px)]:p-3">
         <div
           className="pointer-events-none absolute inset-0 opacity-50"
           style={{
@@ -641,9 +642,9 @@ export default function SicBo() {
         />
 
         {/* Dice arena */}
-        <div className="relative mb-4 grid place-items-center">
+        <div className="relative mb-3 grid place-items-center sm:mb-4">
           <div
-            className="relative flex items-center justify-center gap-4 rounded-2xl px-6 py-6 sm:gap-7 sm:px-12"
+            className="relative flex items-center justify-center gap-4 rounded-2xl px-6 py-4 sm:gap-7 sm:px-12 sm:py-6 [@media(max-height:600px)]:gap-3 [@media(max-height:600px)]:px-4 [@media(max-height:600px)]:py-2"
             style={{
               background:
                 "radial-gradient(circle at 50% 40%, rgba(0,0,0,0.35), rgba(0,0,0,0.15))",
@@ -651,8 +652,11 @@ export default function SicBo() {
             }}
           >
             {dice.map((d, i) => (
-              <DiceCube
+              <div
                 key={i}
+                className="origin-center [@media(max-height:600px)]:scale-[0.62]"
+              >
+              <DiceCube
                 face={d}
                 rolling={phase === "rolling"}
                 delay={i * 0.08}
@@ -670,6 +674,7 @@ export default function SicBo() {
                   })
                 }
               />
+              </div>
             ))}
             <AnimatePresence>{showBurst && <WinBurst />}</AnimatePresence>
           </div>
@@ -879,7 +884,7 @@ export default function SicBo() {
         </div>
 
         {/* Result banner */}
-        <div className="relative mt-4 min-h-[46px]">
+        <div className="relative mt-3 min-h-[46px] sm:mt-4 [@media(max-height:600px)]:mt-2 [@media(max-height:600px)]:min-h-[38px]">
           <AnimatePresence mode="wait">
             {resultText && (
               <motion.div
@@ -914,7 +919,7 @@ export default function SicBo() {
       </div>
 
       {/* ===== Controls ===== */}
-      <div className="mt-4 grid gap-4 lg:grid-cols-[1.5fr_1fr]">
+      <div className="mt-3 grid gap-2 sm:mt-4 sm:gap-4 lg:grid-cols-[1.5fr_1fr]">
         {/* Chip selector + stake + actions */}
         <div className="glass rounded-2xl p-4">
           <div className="mb-3 flex items-center justify-between">
@@ -1027,15 +1032,11 @@ export default function SicBo() {
         </div>
 
         {/* Paytable */}
-        <div className="glass rounded-2xl p-4">
-          <div className="mb-2 flex items-center justify-between">
-            <div className="font-display text-sm font-bold" style={{ color: ACCENT }}>
-              Paytable
-            </div>
-            <div className="text-[10px] uppercase tracking-widest text-white/35">
-              pays : 1
-            </div>
-          </div>
+        <CollapsiblePanel
+          title="Paytable"
+          accent={ACCENT}
+          summary={<>pays : 1</>}
+        >
           <ul className="space-y-1 text-[12px]">
             {[
               ["Small / Big", "1:1", "total 4–10 / 11–17 · loses on any triple"],
@@ -1069,7 +1070,7 @@ export default function SicBo() {
               </li>
             ))}
           </ul>
-        </div>
+        </CollapsiblePanel>
       </div>
     </div>
   );

@@ -10,6 +10,7 @@ import { CountingNumber } from "@/components/CountingNumber";
 import { PlayingCard } from "@/components/PlayingCard";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 
 /* ----------------------------------------------------------------------------
  * Dragon Tiger — fast Sino-baccarat.
@@ -290,7 +291,7 @@ export default function DragonTiger() {
   return (
     <div className="mx-auto w-full max-w-5xl">
       {/* ---- Headline / streak summary ---- */}
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2 sm:mb-3">
         <div className="flex items-center gap-2">
           <span className="text-2xl">🐉</span>
           <div>
@@ -313,7 +314,7 @@ export default function DragonTiger() {
       </div>
 
       {/* ---- Table surface ---- */}
-      <div className="felt relative overflow-hidden rounded-3xl p-4 sm:p-6">
+      <div className="felt relative overflow-hidden rounded-3xl p-3 sm:p-6 [@media(max-height:600px)]:p-3">
         {/* ambient glow halves */}
         <div
           className="pointer-events-none absolute inset-y-0 left-0 w-1/2 opacity-40"
@@ -393,7 +394,7 @@ export default function DragonTiger() {
         </div>
 
         {/* ---- Bet spots ---- */}
-        <div className="relative mt-5 grid grid-cols-3 gap-2 sm:gap-3">
+        <div className="relative mt-3 grid grid-cols-3 gap-2 sm:mt-5 sm:gap-3">
           <BetSpot
             testid="bet-dragon"
             label="DRAGON"
@@ -450,7 +451,7 @@ export default function DragonTiger() {
         </div>
 
         {/* ---- Result banner ---- */}
-        <div className="relative mt-4 min-h-[44px]">
+        <div className="relative mt-3 min-h-[40px] sm:mt-4 sm:min-h-[44px]">
           <AnimatePresence mode="wait">
             {resultText && (
               <motion.div
@@ -503,7 +504,7 @@ export default function DragonTiger() {
       </div>
 
       {/* ---- Controls ---- */}
-      <div className="mt-4 grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+      <div className="mt-3 grid gap-2 sm:mt-4 sm:gap-4 lg:grid-cols-[1.4fr_1fr]">
         {/* Bet + chips + action */}
         <div className="glass rounded-2xl p-4">
           <div className="mb-3 flex items-center justify-between">
@@ -611,10 +612,7 @@ export default function DragonTiger() {
         </div>
 
         {/* Paytable */}
-        <div className="glass rounded-2xl p-4">
-          <div className="mb-2 text-[11px] uppercase tracking-widest text-white/40">
-            Paytable
-          </div>
+        <CollapsiblePanel title="Paytable" accent={DRAGON} summary={<>Tie 8:1 · Suit 50:1</>}>
           <div className="space-y-1.5">
             {PAYTABLE.map((p) => {
               const won =
@@ -648,17 +646,16 @@ export default function DragonTiger() {
             Ace is low (1), King high (13). On a Tie, Dragon &amp; Tiger bets lose
             half their stake. Tie &amp; Suit&nbsp;Tie bets lose on any non-tie.
           </p>
-        </div>
+        </CollapsiblePanel>
       </div>
 
       {/* ---- Streak board ---- */}
-      <div className="glass mt-4 rounded-2xl p-4">
-        <div className="mb-2 flex items-center justify-between">
-          <div className="text-[11px] uppercase tracking-widest text-white/40">
-            Recent results
-          </div>
-          <div className="text-[10px] text-white/35">last {history.length}</div>
-        </div>
+      <div className="mt-3 sm:mt-4">
+        <CollapsiblePanel
+          title="Recent results"
+          accent={DRAGON}
+          summary={<>last {history.length}</>}
+        >
         {history.length === 0 ? (
           <div className="py-2 text-center text-sm text-white/30">
             No rounds yet — deal to start the streak board.
@@ -704,6 +701,7 @@ export default function DragonTiger() {
             })}
           </div>
         )}
+        </CollapsiblePanel>
       </div>
     </div>
   );
@@ -765,7 +763,7 @@ function SideArena({
   const dealing = phase === "dealing" || phase === "revealing";
   return (
     <motion.div
-      className="flex flex-col items-center gap-2"
+      className="flex flex-col items-center gap-1 sm:gap-2"
       animate={{ opacity: dimmed ? 0.45 : 1, scale: active ? 1.04 : 1 }}
       transition={{ type: "spring", stiffness: 260, damping: 20 }}
     >
@@ -778,7 +776,7 @@ function SideArena({
       </div>
 
       <div
-        className="relative grid place-items-center rounded-2xl p-3"
+        className="relative grid place-items-center rounded-2xl p-2 sm:p-3"
         style={{
           background: `linear-gradient(180deg, ${color}1f, ${deep}14)`,
           boxShadow: active

@@ -9,6 +9,7 @@ import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { PlayingCard } from "@/components/PlayingCard";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 
 const ACCENT = "#d35400";
 const ACCENT_LIGHT = "#ff8c42";
@@ -355,7 +356,7 @@ export default function RedDog() {
   // -------------------------------------------------------------------------
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-4">
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-2 sm:gap-4">
       {/* Title strip */}
       <div
         className="glass flex items-center justify-between gap-3 rounded-2xl px-4 py-3"
@@ -386,7 +387,7 @@ export default function RedDog() {
 
       {/* Felt surface */}
       <div
-        className="felt relative overflow-hidden rounded-3xl p-4 sm:p-8"
+        className="felt relative overflow-hidden rounded-3xl p-4 sm:p-8 [@media(max-height:600px)]:p-3"
         style={{ boxShadow: `inset 0 0 120px ${ACCENT_DARK}33` }}
       >
         <RadialGlow />
@@ -395,7 +396,7 @@ export default function RedDog() {
         <SpreadMeter phase={phase} spread={spread} sorted={sorted} accent={ACCENT_LIGHT} />
 
         {/* Card table */}
-        <div className="relative mt-2 grid min-h-[180px] place-items-center sm:min-h-[210px]">
+        <div className="relative mt-2 grid min-h-[140px] place-items-center sm:min-h-[210px] [@media(max-height:600px)]:min-h-[120px]">
           <div className="relative flex items-center justify-center gap-5 sm:gap-12">
             {/* Left card */}
             <DealtCard
@@ -475,7 +476,7 @@ export default function RedDog() {
         </div>
 
         {/* Result banner */}
-        <div className="mt-3 grid place-items-center" style={{ minHeight: 56 }}>
+        <div className="mt-3 grid min-h-[40px] place-items-center sm:min-h-[56px] [@media(max-height:600px)]:mt-2 [@media(max-height:600px)]:min-h-[32px]">
           <AnimatePresence mode="wait">
             {outcome && (
               <motion.div
@@ -545,7 +546,7 @@ export default function RedDog() {
       {/* Controls + paytable */}
       <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
         {/* Action / bet bar */}
-        <div className="glass flex flex-col gap-3 rounded-2xl p-3 sm:p-4">
+        <div className="glass flex flex-col gap-2 rounded-2xl p-3 sm:gap-3 sm:p-4">
           {/* Chips */}
           <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
             {DEFAULT_CHIPS.map((v) => (
@@ -853,13 +854,7 @@ function Paytable({
   accent: string;
 }) {
   return (
-    <div className="glass flex flex-col gap-2 rounded-2xl p-4">
-      <div
-        className="font-display text-sm font-bold uppercase tracking-widest"
-        style={{ color: accent }}
-      >
-        Paytable
-      </div>
+    <CollapsiblePanel title="Paytable" accent={accent} summary={<>up to 11:1</>}>
       <div className="flex flex-col gap-1.5">
         {SPREAD_TIERS.map((t, i) => (
           <motion.div
@@ -889,7 +884,7 @@ function Paytable({
         Spread is the count of ranks strictly between your two cards. The third
         card must land inside that gap. Payouts apply to your total wager.
       </p>
-    </div>
+    </CollapsiblePanel>
   );
 }
 

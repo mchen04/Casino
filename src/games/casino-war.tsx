@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/Button";
 import { PlayingCard } from "@/components/PlayingCard";
 import { BetControls } from "@/components/BetControls";
 import { CountingNumber } from "@/components/CountingNumber";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 import { sleep } from "@/lib/async";
 
 // ---------------------------------------------------------------------------
@@ -315,10 +316,10 @@ export default function CasinoWar() {
     !!result && !result.good && result.outcome !== "surrender";
 
   return (
-    <div className="mx-auto w-full max-w-4xl select-none px-2 py-3 sm:px-4">
+    <div className="mx-auto w-full max-w-4xl select-none px-2 py-2 sm:px-4 sm:py-3">
       {/* ===== Felt surface ===== */}
       <div
-        className="felt relative overflow-hidden rounded-3xl border p-4 sm:p-7"
+        className="felt relative overflow-hidden rounded-3xl border p-3 sm:p-7 [@media(max-height:600px)]:p-3"
         style={{
           borderColor: "rgba(192,57,43,0.45)",
           boxShadow:
@@ -335,7 +336,7 @@ export default function CasinoWar() {
         />
 
         {/* Header */}
-        <div className="relative z-10 mb-4 flex items-center justify-between gap-3">
+        <div className="relative z-10 mb-2 flex items-center justify-between gap-3 sm:mb-4 [@media(max-height:600px)]:mb-2">
           <div className="flex items-center gap-2">
             <span className="text-2xl">⚔️</span>
             <div>
@@ -361,7 +362,7 @@ export default function CasinoWar() {
         </div>
 
         {/* ===== Battle table ===== */}
-        <div className="relative z-10 grid grid-cols-2 gap-3 sm:gap-6">
+        <div className="relative z-10 grid grid-cols-2 gap-2 sm:gap-6 [@media(max-height:600px)]:gap-2">
           {/* Player side */}
           <Seat
             title="You"
@@ -441,7 +442,7 @@ export default function CasinoWar() {
         </AnimatePresence>
 
         {/* ===== Result banner ===== */}
-        <div className="relative z-10 mt-5 min-h-[58px] sm:min-h-[64px]">
+        <div className="relative z-10 mt-3 min-h-[48px] sm:mt-5 sm:min-h-[64px] [@media(max-height:600px)]:mt-2 [@media(max-height:600px)]:min-h-[44px]">
           <AnimatePresence mode="wait">
             {phase === "tie" && (
               <motion.div
@@ -516,7 +517,7 @@ export default function CasinoWar() {
         </div>
 
         {/* ===== Action area ===== */}
-        <div className="relative z-10 mt-4">
+        <div className="relative z-10 mt-2 sm:mt-4 [@media(max-height:600px)]:mt-2">
           {phase === "tie" ? (
             <div className="flex flex-wrap items-center justify-center gap-3">
               <Button
@@ -647,28 +648,28 @@ export default function CasinoWar() {
       </div>
 
       {/* ===== Paytable ===== */}
-      <div className="glass mt-4 rounded-2xl p-4">
-        <div className="mb-2 flex items-center gap-2">
-          <span className="text-sm">📜</span>
-          <h3 className="font-display text-sm font-bold uppercase tracking-widest text-white/70">
-            Paytable & Rules
-          </h3>
-        </div>
-        <div className="grid grid-cols-1 gap-1.5 text-xs sm:grid-cols-2">
-          <PayRow label="Higher card wins" value="1 : 1" />
-          <PayRow label="Tie → War win" value="Even (raise) + push" />
-          <PayRow label="Tie → War tie" value="2 : 1 bonus" hot accent={ACCENT_LIGHT} />
-          <PayRow label="Tie → Surrender" value="Lose half" muted />
-          <PayRow label="Tie → War loss" value="Lose both bets" muted />
-          <PayRow label="Aces are high" value="A ▸ K ▸ … ▸ 2" />
-        </div>
-        <p className="mt-2 text-[11px] leading-relaxed text-white/40">
-          One card to you, one to the dealer. Highest rank wins even money. On a
-          tie you may surrender half your bet, or go to war: match your bet, burn
-          three cards, and draw again. Win the war and your raise pays 1:1 while
-          the original bet pushes. Tie the war for a 2:1 bonus. Lose and both
-          bets are gone. Played from a six-deck shoe.
-        </p>
+      <div className="mt-2 sm:mt-4">
+        <CollapsiblePanel
+          title="Paytable & Rules"
+          accent={ACCENT_LIGHT}
+          summary={<>War tie 2:1</>}
+        >
+          <div className="grid grid-cols-1 gap-1.5 text-xs sm:grid-cols-2">
+            <PayRow label="Higher card wins" value="1 : 1" />
+            <PayRow label="Tie → War win" value="Even (raise) + push" />
+            <PayRow label="Tie → War tie" value="2 : 1 bonus" hot accent={ACCENT_LIGHT} />
+            <PayRow label="Tie → Surrender" value="Lose half" muted />
+            <PayRow label="Tie → War loss" value="Lose both bets" muted />
+            <PayRow label="Aces are high" value="A ▸ K ▸ … ▸ 2" />
+          </div>
+          <p className="mt-2 text-[11px] leading-relaxed text-white/40">
+            One card to you, one to the dealer. Highest rank wins even money. On a
+            tie you may surrender half your bet, or go to war: match your bet, burn
+            three cards, and draw again. Win the war and your raise pays 1:1 while
+            the original bet pushes. Tie the war for a 2:1 bonus. Lose and both
+            bets are gone. Played from a six-deck shoe.
+          </p>
+        </CollapsiblePanel>
       </div>
     </div>
   );
@@ -718,7 +719,7 @@ function Seat({
       </div>
 
       <div
-        className="flex min-h-[100px] items-center gap-2 sm:min-h-[126px]"
+        className="flex min-h-[100px] items-center gap-2 sm:min-h-[126px] [@media(max-height:600px)]:min-h-[88px]"
         style={{ flexDirection: align === "end" ? "row-reverse" : "row" }}
       >
         <AnimatePresence>

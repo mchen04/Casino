@@ -15,6 +15,7 @@ import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { PlayingCard } from "@/components/PlayingCard";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 
 // ---------------------------------------------------------------------------
 // Theme — festive lotus / pink-gold
@@ -302,13 +303,11 @@ function Lotus({ className }: { className?: string }) {
 
 function RankingChart({ highlight }: { highlight: TPCategory | null }) {
   return (
-    <div className="glass rounded-2xl p-3">
-      <h3
-        className="mb-2 font-display text-xs font-bold uppercase tracking-widest"
-        style={{ color: ACCENT }}
-      >
-        Teen Patti Ranking
-      </h3>
+    <CollapsiblePanel
+      title="Teen Patti Ranking"
+      accent={ACCENT}
+      summary={<>High → Low</>}
+    >
       <p className="mb-2 text-[10px] text-white/45">High → Low (Trail beats all)</p>
       <ul className="space-y-0.5 text-[11px] sm:text-xs">
         {RANK_CHART.map((r) => {
@@ -348,7 +347,7 @@ function RankingChart({ highlight }: { highlight: TPCategory | null }) {
           );
         })}
       </ul>
-    </div>
+    </CollapsiblePanel>
   );
 }
 
@@ -671,11 +670,11 @@ export default function TeenPatti() {
 
   return (
     <div className="mx-auto w-full max-w-6xl">
-      <div className="grid gap-4 lg:grid-cols-[1fr_290px]">
+      <div className="grid gap-2 sm:gap-4 lg:grid-cols-[1fr_290px]">
         {/* ===================== TABLE ===================== */}
         <div className="relative">
           <div
-            className="felt relative overflow-hidden rounded-3xl p-4 sm:p-6"
+            className="felt relative overflow-hidden rounded-3xl p-3 sm:p-6 [@media(max-height:600px)]:p-2.5"
             style={{
               boxShadow: `0 0 0 1px ${ACCENT_SOFT}, 0 24px 60px rgba(0,0,0,0.55)`,
               backgroundImage:
@@ -695,7 +694,7 @@ export default function TeenPatti() {
             <WinBurst show={burst.show} big={burst.big} />
 
             {/* Title flourish */}
-            <div className="relative z-10 mb-3 text-center">
+            <div className="relative z-10 mb-2 text-center sm:mb-3 [@media(max-height:600px)]:mb-1">
               <span
                 className="font-display text-xs font-bold uppercase tracking-[0.35em]"
                 style={{ color: GOLD, textShadow: `0 0 12px ${ACCENT_SOFT}` }}
@@ -755,7 +754,7 @@ export default function TeenPatti() {
             </div>
 
             {/* Center banner / pot */}
-            <div className="my-4 grid min-h-[72px] place-items-center">
+            <div className="my-2 grid min-h-[56px] place-items-center sm:my-4 sm:min-h-[72px] [@media(max-height:600px)]:my-1.5 [@media(max-height:600px)]:min-h-[44px]">
               <AnimatePresence mode="wait">
                 {phase === "result" && resolution ? (
                   <motion.div
@@ -896,7 +895,7 @@ export default function TeenPatti() {
             </div>
 
             {/* Bet spots */}
-            <div className="relative z-10 mt-5 flex flex-wrap items-center justify-center gap-3">
+            <div className="relative z-10 mt-3 flex flex-wrap items-center justify-center gap-2 sm:mt-5 sm:gap-3 [@media(max-height:600px)]:mt-2">
               <BetSpot
                 label="Boot"
                 value={boot}
@@ -923,7 +922,7 @@ export default function TeenPatti() {
           </div>
 
           {/* ===================== CONTROLS ===================== */}
-          <div className="mt-4">
+          <div className="mt-2 sm:mt-4">
             {phase === "betting" && (
               <div className="glass rounded-2xl p-3 sm:p-4">
                 <div className="mb-2 text-center text-[11px] uppercase tracking-widest text-white/55">
@@ -1057,17 +1056,11 @@ export default function TeenPatti() {
         </div>
 
         {/* ===================== SIDEBAR ===================== */}
-        <div className="space-y-4">
+        <div className="space-y-2 sm:space-y-4">
           <RankingChart highlight={chartHighlight} />
 
           {/* Round breakdown / rules */}
-          <div className="glass rounded-2xl p-3">
-            <h3
-              className="mb-2 font-display text-xs font-bold uppercase tracking-widest"
-              style={{ color: ACCENT }}
-            >
-              Round
-            </h3>
+          <CollapsiblePanel title="Round" accent={ACCENT} summary={<>rules</>}>
             <AnimatePresence mode="wait">
               {resolution && phase === "result" ? (
                 <motion.ul
@@ -1127,7 +1120,7 @@ export default function TeenPatti() {
                 </motion.div>
               )}
             </AnimatePresence>
-          </div>
+          </CollapsiblePanel>
 
           {/* Stats */}
           <div className="glass flex items-center justify-between rounded-2xl px-4 py-3">

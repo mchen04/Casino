@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/Button";
 import { BetControls } from "@/components/BetControls";
 import { PlayingCard } from "@/components/PlayingCard";
 import { CountingNumber } from "@/components/CountingNumber";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 
 const ACCENT = "#1abc9c";
 const MIN_BET = 5;
@@ -403,7 +404,7 @@ export default function CaribbeanStud() {
         <WinBurst show={showBurst} big={bigWin} />
 
         {/* Header */}
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-3 sm:mb-4">
           <div className="flex items-center gap-3">
             <span className="text-3xl drop-shadow">🏝️</span>
             <div>
@@ -445,7 +446,7 @@ export default function CaribbeanStud() {
           </div>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-[1fr_240px]">
+        <div className="grid gap-2 sm:gap-4 lg:grid-cols-[1fr_240px]">
           {/* Table surface */}
           <div className="relative">
             {/* Dealer row */}
@@ -471,7 +472,7 @@ export default function CaribbeanStud() {
                 )}
               </AnimatePresence>
             </div>
-            <div className="flex min-h-[100px] flex-wrap gap-1.5 sm:gap-2">
+            <div className="flex min-h-[100px] flex-wrap gap-1.5 sm:gap-2 [@media(max-height:600px)]:min-h-[80px]">
               {[0, 1, 2, 3, 4].map((i) => {
                 const dealt = dealtCount >= 6 + i; // dealer cards dealt after 5 player
                 const card = dealerCards[i] ?? null;
@@ -506,7 +507,7 @@ export default function CaribbeanStud() {
             )}
 
             {/* Center result banner */}
-            <div className="my-3 flex min-h-[44px] items-center justify-center">
+            <div className="my-2 flex min-h-[44px] items-center justify-center sm:my-3 [@media(max-height:600px)]:my-1 [@media(max-height:600px)]:min-h-[36px]">
               <AnimatePresence mode="wait">
                 {phase === "result" ? (
                   <motion.div
@@ -590,7 +591,7 @@ export default function CaribbeanStud() {
                 </motion.span>
               )}
             </div>
-            <div className="flex min-h-[100px] flex-wrap gap-1.5 sm:gap-2">
+            <div className="flex min-h-[100px] flex-wrap gap-1.5 sm:gap-2 [@media(max-height:600px)]:min-h-[80px]">
               {[0, 1, 2, 3, 4].map((i) => {
                 const dealt = dealtCount >= 1 + i;
                 const card = playerCards[i] ?? null;
@@ -616,7 +617,7 @@ export default function CaribbeanStud() {
             </div>
 
             {/* Action area */}
-            <div className="mt-5">
+            <div className="mt-3 sm:mt-5 [@media(max-height:600px)]:mt-2">
               {phase === "betting" || phase === "result" ? (
                 <div className="space-y-3">
                   <BetControls
@@ -682,13 +683,11 @@ export default function CaribbeanStud() {
           </div>
 
           {/* Paytable / odds panel */}
-          <div className="glass rounded-2xl p-4">
-            <div
-              className="mb-2 text-center text-xs font-bold uppercase tracking-widest"
-              style={{ color: ACCENT }}
-            >
-              Raise Pays
-            </div>
+          <CollapsiblePanel
+            title="Raise Pays"
+            accent={ACCENT}
+            summary={<>up to 100:1</>}
+          >
             <ul className="space-y-1 text-[12px]">
               {RAISE_TABLE.map((row) => {
                 const active =
@@ -749,7 +748,7 @@ export default function CaribbeanStud() {
                 {formatChips(wallet.biggestWin)}
               </span>
             </div>
-          </div>
+          </CollapsiblePanel>
         </div>
       </div>
     </div>

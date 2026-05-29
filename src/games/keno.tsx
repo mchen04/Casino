@@ -15,6 +15,7 @@ import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { CountingNumber } from "@/components/CountingNumber";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 import { sleep } from "@/lib/async";
 
 // ---------------------------------------------------------------------------
@@ -435,7 +436,7 @@ export default function Keno() {
 
   return (
     <div className="mx-auto w-full max-w-5xl">
-      <div className="felt relative overflow-hidden rounded-3xl p-4 shadow-felt sm:p-6">
+      <div className="felt relative overflow-hidden rounded-3xl p-3 shadow-felt sm:p-6">
         {/* ambient glow */}
         <div
           className="pointer-events-none absolute -top-24 left-1/2 h-64 w-[28rem] -translate-x-1/2 rounded-full opacity-30 blur-3xl"
@@ -443,7 +444,7 @@ export default function Keno() {
         />
 
         {/* ---- header ---- */}
-        <div className="relative mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="relative mb-3 flex flex-wrap items-center justify-between gap-2 sm:mb-4 sm:gap-3">
           <div>
             <h2
               className="font-display text-2xl font-bold tracking-wide sm:text-3xl"
@@ -466,11 +467,11 @@ export default function Keno() {
           </div>
         </div>
 
-        <div className="relative grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="relative grid gap-2 sm:gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
           {/* ---- left: grid + drawn tray ---- */}
           <div className="min-w-0">
             <div className="glass rounded-2xl p-3 sm:p-4">
-              <div className="grid grid-cols-10 gap-1.5 sm:gap-2">
+              <div className="mx-auto grid grid-cols-10 gap-1.5 [@media(max-height:600px)]:max-w-[340px] sm:gap-2">
                 {Array.from({ length: TOTAL_NUMBERS }, (_, i) => i + 1).map((n) => {
                   const isPicked = picks.has(n);
                   const isDrawn = drawnSet.has(n);
@@ -491,7 +492,7 @@ export default function Keno() {
             </div>
 
             {/* drawn-order tray */}
-            <div className="glass mt-3 rounded-2xl p-3">
+            <div className="glass mt-2 rounded-2xl p-3 sm:mt-3">
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-[10px] uppercase tracking-widest text-white/40">
                   Drawn Order
@@ -516,9 +517,9 @@ export default function Keno() {
           </div>
 
           {/* ---- right: paytable + result ---- */}
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-2 sm:gap-3">
             {/* result banner */}
-            <div className="glass min-h-[5.5rem] rounded-2xl p-3">
+            <div className="glass min-h-[4rem] rounded-2xl p-3 sm:min-h-[5.5rem]">
               <AnimatePresence mode="wait">
                 {phase === "resolved" ? (
                   <motion.div
@@ -604,11 +605,13 @@ export default function Keno() {
             </div>
 
             {/* paytable */}
-            <div className="glass flex-1 rounded-2xl p-3">
-              <div className="mb-2 flex items-center justify-between">
-                <span className="text-[10px] uppercase tracking-widest text-white/40">
-                  Paytable
-                </span>
+            <CollapsiblePanel
+              title="Paytable"
+              accent={ACCENT}
+              className="flex-1"
+              summary={<>Pick {tableSpots}</>}
+            >
+              <div className="mb-2 flex items-center justify-end">
                 <span
                   className="rounded-full px-2 py-0.5 text-[10px] font-bold"
                   style={{ background: `${ACCENT}22`, color: ACCENT }}
@@ -662,12 +665,12 @@ export default function Keno() {
               <p className="mt-2 text-[10px] leading-snug text-white/30">
                 Payouts include your stake. 1.00× returns your bet (push).
               </p>
-            </div>
+            </CollapsiblePanel>
           </div>
         </div>
 
         {/* ---- bottom: bet + actions ---- */}
-        <div className="relative mt-4 glass rounded-2xl p-3 sm:p-4">
+        <div className="relative mt-2 glass rounded-2xl p-3 sm:mt-4 sm:p-4">
           <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
             {CHIPS.map((v) => (
               <Chip

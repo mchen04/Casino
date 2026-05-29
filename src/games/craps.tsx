@@ -7,6 +7,7 @@ import { sfx } from "@/lib/sound";
 import { randInt } from "@/lib/rng";
 import { formatChips, formatDelta } from "@/lib/format";
 import { CountingNumber } from "@/components/CountingNumber";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 
@@ -900,9 +901,9 @@ export default function Craps() {
         </div>
 
         {/* DICE STAGE — cinematic zoom-out / toss-across / zoom-in throw */}
-        <div className="relative my-5">
+        <div className="relative my-3 sm:my-5 [@media(max-height:600px)]:my-2">
           <motion.div
-            className="relative grid place-items-center overflow-hidden rounded-2xl py-8"
+            className="relative grid place-items-center overflow-hidden rounded-2xl py-5 sm:py-8 [@media(max-height:600px)]:py-3"
             style={{
               background: "radial-gradient(ellipse at center, rgba(0,0,0,0.25), rgba(0,0,0,0.05))",
               border: "1px solid rgba(255,255,255,0.06)",
@@ -1028,7 +1029,7 @@ export default function Craps() {
         </div>
 
         {/* RESULT TEXT */}
-        <div className="mb-4 text-center">
+        <div className="mb-2 text-center sm:mb-4">
           <motion.div
             key={resultText}
             initial={{ opacity: 0, y: 6 }}
@@ -1100,7 +1101,7 @@ export default function Craps() {
         </div>
 
         {/* ODDS row (only meaningful after a point) */}
-        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="mt-2 grid grid-cols-1 gap-3 sm:mt-3 sm:grid-cols-2">
           <div
             className="flex items-center justify-between rounded-xl border p-3"
             style={{
@@ -1161,7 +1162,7 @@ export default function Craps() {
         </div>
 
         {/* HARDWAYS */}
-        <div className="mt-4">
+        <div className="mt-2 sm:mt-4">
           <div className="mb-1.5 flex items-center justify-between">
             <span className="text-[10px] uppercase tracking-widest text-white/40">Hardways</span>
             <span className="text-[10px] text-white/40">
@@ -1224,7 +1225,7 @@ export default function Craps() {
         </div>
 
         {/* REPEATERS */}
-        <div className="mt-4">
+        <div className="mt-2 sm:mt-4">
           <div className="mb-1.5 flex items-center justify-between">
             <span className="text-[10px] uppercase tracking-widest text-white/40">
               Repeater Bets
@@ -1287,7 +1288,7 @@ export default function Craps() {
         </div>
 
         {/* SET DICE + WORKING TOGGLE */}
-        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="mt-2 grid grid-cols-1 gap-3 sm:mt-4 sm:grid-cols-2">
           {/* Set the dice */}
           <div className="glass flex items-center justify-between gap-3 rounded-2xl p-3">
             <div className="min-w-0">
@@ -1348,7 +1349,7 @@ export default function Craps() {
         </div>
 
         {/* CHIP SELECTOR + ACTIONS */}
-        <div className="glass mt-4 rounded-2xl p-3 sm:p-4">
+        <div className="glass mt-2 rounded-2xl p-3 sm:mt-4 sm:p-4">
           <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
             {CHIP_DENOMS.map((v) => (
               <Chip
@@ -1419,12 +1420,9 @@ export default function Craps() {
         </div>
 
         {/* LOG + PAYTABLE */}
-        <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+        <div className="mt-2 grid grid-cols-1 gap-3 sm:mt-4 lg:grid-cols-2">
           {/* Roll log */}
-          <div className="glass rounded-2xl p-3">
-            <div className="mb-2 text-[10px] uppercase tracking-widest text-white/40">
-              Roll Log
-            </div>
+          <CollapsiblePanel title="Roll Log" accent={ACCENT}>
             <div className="min-h-[88px] space-y-1">
               <AnimatePresence initial={false}>
                 {log.length === 0 && (
@@ -1453,13 +1451,10 @@ export default function Craps() {
                 ))}
               </AnimatePresence>
             </div>
-          </div>
+          </CollapsiblePanel>
 
           {/* Paytable */}
-          <div className="glass rounded-2xl p-3">
-            <div className="mb-2 text-[10px] uppercase tracking-widest text-white/40">
-              Payouts
-            </div>
+          <CollapsiblePanel title="Payouts" accent={ACCENT} summary={<>1.41% on the line</>}>
             <div className="grid grid-cols-1 gap-y-1 sm:grid-cols-2 sm:gap-x-4">
               {PAYTABLE.map((row) => (
                 <div
@@ -1478,7 +1473,7 @@ export default function Craps() {
               (~9–12% edge). Hardways &amp; place bets are OFF on the come-out unless you turn
               them on above.
             </div>
-          </div>
+          </CollapsiblePanel>
         </div>
       </div>
     </div>

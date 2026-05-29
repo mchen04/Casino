@@ -26,6 +26,7 @@ import { formatChips, formatDelta } from "@/lib/format";
 import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
 import { PlayingCard } from "@/components/PlayingCard";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 
 const ACCENT = "#22e1ff";
 
@@ -542,10 +543,10 @@ export default function VideoPoker() {
           </div>
         </div>
 
-        <div className="relative z-10 grid gap-4 lg:grid-cols-[1.65fr_1fr]">
+        <div className="relative z-10 grid gap-2 sm:gap-4 md:grid-cols-[1.65fr_1fr]">
           {/* ---------------- Table / cards ---------------- */}
           <div className="flex flex-col">
-            <div className="glass relative flex flex-1 flex-col items-center justify-center gap-4 rounded-2xl p-4 sm:p-6">
+            <div className="glass relative flex flex-1 flex-col items-center justify-center gap-2 rounded-2xl p-4 sm:gap-4 sm:p-6 [@media(max-height:600px)]:p-3">
               {/* Win burst */}
               <AnimatePresence>
                 {outcome && outcome.gross > 0 && (
@@ -561,7 +562,7 @@ export default function VideoPoker() {
               </AnimatePresence>
 
               {/* Cards row */}
-              <div className="flex items-end justify-center gap-2 sm:gap-3">
+              <div className="flex origin-center items-end justify-center gap-1.5 sm:gap-3 [@media(max-height:600px)]:scale-[0.62] [@media(max-width:380px)]:scale-90">
                 {hand.map((card, i) => {
                   const isHeld = held[i];
                   const isWin =
@@ -653,7 +654,7 @@ export default function VideoPoker() {
               </div>
 
               {/* Result banner */}
-              <div className="mt-2 min-h-[56px] w-full text-center">
+              <div className="mt-2 min-h-[44px] w-full text-center sm:min-h-[56px] [@media(max-height:600px)]:mt-0 [@media(max-height:600px)]:min-h-[32px]">
                 <AnimatePresence mode="wait">
                   {phase === "result" && outcome ? (
                     <motion.div
@@ -730,9 +731,9 @@ export default function VideoPoker() {
             </div>
 
             {/* ---------------- Controls ---------------- */}
-            <div className="glass mt-4 rounded-2xl p-3 sm:p-4">
+            <div className="glass mt-2 rounded-2xl p-3 sm:mt-4 sm:p-4">
               {/* Coin value selector */}
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-3 sm:mb-3">
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] uppercase tracking-widest text-white/40">
                     Coin
@@ -862,14 +863,12 @@ export default function VideoPoker() {
           </div>
 
           {/* ---------------- Paytable ---------------- */}
-          <div className="glass rounded-2xl p-3 sm:p-4">
-            <div className="mb-2 flex items-baseline justify-between">
-              <h3
-                className="font-display text-sm font-bold uppercase tracking-widest"
-                style={{ color: ACCENT }}
-              >
-                Paytable
-              </h3>
+          <CollapsiblePanel
+            title="Paytable"
+            accent={ACCENT}
+            summary={<>9/6 · Royal 800×</>}
+          >
+            <div className="mb-2 flex items-baseline justify-end">
               <span className="text-[10px] uppercase tracking-widest text-white/40">
                 × {coins} coin{coins > 1 ? "s" : ""}
               </span>
@@ -981,7 +980,7 @@ export default function VideoPoker() {
                 </div>
               </div>
             </div>
-          </div>
+          </CollapsiblePanel>
         </div>
       </div>
     </div>

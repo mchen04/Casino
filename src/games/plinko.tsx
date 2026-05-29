@@ -15,6 +15,7 @@ import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
 import { BetControls } from "@/components/BetControls";
 import { CountingNumber } from "@/components/CountingNumber";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 
 // ---------------------------------------------------------------------------
 // PLINKO — Neon Royale
@@ -501,9 +502,9 @@ export default function Plinko() {
   const maxMult = Math.max(...multipliers);
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-2 py-3 sm:py-5">
+    <div className="mx-auto w-full max-w-3xl px-2 py-2 sm:py-5">
       <div
-        className="felt relative overflow-hidden rounded-3xl border border-white/10 p-4 shadow-felt sm:p-6"
+        className="felt relative overflow-hidden rounded-3xl border border-white/10 p-3 shadow-felt sm:p-6"
         style={{
           background:
             "radial-gradient(120% 90% at 50% 0%, #0c2730 0%, #08171c 60%, #050d10 100%)",
@@ -554,9 +555,9 @@ export default function Plinko() {
         </div>
 
         {/* ===== Board ===== */}
-        <div className="relative">
+        <div className="relative flex justify-center">
           <div
-            className="relative w-full overflow-hidden rounded-2xl border border-white/5 bg-black/30"
+            className="relative w-full max-w-[440px] overflow-hidden rounded-2xl border border-white/5 bg-black/30 sm:max-w-[520px] [@media(max-height:600px)]:max-h-[260px] [@media(max-height:600px)]:w-auto"
             style={{ aspectRatio: "1 / 0.92" }}
           >
             {/* win burst overlay */}
@@ -744,7 +745,7 @@ export default function Plinko() {
         </div>
 
         {/* ===== Round result ===== */}
-        <div className="relative mt-3 min-h-[58px]">
+        <div className="relative mt-2 min-h-[48px] sm:mt-3 sm:min-h-[58px]">
           <AnimatePresence mode="wait">
             {lastResult ? (
               <motion.div
@@ -810,7 +811,7 @@ export default function Plinko() {
         </div>
 
         {/* ===== Drop button ===== */}
-        <div className="relative mt-4 flex flex-col items-stretch gap-2 sm:flex-row sm:justify-center">
+        <div className="relative mt-2 flex flex-col items-stretch gap-2 sm:mt-4 sm:flex-row sm:justify-center">
           <Button
             data-testid="play-btn"
             variant="gold"
@@ -839,7 +840,7 @@ export default function Plinko() {
         </div>
 
         {/* ===== Bet controls ===== */}
-        <div className="relative mt-4">
+        <div className="relative mt-2 sm:mt-4">
           <BetControls
             bet={bet}
             setBet={setBet}
@@ -856,11 +857,15 @@ export default function Plinko() {
         </div>
 
         {/* ===== Paytable + history ===== */}
-        <div className="relative mt-4 grid gap-3 sm:grid-cols-2">
-          <div className="glass rounded-2xl p-3">
+        <div className="relative mt-2 grid gap-2 sm:mt-4 sm:gap-3 sm:grid-cols-2">
+          <CollapsiblePanel
+            title="Paytable"
+            accent={ACCENT}
+            summary={<>up to {formatMultiplier(maxMult)}</>}
+          >
             <div className="mb-2 flex items-center justify-between">
               <span className="text-[10px] uppercase tracking-[0.25em] text-white/40">
-                Paytable · {rows} rows · {risk}
+                {rows} rows · {risk}
               </span>
               <span className="text-[10px] text-white/30">
                 RTP {(houseInfo.rtp * 100).toFixed(1)}%
@@ -890,15 +895,13 @@ export default function Plinko() {
               Symmetric — edge buckets pay the most, the center the least. Each
               peg is a fair 50/50.
             </div>
-          </div>
+          </CollapsiblePanel>
 
-          <div className="glass rounded-2xl p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-[10px] uppercase tracking-[0.25em] text-white/40">
-                Last Drops
-              </span>
-              <span className="text-[10px] text-white/30">newest first</span>
-            </div>
+          <CollapsiblePanel
+            title="Last Drops"
+            accent={ACCENT}
+            summary={<>newest first</>}
+          >
             <div className="flex min-h-[34px] flex-wrap gap-1.5">
               <AnimatePresence initial={false}>
                 {history.length === 0 && (
@@ -924,7 +927,7 @@ export default function Plinko() {
                 })}
               </AnimatePresence>
             </div>
-          </div>
+          </CollapsiblePanel>
         </div>
 
         {/* live balance */}

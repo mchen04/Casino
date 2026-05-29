@@ -9,6 +9,7 @@ import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { CountingNumber } from "@/components/CountingNumber";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 import { sleep } from "@/lib/async";
 
 // ---------------------------------------------------------------------------
@@ -500,17 +501,17 @@ export default function Mines() {
   const roundOver = phase === "busted" || phase === "cashed";
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-4">
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-2 sm:gap-4">
       {/* ---- Surface ---- */}
       <div
-        className="felt relative overflow-hidden rounded-3xl p-4 sm:p-6"
+        className="felt relative overflow-hidden rounded-3xl p-3 sm:p-6"
         style={{ boxShadow: `0 0 0 1px ${ACCENT}22, 0 24px 60px rgba(0,0,0,0.5)` }}
       >
         {/* ambient grid glow */}
         <div className="bg-grid pointer-events-none absolute inset-0 opacity-20" />
 
         {/* ---- Header: title + live stats ---- */}
-        <div className="relative mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="relative mb-3 flex flex-wrap items-center justify-between gap-2 sm:mb-4 sm:gap-3">
           <div>
             <h2 className="font-display text-2xl font-bold tracking-wide" style={{ color: ACCENT }}>
               Mines
@@ -540,7 +541,7 @@ export default function Mines() {
           {/* ---- Grid + result overlay ---- */}
           <div className="relative">
             <motion.div
-              className="grid grid-cols-5 gap-2 sm:gap-3"
+              className="mx-auto grid grid-cols-5 gap-2 sm:gap-3 [@media(max-height:600px)]:max-w-[300px]"
               animate={
                 phase === "busted"
                   ? { x: [0, -8, 8, -6, 6, 0] }
@@ -874,11 +875,19 @@ function OddsPanel({ mines, bet }: { mines: number; bet: number }) {
   const nextSurvival = ((TILES - mines) / TILES) * 100;
 
   return (
-    <div className="glass rounded-2xl p-4">
-      <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-xs font-semibold uppercase tracking-widest text-white/55">
-          Payout Ladder · {mines} mine{mines === 1 ? "" : "s"}
-        </h3>
+    <CollapsiblePanel
+      title={`Payout Ladder · ${mines} mine${mines === 1 ? "" : "s"}`}
+      accent={ACCENT}
+      summary={
+        <>
+          First pick safe{" "}
+          <span style={{ color: ACCENT }} className="font-semibold tabular-nums">
+            {nextSurvival.toFixed(1)}%
+          </span>
+        </>
+      }
+    >
+      <div className="mb-2 flex items-center justify-end">
         <span className="text-[11px] text-white/45">
           First pick safe:{" "}
           <span style={{ color: ACCENT }} className="font-semibold tabular-nums">
@@ -915,6 +924,6 @@ function OddsPanel({ mines, bet }: { mines: number; bet: number }) {
           </>
         )}
       </p>
-    </div>
+    </CollapsiblePanel>
   );
 }

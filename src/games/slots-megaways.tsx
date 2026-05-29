@@ -8,6 +8,9 @@ import { formatChips, formatMultiplier } from "@/lib/format";
 import { weightedPick, randInt } from "@/lib/rng";
 import { sfx } from "@/lib/sound";
 import { sleep } from "@/lib/async";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
+
+const ACCENT = "#a855f7"; // neon violet
 
 // ---- Symbol definitions -----------------------------------------------------
 interface Sym {
@@ -271,13 +274,13 @@ export default function NeonMegaways() {
 
   return (
     <div className="mx-auto max-w-5xl">
-      <div className="glass relative overflow-hidden rounded-3xl border border-neon-violet/30 p-4 sm:p-6">
+      <div className="glass relative overflow-hidden rounded-3xl border border-neon-violet/30 p-4 sm:p-6 [@media(max-height:600px)]:p-3">
         {/* ambient neon glow */}
         <span className="pointer-events-none absolute -left-10 top-0 h-40 w-40 rounded-full bg-neon-violet/20 blur-3xl" />
         <span className="pointer-events-none absolute -right-10 bottom-0 h-40 w-40 rounded-full bg-neon-cyan/20 blur-3xl" />
 
         {/* header */}
-        <div className="relative mb-4 flex items-center justify-between">
+        <div className="relative mb-3 flex items-center justify-between sm:mb-4 [@media(max-height:600px)]:mb-2">
           <div>
             <h2 className="font-display text-xl font-black text-neon-violet neon-magenta">
               NEON MEGAWAYS
@@ -302,7 +305,7 @@ export default function NeonMegaways() {
         </div>
 
         {/* reels */}
-        <div className="relative grid grid-cols-6 gap-1.5 rounded-2xl bg-black/40 p-2 sm:gap-2 sm:p-3">
+        <div className="relative mx-auto grid w-full max-w-[460px] grid-cols-6 gap-1.5 rounded-2xl bg-black/40 p-2 sm:max-w-[520px] sm:gap-2 sm:p-3 [@media(max-height:600px)]:max-w-[340px]">
           {grid.map((reel, ri) => (
             <div key={ri} className="flex flex-col justify-center gap-1.5 sm:gap-2">
               <AnimatePresence mode="popLayout">
@@ -320,7 +323,7 @@ export default function NeonMegaways() {
                       }}
                       exit={{ scale: 0, opacity: 0, rotate: 90 }}
                       transition={{ duration: 0.32, ease: [0.2, 0.7, 0.2, 1] }}
-                      className="grid aspect-square place-items-center rounded-lg text-xl sm:text-2xl"
+                      className="grid aspect-square place-items-center rounded-lg text-base sm:text-2xl [@media(max-height:600px)]:text-sm"
                       style={{
                         background: isWin
                           ? `${cell.sym.color}33`
@@ -348,7 +351,7 @@ export default function NeonMegaways() {
         </div>
 
         {/* result */}
-        <div className="relative mt-4 text-center" data-testid="round-result">
+        <div className="relative mt-3 text-center sm:mt-4 [@media(max-height:600px)]:mt-2" data-testid="round-result">
           <AnimatePresence mode="wait">
             <motion.p
               key={message}
@@ -370,11 +373,13 @@ export default function NeonMegaways() {
       </div>
 
       {/* paytable */}
-      <div className="glass mt-4 rounded-2xl p-3 text-xs text-white/60">
-        <div className="mb-2 font-semibold text-white/80">
-          Paytable (per way, ×3+ reels)
-        </div>
-        <div className="flex flex-wrap gap-3">
+      <CollapsiblePanel
+        title="Paytable (per way, ×3+ reels)"
+        accent={ACCENT}
+        summary={<>{ways.toLocaleString()} ways</>}
+        className="mt-4"
+      >
+        <div className="flex flex-wrap gap-3 text-xs text-white/60">
           {PAY_SYMBOLS.filter((s) => !s.wild).map((s) => (
             <span key={s.key} className="inline-flex items-center gap-1">
               <span style={{ filter: `drop-shadow(0 0 4px ${s.color})` }}>
@@ -390,10 +395,10 @@ export default function NeonMegaways() {
             💫 <span className="text-neon-lime">4+ Scatter bonus</span>
           </span>
         </div>
-      </div>
+      </CollapsiblePanel>
 
       <BetControls
-        className="mt-4"
+        className="mt-3 sm:mt-4 [@media(max-height:600px)]:mt-2"
         bet={bet}
         setBet={setBet}
         balance={wallet.balance}
@@ -405,14 +410,14 @@ export default function NeonMegaways() {
         primaryDisabled={spinning || bet < 1 || bet > wallet.balance}
       />
 
-      <div className="mt-3 flex justify-center">
+      <div className="mt-3 flex justify-center [@media(max-height:600px)]:mt-2">
         <motion.button
           type="button"
           data-testid="buy-bonus-btn"
           whileTap={{ scale: 0.97 }}
           disabled={spinning || buyCost > wallet.balance}
           onClick={buyBonus}
-          className="rounded-2xl border border-neon-lime/50 bg-neon-lime/5 px-6 py-3 font-display text-sm font-bold text-neon-lime transition hover:bg-neon-lime/10 disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded-2xl border border-neon-lime/50 bg-neon-lime/5 px-6 py-3 font-display text-sm font-bold text-neon-lime transition hover:bg-neon-lime/10 disabled:cursor-not-allowed disabled:opacity-40 [@media(max-height:600px)]:py-2"
           title={`Buy ${BUY_SPINS} cascading spins at ${BUY_MULT}× for ${BUY_COST_MULT}× your bet`}
         >
           {bonusLeft > 0

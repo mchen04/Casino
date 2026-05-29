@@ -20,6 +20,7 @@ import { formatChips, formatMultiplier } from "@/lib/format";
 import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
 import { BetControls } from "@/components/BetControls";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 
 /* ------------------------------------------------------------------ *
  * Fruit Frenzy — 5×3 video slot, 10 fixed paylines.
@@ -353,13 +354,7 @@ function Cell({
 function Paytable({ bet }: { bet: number }) {
   const perLine = bet; // pays are quoted as multiples of TOTAL bet
   return (
-    <div className="glass rounded-2xl p-3 sm:p-4">
-      <div
-        className="mb-2 text-center text-xs font-bold uppercase tracking-[0.25em]"
-        style={{ color: ACCENT }}
-      >
-        Paytable
-      </div>
+    <>
       <div className="grid grid-cols-1 gap-1 text-[11px] sm:text-xs">
         <div className="grid grid-cols-[1.4fr_1fr_1fr_1fr] gap-1 px-1 text-white/40">
           <span>Symbol</span>
@@ -411,7 +406,7 @@ function Paytable({ bet }: { bet: number }) {
         10 fixed paylines · left→right · wild ⭐ substitutes all but 🪙 · payouts
         scale with your total bet.
       </p>
-    </div>
+    </>
   );
 }
 
@@ -847,7 +842,7 @@ export default function FruitFrenzy() {
   return (
     <div className="mx-auto w-full max-w-5xl">
       {/* Header / stats */}
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2 sm:mb-3">
         <div className="flex items-baseline gap-2">
           <h2
             className="font-display text-2xl font-bold tracking-wide sm:text-3xl"
@@ -882,11 +877,11 @@ export default function FruitFrenzy() {
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
+      <div className="grid gap-2 sm:gap-4 md:grid-cols-[1fr_280px] lg:grid-cols-[1fr_300px]">
         {/* ---------- LEFT: reels + controls ---------- */}
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2 sm:gap-4">
           <div
-            className="felt relative overflow-hidden rounded-3xl p-4 sm:p-6"
+            className="felt relative overflow-hidden rounded-3xl p-3 sm:p-6 [@media(max-height:600px)]:p-2"
             style={{
               boxShadow: `inset 0 0 60px rgba(0,0,0,0.5), 0 0 0 1px ${ACCENT}33`,
             }}
@@ -912,9 +907,9 @@ export default function FruitFrenzy() {
             </AnimatePresence>
 
             {/* the reel grid */}
-            <div className="relative mx-auto">
+            <div className="relative mx-auto [@media(max-height:600px)]:max-w-[440px]">
               <div
-                className="relative grid gap-2 rounded-2xl p-2"
+                className="relative grid gap-2 rounded-2xl p-2 [@media(max-height:600px)]:gap-1 [@media(max-height:600px)]:p-1"
                 style={{
                   gridTemplateColumns: `repeat(${REELS}, minmax(0, 1fr))`,
                   background:
@@ -924,7 +919,7 @@ export default function FruitFrenzy() {
                 {Array.from({ length: REELS }, (_, reel) => (
                   <div
                     key={reel}
-                    className="grid gap-2"
+                    className="grid gap-2 [@media(max-height:600px)]:gap-1"
                     style={{
                       gridTemplateRows: `repeat(${ROWS}, minmax(0, 1fr))`,
                     }}
@@ -1079,16 +1074,20 @@ export default function FruitFrenzy() {
         </div>
 
         {/* ---------- RIGHT: paytable ---------- */}
-        <div className="flex flex-col gap-4">
-          <Paytable bet={bet} />
-          <div className="glass rounded-2xl p-3 text-[11px] text-white/55">
-            <div
-              className="mb-1 text-center text-xs font-bold uppercase tracking-[0.25em]"
-              style={{ color: ACCENT }}
-            >
-              How it works
-            </div>
-            <ul className="space-y-1">
+        <div className="flex flex-col gap-2 sm:gap-4">
+          <CollapsiblePanel
+            title="Paytable"
+            accent={ACCENT}
+            summary={<>10 lines · ⭐ wild</>}
+          >
+            <Paytable bet={bet} />
+          </CollapsiblePanel>
+          <CollapsiblePanel
+            title="How it works"
+            accent={ACCENT}
+            summary={<>rules</>}
+          >
+            <ul className="space-y-1 text-[11px] text-white/55">
               <li>• 3+ matching from the leftmost reel on a payline pay.</li>
               <li>• ⭐ Wild stands in for every symbol except 🪙 Scatter.</li>
               <li>
@@ -1097,7 +1096,7 @@ export default function FruitFrenzy() {
               </li>
               <li>• Bigger symbols pay more; the bell &amp; wild pay top.</li>
             </ul>
-          </div>
+          </CollapsiblePanel>
         </div>
       </div>
     </div>

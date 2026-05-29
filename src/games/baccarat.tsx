@@ -20,6 +20,7 @@ import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { PlayingCard } from "@/components/PlayingCard";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 
 // ---------------------------------------------------------------------------
 // Theme
@@ -338,11 +339,10 @@ export default function Baccarat() {
   // ---------------------------------------------------------------------
   return (
     <div className="mx-auto w-full max-w-6xl">
-      <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
+      <div className="grid gap-2 sm:gap-4 lg:grid-cols-[1fr_300px]">
         {/* ============================ TABLE ============================ */}
         <div
-          className="felt relative overflow-hidden rounded-3xl border border-emerald-300/15 p-4 sm:p-6"
-          style={{ minHeight: 460 }}
+          className="felt relative min-h-[380px] overflow-hidden rounded-3xl border border-emerald-300/15 p-4 sm:p-6 lg:min-h-[460px] [@media(max-height:600px)]:min-h-[280px]"
         >
           {/* accent corner glow */}
           <div
@@ -403,7 +403,7 @@ export default function Baccarat() {
           </div>
 
           {/* Result banner */}
-          <div className="relative mt-5 grid h-16 place-items-center">
+          <div className="relative mt-3 grid h-12 place-items-center sm:mt-5 sm:h-16">
             <AnimatePresence mode="wait">
               {resolved && result ? (
                 <motion.div
@@ -489,13 +489,18 @@ export default function Baccarat() {
         </div>
 
         {/* ============================ SIDEBAR ============================ */}
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2 sm:gap-4">
           {/* Bead road / scoreboard */}
-          <div className="glass rounded-2xl p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-[11px] uppercase tracking-widest text-white/45">
-                Bead Road
+          <CollapsiblePanel
+            title="Bead Road"
+            accent={ACCENT}
+            summary={
+              <span className="tabular-nums">
+                P {counts.p} · B {counts.b} · T {counts.t}
               </span>
+            }
+          >
+            <div className="mb-2 flex items-center justify-end">
               <div className="flex items-center gap-2 text-[11px] tabular-nums">
                 <Tally color={PLAYER_BLUE} label="P" n={counts.p} />
                 <Tally color={ACCENT} label="B" n={counts.b} />
@@ -503,13 +508,10 @@ export default function Baccarat() {
               </div>
             </div>
             <BeadRoad road={road} />
-          </div>
+          </CollapsiblePanel>
 
           {/* Paytable */}
-          <div className="glass rounded-2xl p-3">
-            <div className="mb-2 text-[11px] uppercase tracking-widest text-white/45">
-              Paytable
-            </div>
+          <CollapsiblePanel title="Paytable" accent={ACCENT} summary={<>best 8 : 1</>}>
             <ul className="space-y-1.5 text-[12px]">
               <PayRow color={PLAYER_BLUE} name="Player" odds="1 : 1" />
               <PayRow color={ACCENT} name="Banker (5% comm.)" odds="0.95 : 1" />
@@ -521,12 +523,12 @@ export default function Baccarat() {
               On a Tie, Player/Banker wagers push (refunded). Naturals (8 or 9)
               stand; third-card draws follow the standard tableau.
             </p>
-          </div>
+          </CollapsiblePanel>
         </div>
       </div>
 
       {/* ============================ BET LAYOUT ============================ */}
-      <div className="mt-4 grid gap-3 sm:grid-cols-5">
+      <div className="mt-2 grid grid-cols-3 gap-2 sm:mt-4 sm:grid-cols-5 sm:gap-3">
         {SPOTS.map((sp) => (
           <BetSpot
             key={sp.id}
@@ -542,7 +544,7 @@ export default function Baccarat() {
       </div>
 
       {/* ============================ CONTROLS ============================ */}
-      <div className="glass mt-4 rounded-2xl p-3 sm:p-4">
+      <div className="glass mt-2 rounded-2xl p-3 sm:mt-4 sm:p-4">
         <div className="flex flex-wrap items-center justify-center gap-3">
           {/* chip denominations */}
           <div className="flex flex-wrap items-center justify-center gap-2">
@@ -694,7 +696,7 @@ function HandPanel({
         </AnimatePresence>
       </div>
 
-      <div className="flex min-h-[96px] flex-wrap items-center gap-1.5">
+      <div className="flex min-h-[72px] flex-wrap items-center gap-1.5 sm:min-h-[96px] [@media(max-height:600px)]:min-h-[60px]">
         <AnimatePresence>
           {cards.map((c, idx) => (
             <motion.div
@@ -772,7 +774,7 @@ function BetSpot({
           ? { boxShadow: `0 0 0 2px ${def.color}, 0 0 26px ${def.color}` }
           : { boxShadow: "0 0 0 1px rgba(255,255,255,0.08)" }
       }
-      className="relative flex flex-col items-center justify-center rounded-2xl px-3 py-4 text-center transition-colors disabled:cursor-not-allowed"
+      className="relative flex flex-col items-center justify-center rounded-2xl px-2 py-3 text-center transition-colors disabled:cursor-not-allowed sm:px-3"
       style={{
         background: active
           ? `linear-gradient(180deg, ${def.color}33, ${def.color}11)`
@@ -796,7 +798,7 @@ function BetSpot({
       </span>
 
       {/* stacked chip indicator */}
-      <div className="mt-2 grid h-12 place-items-center">
+      <div className="mt-1.5 grid h-10 place-items-center sm:h-12">
         <AnimatePresence>
           {active && (
             <motion.div

@@ -10,6 +10,7 @@ import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { PlayingCard } from "@/components/PlayingCard";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 
 /* ------------------------------------------------------------------ */
 /* Theme                                                               */
@@ -839,13 +840,13 @@ export default function Spanish21() {
         </div>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-[1fr_260px]">
+      <div className="grid gap-2 sm:gap-3 lg:grid-cols-[1fr_260px]">
         {/* ============================ TABLE ============================ */}
-        <div className="felt relative overflow-hidden rounded-3xl p-4 sm:p-6">
+        <div className="felt relative overflow-hidden rounded-3xl p-4 [@media(max-height:600px)]:p-3 sm:p-6">
           <WinBurst show={showBurst} big={bigBurst} />
 
           {/* "No tens" note */}
-          <div className="mb-4 flex items-center justify-between gap-2">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 [@media(max-height:600px)]:mb-2">
             <span
               className="rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-widest"
               style={{
@@ -870,7 +871,7 @@ export default function Spanish21() {
               <TotalBadge cards={dealerVisibleCards} hidden={dealerHidden} />
             )}
           </div>
-          <div className="min-h-[96px] sm:min-h-[128px]">
+          <div className="min-h-[80px] [@media(max-height:600px)]:min-h-[64px] sm:min-h-[128px]">
             <CardRow
               cards={dealer}
               hideHole={dealerHidden}
@@ -882,7 +883,7 @@ export default function Spanish21() {
           </div>
 
           {/* Divider with result */}
-          <div className="my-3 flex min-h-[44px] items-center justify-center">
+          <div className="my-3 flex min-h-[44px] items-center justify-center [@media(max-height:600px)]:my-2 [@media(max-height:600px)]:min-h-[32px]">
             <AnimatePresence mode="wait">
               {phase === "resolved" && result ? (
                 <motion.div
@@ -930,7 +931,7 @@ export default function Spanish21() {
             }`}
           >
             {hands.length === 0 ? (
-              <div className="min-h-[96px] sm:min-h-[128px]" />
+              <div className="min-h-[80px] [@media(max-height:600px)]:min-h-[64px] sm:min-h-[128px]" />
             ) : (
               hands.map((h, i) => {
                 const isActive = phase === "player" && i === active && !h.done;
@@ -1005,14 +1006,14 @@ export default function Spanish21() {
           </div>
 
           {/* Delta counter on resolve */}
-          <div className="mt-4 flex min-h-[44px] items-center justify-center">
+          <div className="mt-4 flex min-h-[44px] items-center justify-center [@media(max-height:600px)]:mt-2 [@media(max-height:600px)]:min-h-[32px]">
             <AnimatePresence>
               {phase === "resolved" && <DeltaCounter value={delta} />}
             </AnimatePresence>
           </div>
 
           {/* -------------------- Action area -------------------- */}
-          <div className="mt-3">
+          <div className="mt-3 [@media(max-height:600px)]:mt-2">
             {phase === "betting" && (
               <div className="flex flex-col items-center gap-3">
                 <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
@@ -1163,13 +1164,12 @@ export default function Spanish21() {
         </div>
 
         {/* ============================ PAYTABLE ============================ */}
-        <aside className="glass rounded-3xl p-4">
-          <h3
-            className="mb-2 font-display text-sm font-bold uppercase tracking-widest"
-            style={{ color: ACCENT }}
-          >
-            Paytable
-          </h3>
+        <CollapsiblePanel
+          title="Paytable"
+          accent={ACCENT}
+          summary={<>BJ 3:2 · 21 bonuses</>}
+          className="self-start"
+        >
           <ul className="space-y-1 text-xs text-white/75">
             <PayRow label="Blackjack (2-card 21)" value="3 : 2" />
             <PayRow label="Win" value="1 : 1" />
@@ -1209,7 +1209,7 @@ export default function Spanish21() {
               <li>• Split equal-rank pairs (up to 4 hands).</li>
             </ul>
           </div>
-        </aside>
+        </CollapsiblePanel>
       </div>
     </div>
   );

@@ -11,6 +11,7 @@ import { BetControls } from "@/components/BetControls";
 import { CountingNumber } from "@/components/CountingNumber";
 import { sleep } from "@/lib/async";
 import { HOUSE_EDGE, payoutForChance } from "@/lib/cryptoGames";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 
 // ---------------------------------------------------------------------------
 // Dice — modern crypto-casino "over / under" game.
@@ -230,9 +231,9 @@ export default function Dice() {
   const liveRoll = markerPos ?? (result ? result.roll : null);
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-2 py-3 sm:py-5">
+    <div className="mx-auto w-full max-w-3xl px-2 py-2 sm:py-5">
       <div
-        className="felt relative overflow-hidden rounded-3xl border border-white/10 p-4 shadow-felt sm:p-6"
+        className="felt relative overflow-hidden rounded-3xl border border-white/10 p-3 shadow-felt sm:p-6"
         style={{
           background:
             "radial-gradient(120% 90% at 50% 0%, #102129 0%, #0a151a 60%, #07101400 100%), #07100f",
@@ -294,9 +295,9 @@ export default function Dice() {
         </div>
 
         {/* ===== Stage: the big result number + 0-100 track ===== */}
-        <div className="relative rounded-2xl border border-white/5 bg-black/25 px-4 py-7 sm:px-7 sm:py-9">
+        <div className="relative rounded-2xl border border-white/5 bg-black/25 px-4 py-4 sm:px-7 sm:py-9 [@media(max-height:600px)]:py-3">
           {/* Big live result number */}
-          <div className="relative mb-7 grid place-items-center">
+          <div className="relative mb-4 grid place-items-center sm:mb-7 [@media(max-height:600px)]:mb-2">
             <AnimatePresence mode="wait">
               <motion.div
                 key={
@@ -327,7 +328,7 @@ export default function Dice() {
                       : { scale: 1 }
                   }
                   transition={{ duration: 0.5 }}
-                  className="font-display text-5xl font-black tabular-nums sm:text-7xl"
+                  className="font-display text-5xl font-black tabular-nums sm:text-7xl [@media(max-height:600px)]:text-4xl"
                   style={{
                     color:
                       liveRoll === null
@@ -399,7 +400,7 @@ export default function Dice() {
           </div>
 
           {/* ===== The 0-100 track ===== */}
-          <div className="relative px-1 pt-6 pb-2 sm:px-2">
+          <div className="relative px-1 pt-6 pb-2 sm:px-2 [@media(max-height:600px)]:pt-4">
             {/* numeric scale */}
             <div className="mb-2 flex justify-between text-[10px] font-semibold text-white/30">
               {[0, 25, 50, 75, 100].map((n) => (
@@ -494,7 +495,7 @@ export default function Dice() {
             </div>
 
             {/* ===== Target slider (the big control) ===== */}
-            <div className="relative mt-5">
+            <div className="relative mt-4 sm:mt-5">
               <input
                 type="range"
                 data-testid="target-slider"
@@ -529,7 +530,7 @@ export default function Dice() {
         </div>
 
         {/* ===== Live stats row ===== */}
-        <div className="relative mt-4 grid grid-cols-3 gap-2 sm:gap-3">
+        <div className="relative mt-3 grid grid-cols-3 gap-2 sm:mt-4 sm:gap-3">
           <StatTile label="Multiplier" accent testid="stat-multiplier">
             {formatMultiplier(multiplier)}
           </StatTile>
@@ -545,7 +546,7 @@ export default function Dice() {
         </div>
 
         {/* ===== Round result banner ===== */}
-        <div className="relative mt-4 min-h-[60px]">
+        <div className="relative mt-3 min-h-[60px] sm:mt-4 [@media(max-height:600px)]:min-h-[48px]">
           <AnimatePresence mode="wait">
             {result && !busy ? (
               <motion.div
@@ -602,7 +603,7 @@ export default function Dice() {
         </div>
 
         {/* ===== Action buttons ===== */}
-        <div className="relative mt-4 flex flex-col items-stretch gap-3 sm:flex-row sm:justify-center">
+        <div className="relative mt-3 flex flex-col items-stretch gap-3 sm:mt-4 sm:flex-row sm:justify-center">
           <Button
             data-testid="play-btn"
             variant="neon"
@@ -629,7 +630,7 @@ export default function Dice() {
         </div>
 
         {/* ===== Bet controls ===== */}
-        <div className="relative mt-4">
+        <div className="relative mt-3 sm:mt-4">
           <BetControls
             bet={bet}
             setBet={setBet}
@@ -646,12 +647,13 @@ export default function Dice() {
         </div>
 
         {/* ===== Odds / paytable + history ===== */}
-        <div className="relative mt-4 grid gap-3 sm:grid-cols-2">
+        <div className="relative mt-3 grid gap-3 sm:mt-4 sm:grid-cols-2">
           {/* Odds panel — quick target presets with their multipliers */}
-          <div className="glass rounded-2xl p-3">
-            <div className="mb-2 text-[10px] uppercase tracking-[0.25em] text-white/40">
-              Odds · {mode === "over" ? "Roll Over" : "Roll Under"}
-            </div>
+          <CollapsiblePanel
+            title={`Odds · ${mode === "over" ? "Roll Over" : "Roll Under"}`}
+            accent={ACCENT}
+            summary={<>{formatMultiplier(multiplier)} now</>}
+          >
             <div className="space-y-1.5 text-sm">
               {[10, 25, 50, 75, 90].map((preset) => {
                 const c = winChance(preset, mode) * 100;
@@ -690,16 +692,16 @@ export default function Dice() {
                 </span>
               </div>
             </div>
-          </div>
+          </CollapsiblePanel>
 
           {/* History */}
-          <div className="glass rounded-2xl p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-[10px] uppercase tracking-[0.25em] text-white/40">
-                Recent Rolls
-              </span>
-              <span className="text-[10px] text-white/30">newest first</span>
-            </div>
+          <CollapsiblePanel
+            title="Recent Rolls"
+            accent={ACCENT}
+            summary={
+              history.length === 0 ? "none yet" : `${history.length} roll${history.length === 1 ? "" : "s"}`
+            }
+          >
             <div className="flex min-h-[34px] flex-wrap gap-1.5">
               <AnimatePresence initial={false}>
                 {history.length === 0 && (
@@ -726,7 +728,7 @@ export default function Dice() {
                 ))}
               </AnimatePresence>
             </div>
-          </div>
+          </CollapsiblePanel>
         </div>
 
         {/* live balance hint */}

@@ -15,6 +15,7 @@ import { formatChips, formatDelta } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { CountingNumber } from "@/components/CountingNumber";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 
 /* ----------------------------------------------------------------------------
  * ROULETTE — European (single 0) by default, American (0 + 00) toggle.
@@ -221,7 +222,11 @@ function Wheel({
   }, [order, step]);
 
   return (
-    <div className="relative mx-auto" style={{ width: 300, height: 300 }}>
+    <div className="relative mx-auto h-[300px] w-[300px] [@media(max-height:600px)]:h-[186px] [@media(max-height:600px)]:w-[186px]">
+      <div
+        className="absolute left-0 top-0 origin-top-left [@media(max-height:600px)]:scale-[0.62]"
+        style={{ width: 300, height: 300 }}
+      >
       {/* glow ring */}
       <div
         className="absolute inset-0 rounded-full"
@@ -363,6 +368,7 @@ function Wheel({
           zIndex: 5,
         }}
       />
+      </div>
     </div>
   );
 }
@@ -713,12 +719,12 @@ export default function Roulette() {
 
   return (
     <div className="mx-auto w-full max-w-5xl">
-      <div className="felt relative overflow-hidden rounded-3xl p-4 shadow-felt sm:p-6">
+      <div className="felt relative overflow-hidden rounded-3xl p-4 shadow-felt sm:p-6 [@media(max-height:600px)]:p-3">
         {/* ambient grid */}
         <div className="bg-grid pointer-events-none absolute inset-0 opacity-[0.12]" />
 
         {/* Header row */}
-        <div className="relative mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="relative mb-2 flex flex-wrap items-center justify-between gap-3 sm:mb-4">
           <div>
             <h2
               className="font-display text-2xl font-bold tracking-wide sm:text-3xl"
@@ -761,9 +767,9 @@ export default function Roulette() {
         </div>
 
         {/* Top zone: wheel + result/history + paytable */}
-        <div className="relative grid gap-4 lg:grid-cols-[320px_1fr]">
+        <div className="relative grid gap-2 sm:gap-4 lg:grid-cols-[320px_1fr]">
           {/* Wheel + result */}
-          <div className="glass relative flex flex-col items-center gap-3 rounded-2xl p-4">
+          <div className="glass relative flex flex-col items-center gap-2 rounded-2xl p-4 sm:gap-3 [@media(max-height:600px)]:p-2">
             <Wheel
               order={order}
               rotation={rotation}
@@ -832,7 +838,7 @@ export default function Roulette() {
           </div>
 
           {/* Right column: result text + history + paytable */}
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-2 sm:gap-3">
             {/* Result line */}
             <div className="glass flex min-h-[58px] items-center justify-between gap-3 rounded-2xl px-4 py-3">
               <div
@@ -873,10 +879,7 @@ export default function Roulette() {
             </div>
 
             {/* History strip */}
-            <div className="glass rounded-2xl px-3 py-2">
-              <div className="mb-1 text-[9px] uppercase tracking-widest text-white/40">
-                History
-              </div>
+            <CollapsiblePanel title="History" accent={ACCENT}>
               <div className="no-scrollbar flex gap-1 overflow-x-auto">
                 {history.length === 0 && (
                   <span className="py-1 text-xs text-white/30">
@@ -905,14 +908,15 @@ export default function Roulette() {
                   ))}
                 </AnimatePresence>
               </div>
-            </div>
+            </CollapsiblePanel>
 
             {/* Paytable */}
-            <div className="glass rounded-2xl p-3">
-              <div className="mb-2 text-[9px] uppercase tracking-widest text-white/40">
-                Payouts
-              </div>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-3">
+            <CollapsiblePanel
+              title="Payouts"
+              accent={ACCENT}
+              summary={<>up to 35 : 1</>}
+            >
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 pt-2 text-xs sm:grid-cols-3">
                 {[
                   ["Straight (number)", "35 : 1"],
                   ["Red / Black", "1 : 1"],
@@ -930,12 +934,12 @@ export default function Roulette() {
                   </div>
                 ))}
               </div>
-            </div>
+            </CollapsiblePanel>
           </div>
         </div>
 
         {/* Betting layout */}
-        <div className="relative mt-4 overflow-x-auto">
+        <div className="relative mt-2 overflow-x-auto sm:mt-4">
           <div className="min-w-[640px] rounded-2xl bg-emerald-950/40 p-3 ring-1 ring-gold/15">
             <div className="flex gap-2">
               {/* Zero(s) column */}
@@ -1002,7 +1006,7 @@ export default function Roulette() {
         </div>
 
         {/* Controls */}
-        <div className="relative mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="relative mt-2 flex flex-col gap-2 sm:mt-4 sm:gap-3 lg:flex-row lg:items-center lg:justify-between">
           {/* Chip selector */}
           <div className="glass flex flex-wrap items-center gap-2 rounded-2xl p-3">
             <span className="mr-1 text-[10px] uppercase tracking-widest text-white/40">

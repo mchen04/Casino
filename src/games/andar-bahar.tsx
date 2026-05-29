@@ -10,6 +10,7 @@ import { CountingNumber } from "@/components/CountingNumber";
 import { PlayingCard } from "@/components/PlayingCard";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 
 /* ----------------------------------------------------------------------------
  * Andar Bahar — the classic Indian card game.
@@ -310,7 +311,7 @@ export default function AndarBahar() {
   return (
     <div className="mx-auto w-full max-w-5xl">
       {/* ---- Headline / streak summary ---- */}
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2 sm:mb-3">
         <div className="flex items-center gap-2">
           <span className="text-2xl">🪔</span>
           <div>
@@ -356,7 +357,7 @@ export default function AndarBahar() {
         />
 
         {/* ---- Joker showcase ---- */}
-        <div className="relative flex flex-col items-center">
+        <div className="relative flex flex-col items-center [@media(max-height:600px)]:scale-90 [@media(max-height:600px)]:origin-top">
           <div
             className="mb-1 flex items-center gap-2 font-display text-xs font-black uppercase tracking-[0.3em]"
             style={{ color: GOLD, textShadow: `0 0 12px ${GOLD}55` }}
@@ -420,7 +421,7 @@ export default function AndarBahar() {
         </div>
 
         {/* ---- Two-row arena ---- */}
-        <div className="relative mt-3 grid gap-3 sm:grid-cols-2 sm:gap-4">
+        <div className="relative mt-2 grid gap-3 sm:mt-3 sm:grid-cols-2 sm:gap-4">
           <SideRow
             side="andar"
             label="ANDAR"
@@ -454,7 +455,7 @@ export default function AndarBahar() {
         </div>
 
         {/* ---- Result banner ---- */}
-        <div className="relative mt-4 min-h-[44px]">
+        <div className="relative mt-3 min-h-[40px] sm:mt-4 sm:min-h-[44px]">
           <AnimatePresence mode="wait">
             {resultText ? (
               <motion.div
@@ -500,7 +501,7 @@ export default function AndarBahar() {
       </div>
 
       {/* ---- Controls ---- */}
-      <div className="mt-4 grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+      <div className="mt-3 grid gap-2 sm:mt-4 sm:gap-4 lg:grid-cols-[1.4fr_1fr]">
         {/* Bet + chips + action */}
         <div className="glass rounded-2xl p-4">
           <div className="mb-3 flex items-center justify-between">
@@ -654,9 +655,8 @@ export default function AndarBahar() {
         </div>
 
         {/* Paytable / odds */}
-        <div className="glass rounded-2xl p-4">
-          <div className="mb-2 text-[11px] uppercase tracking-widest text-white/40">Odds</div>
-          <div className="space-y-1.5">
+        <CollapsiblePanel title="Odds & Rules" accent={ACCENT} summary={<>0.9:1 / 1:1</>}>
+          <div className="space-y-1.5 pt-2">
             <OddsRow
               label="First-deal side"
               note="has the edge"
@@ -693,15 +693,17 @@ export default function AndarBahar() {
               <b style={{ color: ACCENT }}>1 : 1</b>.
             </div>
           )}
-        </div>
+        </CollapsiblePanel>
       </div>
 
       {/* ---- Streak board ---- */}
-      <div className="glass mt-4 rounded-2xl p-4">
-        <div className="mb-2 flex items-center justify-between">
-          <div className="text-[11px] uppercase tracking-widest text-white/40">Recent results</div>
-          <div className="text-[10px] text-white/35">last {history.length}</div>
-        </div>
+      <CollapsiblePanel
+        title="Recent results"
+        accent={ACCENT}
+        summary={<>last {history.length}</>}
+        className="mt-3 sm:mt-4"
+      >
+        <div className="pt-2">
         {history.length === 0 ? (
           <div className="py-2 text-center text-sm text-white/30">
             No rounds yet — deal to start the streak board.
@@ -731,7 +733,8 @@ export default function AndarBahar() {
             })}
           </div>
         )}
-      </div>
+        </div>
+      </CollapsiblePanel>
     </div>
   );
 }
@@ -837,7 +840,7 @@ function SideRow({
 
       {/* card lane */}
       <div
-        className="relative min-h-[96px] rounded-2xl p-2.5"
+        className="relative min-h-[80px] rounded-2xl p-2.5 sm:min-h-[96px]"
         style={{
           background: `linear-gradient(180deg, ${color}14, ${deep}10)`,
           boxShadow: isWinner ? `0 0 0 2px ${color}, 0 0 30px ${color}88` : `inset 0 0 0 1px ${color}26`,
@@ -856,7 +859,7 @@ function SideRow({
           )}
         </AnimatePresence>
 
-        <div className="no-scrollbar flex flex-wrap gap-1.5">
+        <div className="no-scrollbar flex max-h-[40vh] flex-wrap gap-1.5 overflow-y-auto [@media(max-height:600px)]:max-h-[120px]">
           {cards.length === 0 && (
             <div
               className="grid h-[70px] w-[50px] place-items-center rounded-lg border-2 border-dashed text-xl"

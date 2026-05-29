@@ -21,6 +21,7 @@ import {
 import { Button } from "@/components/ui/Button";
 import { BetControls } from "@/components/BetControls";
 import { CountingNumber } from "@/components/CountingNumber";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 
 // ---------------------------------------------------------------------------
 // Limbo — pick a TARGET multiplier, watch the LIMBO BAR fly.
@@ -128,7 +129,7 @@ function MultiplierDisplay({
   return (
     <motion.div
       key={`mult-${rollKey}-${outcome ?? "idle"}`}
-      className="relative font-display tabular-nums"
+      className="relative font-display tabular-nums text-[clamp(3rem,14vw,6.5rem)] [@media(max-height:600px)]:!text-[clamp(2.25rem,10vw,3.25rem)]"
       initial={false}
       animate={
         outcome
@@ -145,7 +146,6 @@ function MultiplierDisplay({
       style={{
         color,
         textShadow: glow,
-        fontSize: "clamp(3rem, 14vw, 6.5rem)",
         lineHeight: 1,
         fontWeight: 800,
         letterSpacing: "-0.02em",
@@ -312,10 +312,10 @@ export default function Limbo() {
   const PRESETS = [1.5, 2, 3, 5, 10, 50];
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-2 py-3 sm:py-5">
+    <div className="mx-auto w-full max-w-3xl px-2 py-3 sm:py-5 [@media(max-height:600px)]:py-1">
       {/* ===== Surface ===== */}
       <div
-        className="felt relative overflow-hidden rounded-3xl border border-white/10 p-4 shadow-felt sm:p-6"
+        className="felt relative overflow-hidden rounded-3xl border border-white/10 p-4 shadow-felt sm:p-6 [@media(max-height:600px)]:p-3"
         style={{
           background:
             "radial-gradient(120% 90% at 50% 0%, #0f2417 0%, #0a1611 55%, #06100b 100%)",
@@ -355,7 +355,7 @@ export default function Limbo() {
 
         {/* ===== Stage ===== */}
         <div
-          className="relative grid place-items-center overflow-hidden rounded-2xl border px-3 py-8 sm:py-12"
+          className="relative grid place-items-center overflow-hidden rounded-2xl border px-3 py-8 sm:py-12 [@media(max-height:600px)]:py-3"
           style={{
             borderColor:
               outcome === "win"
@@ -415,7 +415,7 @@ export default function Limbo() {
           />
 
           {/* target vs result strip */}
-          <div className="relative mt-5 flex items-stretch gap-3">
+          <div className="relative mt-5 flex items-stretch gap-3 [@media(max-height:600px)]:mt-2">
             <div className="rounded-xl border border-white/10 bg-black/40 px-4 py-2 text-center">
               <div className="text-[9px] uppercase tracking-[0.25em] text-white/40">
                 Target
@@ -705,8 +705,14 @@ export default function Limbo() {
         </div>
 
         {/* ===== Odds + history ===== */}
-        <div className="relative mt-4 grid gap-3 sm:grid-cols-2">
-          <div className="glass rounded-2xl p-3">
+        <div className="relative mt-4">
+          <CollapsiblePanel
+            title="Odds & History"
+            accent={ACCENT}
+            summary={<>{chancePct.toFixed(2)}% win chance</>}
+          >
+            <div className="grid gap-3 pt-3 sm:grid-cols-2">
+          <div>
             <div className="mb-2 text-[10px] uppercase tracking-[0.25em] text-white/40">
               Your Bet
             </div>
@@ -747,7 +753,7 @@ export default function Limbo() {
             </div>
           </div>
 
-          <div className="glass rounded-2xl p-3">
+          <div>
             <div className="mb-2 flex items-center justify-between">
               <span className="text-[10px] uppercase tracking-[0.25em] text-white/40">
                 Recent Rolls
@@ -782,6 +788,8 @@ export default function Limbo() {
               </AnimatePresence>
             </div>
           </div>
+            </div>
+          </CollapsiblePanel>
         </div>
       </div>
     </div>

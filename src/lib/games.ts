@@ -404,9 +404,9 @@ export const HOUSE_EDGE: Record<string, number> = {
   "casino-war": 2.33,
   "red-dog": 3.16,
   "dragon-tiger": 3.73,
-  "andar-bahar": 2.15,
+  "andar-bahar": 2.58,
   "teen-patti": 3.3,
-  "hi-lo": 2.5,
+  "hi-lo": 3.0,
   // Table
   roulette: 2.7,
   craps: 1.41,
@@ -445,7 +445,7 @@ export const EDGE_NOTE: Record<string, string> = {
   "sic-bo": "Small/Big · props higher",
   "money-wheel": "best segment · up to 24%",
   keno: "≈ varies 8–10% by picks",
-  "hi-lo": "optimal side",
+  "hi-lo": "3% per correct guess",
 };
 
 export function getGame(slug: string): GameMeta | undefined {

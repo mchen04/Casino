@@ -21,6 +21,7 @@ import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { PlayingCard } from "@/components/PlayingCard";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 
 const ACCENT = "#9b59b6";
 const ACCENT_SOFT = "rgba(155,89,182,0.5)";
@@ -170,21 +171,12 @@ function PaytablePanel({
   badge?: string;
 }) {
   return (
-    <div className="glass rounded-2xl p-3">
-      <div className="mb-2 flex items-center justify-between">
-        <h3
-          className="font-display text-xs font-bold uppercase tracking-widest"
-          style={{ color: ACCENT }}
-        >
-          {title}
-        </h3>
-        {badge && (
-          <span className="rounded-md bg-black/40 px-2 py-0.5 text-[10px] text-white/50">
-            {badge}
-          </span>
-        )}
-      </div>
-      <ul className="space-y-0.5 text-[11px] sm:text-xs">
+    <CollapsiblePanel
+      title={title}
+      accent={ACCENT}
+      summary={badge ? <>{badge}</> : undefined}
+    >
+      <ul className="space-y-0.5 pt-1 text-[11px] sm:text-xs">
         {rows.map((r) => {
           const lit = highlightCat === r.cat;
           return (
@@ -215,7 +207,7 @@ function PaytablePanel({
           );
         })}
       </ul>
-    </div>
+    </CollapsiblePanel>
   );
 }
 
@@ -587,11 +579,11 @@ export default function ThreeCardPoker() {
 
   return (
     <div className="mx-auto w-full max-w-6xl">
-      <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
+      <div className="grid gap-2 sm:gap-4 lg:grid-cols-[1fr_280px]">
         {/* ===================== TABLE ===================== */}
         <div className="relative">
           <div
-            className="felt relative overflow-hidden rounded-3xl p-4 sm:p-6"
+            className="felt relative overflow-hidden rounded-3xl p-3 sm:p-6 [@media(max-height:600px)]:p-3"
             style={{ boxShadow: `0 0 0 1px ${ACCENT_SOFT}, 0 24px 60px rgba(0,0,0,0.55)` }}
           >
             {/* ambient accent glow */}
@@ -632,7 +624,7 @@ export default function ThreeCardPoker() {
                   )}
                 </AnimatePresence>
               </div>
-              <div className="flex justify-center gap-2 sm:gap-3">
+              <div className="flex origin-top justify-center gap-2 sm:gap-3 [@media(max-height:600px)]:-mb-6 [@media(max-height:600px)]:scale-[0.78]">
                 {dealer.map((c, i) => (
                   <motion.div
                     key={`d-${i}`}
@@ -660,7 +652,7 @@ export default function ThreeCardPoker() {
             </div>
 
             {/* Center result banner */}
-            <div className="my-4 grid min-h-[64px] place-items-center">
+            <div className="my-2 grid min-h-[44px] place-items-center sm:my-4 sm:min-h-[64px] [@media(max-height:600px)]:my-1 [@media(max-height:600px)]:min-h-[36px]">
               <AnimatePresence mode="wait">
                 {phase === "result" && resolution ? (
                   <motion.div
@@ -750,7 +742,7 @@ export default function ThreeCardPoker() {
                   )}
                 </AnimatePresence>
               </div>
-              <div className="flex justify-center gap-2 sm:gap-3">
+              <div className="flex origin-top justify-center gap-2 sm:gap-3 [@media(max-height:600px)]:-mb-6 [@media(max-height:600px)]:scale-[0.78]">
                 {player.map((c, i) => (
                   <motion.div
                     key={`p-${i}`}
@@ -779,7 +771,7 @@ export default function ThreeCardPoker() {
             </div>
 
             {/* Bet spots */}
-            <div className="relative z-10 mt-5 flex flex-wrap items-center justify-center gap-3">
+            <div className="relative z-10 mt-3 flex flex-wrap items-center justify-center gap-2 sm:mt-5 sm:gap-3">
               <BetSpot
                 label="Ante"
                 value={ante}
@@ -803,7 +795,7 @@ export default function ThreeCardPoker() {
           </div>
 
           {/* ===================== CONTROLS ===================== */}
-          <div className="mt-4">
+          <div className="mt-2 sm:mt-4">
             {phase === "betting" && (
               <div className="glass rounded-2xl p-3 sm:p-4">
                 <div className="mb-3 flex flex-wrap items-center justify-center gap-3">
@@ -939,7 +931,7 @@ export default function ThreeCardPoker() {
         </div>
 
         {/* ===================== SIDEBAR ===================== */}
-        <div className="space-y-4">
+        <div className="space-y-2 sm:space-y-4">
           <PaytablePanel
             title="Pair Plus"
             rows={PAIR_PLUS_TABLE}
@@ -954,13 +946,8 @@ export default function ThreeCardPoker() {
           />
 
           {/* Resolution breakdown */}
-          <div className="glass rounded-2xl p-3">
-            <h3
-              className="mb-2 font-display text-xs font-bold uppercase tracking-widest"
-              style={{ color: ACCENT }}
-            >
-              Round
-            </h3>
+          <CollapsiblePanel title="Round" accent={ACCENT}>
+            <div className="pt-1">
             <AnimatePresence mode="wait">
               {resolution && phase === "result" ? (
                 <motion.ul
@@ -1015,7 +1002,8 @@ export default function ThreeCardPoker() {
                 </motion.div>
               )}
             </AnimatePresence>
-          </div>
+            </div>
+          </CollapsiblePanel>
 
           {/* Stats */}
           <div className="glass flex items-center justify-between rounded-2xl px-4 py-3">

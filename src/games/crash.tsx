@@ -15,6 +15,7 @@ import { formatChips, formatMultiplier, formatDelta } from "@/lib/format";
 import { sfx } from "@/lib/sound";
 import { clamp } from "@/lib/rng";
 import { HOUSE_EDGE, rollMultiplier, toCrashPoint } from "@/lib/cryptoGames";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 
 const ACCENT = "#ff2bd1";
 // Multiplier grows exponentially: m = GROWTH_RATE ^ elapsedSeconds.
@@ -299,7 +300,7 @@ export default function Crash() {
   const autoMarkerActive = autoEnabled && autoTarget > 1 && phase === "running";
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-3 pb-10 sm:px-4">
+    <div className="mx-auto w-full max-w-5xl px-3 pb-4 sm:px-4 sm:pb-10">
       {/* History strip */}
       <div className="no-scrollbar mb-3 flex items-center gap-2 overflow-x-auto pb-1">
         <span className="shrink-0 text-[10px] uppercase tracking-widest text-white/40">
@@ -332,7 +333,7 @@ export default function Crash() {
         </AnimatePresence>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
+      <div className="grid gap-2 sm:gap-4 lg:grid-cols-[1fr_280px]">
         {/* === FLIGHT STAGE === */}
         <motion.div
           className="felt relative overflow-hidden rounded-3xl p-3 sm:p-4"
@@ -434,7 +435,7 @@ export default function Crash() {
           {/* SVG flight curve */}
           <svg
             viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
-            className="relative z-10 block aspect-[1000/560] w-full"
+            className="relative z-10 mx-auto block aspect-[1000/560] w-full max-h-[46vh] [@media(max-height:600px)]:max-h-[180px]"
             preserveAspectRatio="xMidYMid meet"
           >
             <defs>
@@ -653,7 +654,7 @@ export default function Crash() {
         </motion.div>
 
         {/* === SIDE PANEL === */}
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2 sm:gap-4">
           {/* Auto cash-out config */}
           <div className="glass rounded-2xl p-4">
             <div className="mb-2 flex items-center justify-between">
@@ -724,10 +725,11 @@ export default function Crash() {
           </div>
 
           {/* Paytable / odds */}
-          <div className="glass rounded-2xl p-4">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-widest text-white/60">
-              Payouts
-            </div>
+          <CollapsiblePanel
+            title="Payouts"
+            accent={ACCENT}
+            summary={<>bet × multiplier</>}
+          >
             <table className="w-full text-sm">
               <tbody className="tabular-nums">
                 {[
@@ -749,7 +751,7 @@ export default function Crash() {
               Win = bet × cash-out multiplier. House edge {Math.round(HOUSE_EDGE * 100)}% —
               ~1% of rounds bust instantly at 1.00×.
             </p>
-          </div>
+          </CollapsiblePanel>
 
           {/* Last result chip */}
           <AnimatePresence>
@@ -780,7 +782,7 @@ export default function Crash() {
       </div>
 
       {/* === CONTROLS === */}
-      <div className="mt-4">
+      <div className="mt-2 sm:mt-4">
         {phase === "running" ? (
           <div className="glass flex flex-col items-center gap-3 rounded-2xl p-4">
             <Button

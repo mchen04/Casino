@@ -21,6 +21,7 @@ import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { PlayingCard } from "@/components/PlayingCard";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 
 const ACCENT = "#e67e22";
 const ACCENT_SOFT = "rgba(230,126,34,0.18)";
@@ -179,7 +180,7 @@ function BetSpot({
       transition={glowing ? { duration: 1.4, repeat: Infinity } : { duration: 0.2 }}
     >
       <div
-        className="grid h-16 w-16 place-items-center rounded-full text-center transition-colors sm:h-20 sm:w-20"
+        className="grid h-16 w-16 place-items-center rounded-full text-center transition-colors sm:h-20 sm:w-20 [@media(max-height:600px)]:h-12 [@media(max-height:600px)]:w-12"
         style={{
           border: `2px solid ${ring}`,
           boxShadow: glowing
@@ -444,13 +445,14 @@ export default function LetItRide() {
       )
     : null;
 
-  const cardSizeClass = "scale-[0.82] sm:scale-100";
+  const cardSizeClass =
+    "scale-[0.82] sm:scale-100 [@media(max-height:600px)]:scale-[0.7]";
 
   /* ============================ RENDER ============================= */
   return (
     <div className="mx-auto w-full max-w-5xl px-2 sm:px-4">
       {/* Title row */}
-      <div className="mb-3 flex items-end justify-between gap-3">
+      <div className="mb-2 flex items-end justify-between gap-3 sm:mb-3 [@media(max-height:600px)]:mb-1">
         <div>
           <h2
             className="font-display text-2xl font-bold tracking-wide sm:text-3xl"
@@ -472,7 +474,7 @@ export default function LetItRide() {
 
       <div className="grid gap-3 lg:grid-cols-[1fr_260px]">
         {/* ---------------------- FELT SURFACE ---------------------- */}
-        <div className="felt relative overflow-hidden rounded-3xl border border-white/10 p-4 shadow-felt sm:p-6">
+        <div className="felt relative overflow-hidden rounded-3xl border border-white/10 p-4 shadow-felt sm:p-6 [@media(max-height:600px)]:p-3">
           {/* accent corner glows */}
           <div
             className="pointer-events-none absolute -left-16 -top-16 h-56 w-56 rounded-full opacity-30 blur-3xl"
@@ -484,7 +486,7 @@ export default function LetItRide() {
           />
 
           {/* COMMUNITY CARDS */}
-          <div className="relative z-10 mb-4 flex flex-col items-center">
+          <div className="relative z-10 mb-2 flex flex-col items-center sm:mb-4 [@media(max-height:600px)]:mb-1">
             <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.3em] text-white/45">
               Community
             </div>
@@ -519,7 +521,7 @@ export default function LetItRide() {
           </div>
 
           {/* PLAYER CARDS */}
-          <div className="relative z-10 mb-4 flex flex-col items-center">
+          <div className="relative z-10 mb-2 flex flex-col items-center sm:mb-4 [@media(max-height:600px)]:mb-1">
             <div className={`flex gap-3 ${cardSizeClass}`}>
               {[0, 1, 2].map((i) => {
                 const landed = dealt > i || phase === "resolved";
@@ -604,7 +606,7 @@ export default function LetItRide() {
           </div>
 
           {/* DECISION / RESULT BAR */}
-          <div className="relative z-20 min-h-[112px]">
+          <div className="relative z-20 min-h-[88px] sm:min-h-[112px] [@media(max-height:600px)]:min-h-[72px]">
             <AnimatePresence mode="wait">
               {/* Decision 1 */}
               {phase === "decision1" && (
@@ -759,13 +761,12 @@ export default function LetItRide() {
         {/* ----------------------- SIDE PANEL ----------------------- */}
         <div className="flex flex-col gap-3">
           {/* Paytable */}
-          <div className="glass rounded-2xl p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-widest text-white/70">
-                Paytable
-              </span>
-              <span className="text-[10px] text-white/40">per remaining bet</span>
-            </div>
+          <CollapsiblePanel
+            title="Paytable"
+            accent={ACCENT}
+            summary={<>per remaining bet</>}
+          >
+            <div className="mb-2 text-right text-[10px] text-white/40">per remaining bet</div>
             <ul className="space-y-0.5 text-[13px]">
               {PAYTABLE.map((r) => {
                 const lit = winningRow?.cat === r.cat;
@@ -796,13 +797,11 @@ export default function LetItRide() {
                 <span className="font-bold">loss</span>
               </li>
             </ul>
-          </div>
+          </CollapsiblePanel>
 
           {/* Round stats */}
-          <div className="glass rounded-2xl p-3 text-sm">
-            <div className="mb-2 text-xs font-bold uppercase tracking-widest text-white/70">
-              This Round
-            </div>
+          <CollapsiblePanel title="This Round" accent={ACCENT}>
+            <div className="text-sm">
             <Row label="Unit bet" value={formatChips(unit)} />
             <Row label="Total wagered" value={formatChips(totalWager)} accent />
             {resolution && (
@@ -829,7 +828,8 @@ export default function LetItRide() {
                 </div>
               </div>
             )}
-          </div>
+            </div>
+          </CollapsiblePanel>
 
           {/* Live hand readout */}
           <div className="glass rounded-2xl p-3 text-center">
@@ -844,7 +844,7 @@ export default function LetItRide() {
       </div>
 
       {/* ----------------------- BET CONTROLS ----------------------- */}
-      <div className="mt-4">
+      <div className="mt-2 sm:mt-4">
         {phase === "betting" || phase === "resolved" ? (
           <div className="glass rounded-2xl p-3 sm:p-4">
             <div className="mb-3 flex flex-wrap items-center justify-center gap-2 sm:gap-3">

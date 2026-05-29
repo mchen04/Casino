@@ -10,6 +10,7 @@ import { sleep } from "@/lib/async";
 import { Button } from "@/components/ui/Button";
 import { BetControls } from "@/components/BetControls";
 import { CountingNumber } from "@/components/CountingNumber";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 
 // ---------------------------------------------------------------------------
 // Coin Flip — pick HEADS or TAILS, flip a gorgeous 3D coin.
@@ -143,7 +144,7 @@ function Coin({
 
   return (
     <div
-      className="relative grid place-items-center"
+      className="relative grid origin-center scale-[0.72] place-items-center sm:scale-100 [@media(max-height:600px)]:scale-[0.6]"
       style={{ width: 200, height: 200, perspective: 900 }}
     >
       {/* shadow that breathes with the toss */}
@@ -510,10 +511,10 @@ export default function CoinFlip() {
         </div>
 
         {/* ===== Stage ===== */}
-        <div className="relative grid place-items-center rounded-2xl border border-white/5 bg-black/25 px-3 py-6 sm:py-8">
+        <div className="relative grid place-items-center rounded-2xl border border-white/5 bg-black/25 px-3 py-3 sm:py-8 [@media(max-height:600px)]:py-2">
           {/* streak ladder (only in streak mode) */}
           {mode === "streak" && (
-            <div className="mb-4 flex items-center gap-1.5">
+            <div className="mb-2 flex items-center gap-1.5 sm:mb-4">
               {Array.from({ length: 8 }).map((_, i) => {
                 const reached = i < streak;
                 const next = i === streak && streakActive;
@@ -534,8 +535,10 @@ export default function CoinFlip() {
             </div>
           )}
 
-          {/* the coin */}
-          <Coin phase={phase} landed={landed} spinKey={spinKey} />
+          {/* the coin (height-capped on short/small viewports to reclaim space) */}
+          <div className="grid h-[150px] place-items-center sm:h-[200px] [@media(max-height:600px)]:h-[120px]">
+            <Coin phase={phase} landed={landed} spinKey={spinKey} />
+          </div>
 
           {/* live pot readout while a streak rides */}
           {mode === "streak" && streakActive && (
@@ -543,7 +546,7 @@ export default function CoinFlip() {
               key={pot}
               initial={{ scale: 0.85, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              className="mt-6 text-center"
+              className="mt-3 text-center sm:mt-6"
             >
               <div className="text-[10px] uppercase tracking-[0.3em] text-white/40">
                 Riding · {streak}× correct
@@ -595,7 +598,7 @@ export default function CoinFlip() {
         </div>
 
         {/* ===== Round result banner ===== */}
-        <div className="relative mt-3 min-h-[58px]">
+        <div className="relative mt-3 min-h-[48px] sm:min-h-[58px]">
           <AnimatePresence mode="wait">
             {result && (
               <motion.div
@@ -649,7 +652,7 @@ export default function CoinFlip() {
         </div>
 
         {/* ===== Pick side ===== */}
-        <div className="relative mt-4 flex gap-3">
+        <div className="relative mt-3 flex gap-3 sm:mt-4">
           <SideButton
             side="heads"
             selected={call === "heads"}
@@ -673,7 +676,7 @@ export default function CoinFlip() {
         </div>
 
         {/* ===== Action buttons ===== */}
-        <div className="relative mt-4 flex flex-col items-stretch gap-3 sm:flex-row sm:justify-center">
+        <div className="relative mt-3 flex flex-col items-stretch gap-3 sm:mt-4 sm:flex-row sm:justify-center">
           {/* Primary action. The contract requires data-testid="play-btn" on
               the primary button; the game spec also names this button
               "flip-btn". A single element can hold only one data-testid, so the
@@ -731,7 +734,7 @@ export default function CoinFlip() {
         </div>
 
         {/* ===== Bet controls ===== */}
-        <div className="relative mt-4">
+        <div className="relative mt-3 sm:mt-4">
           <BetControls
             bet={bet}
             setBet={setBet}
@@ -748,11 +751,8 @@ export default function CoinFlip() {
         </div>
 
         {/* ===== Odds / paytable + history ===== */}
-        <div className="relative mt-4 grid gap-3 sm:grid-cols-2">
-          <div className="glass rounded-2xl p-3">
-            <div className="mb-2 text-[10px] uppercase tracking-[0.25em] text-white/40">
-              Paytable
-            </div>
+        <div className="relative mt-3 grid gap-3 sm:mt-4 sm:grid-cols-2">
+          <CollapsiblePanel title="Paytable" accent={ACCENT} summary={<>{formatMultiplier(PAYOUT)} correct</>}>
             <div className="space-y-1.5 text-sm">
               <div className="flex items-center justify-between">
                 <span className="text-white/70">Correct call</span>
@@ -775,15 +775,9 @@ export default function CoinFlip() {
                 </span>
               </div>
             </div>
-          </div>
+          </CollapsiblePanel>
 
-          <div className="glass rounded-2xl p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-[10px] uppercase tracking-[0.25em] text-white/40">
-                Last Flips
-              </span>
-              <span className="text-[10px] text-white/30">newest first</span>
-            </div>
+          <CollapsiblePanel title="Last Flips" accent={ACCENT} summary={<>newest first</>}>
             <div className="flex min-h-[34px] flex-wrap gap-1.5">
               <AnimatePresence initial={false}>
                 {history.length === 0 && (
@@ -807,7 +801,7 @@ export default function CoinFlip() {
                 ))}
               </AnimatePresence>
             </div>
-          </div>
+          </CollapsiblePanel>
         </div>
 
         {/* live balance hint */}

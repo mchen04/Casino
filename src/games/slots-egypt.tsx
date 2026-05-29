@@ -17,6 +17,7 @@ import {
 import { useWallet } from "@/lib/wallet";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 import { formatChips } from "@/lib/format";
 import { sfx } from "@/lib/sound";
 import { clamp, randInt, shuffle, weightedPick } from "@/lib/rng";
@@ -565,13 +566,11 @@ function Paytable() {
     "TEN",
   ];
   return (
-    <div className="glass rounded-2xl p-3 sm:p-4">
-      <div
-        className="mb-2 font-display text-sm font-bold tracking-widest"
-        style={{ color: ACCENT }}
-      >
-        PAYTABLE · ×TOTAL BET
-      </div>
+    <CollapsiblePanel
+      title="Paytable"
+      accent={ACCENT}
+      summary={<>×total bet</>}
+    >
       <div className="grid grid-cols-1 gap-1 text-xs sm:text-[13px]">
         {order.map((id) => {
           const d = SYMBOLS[id];
@@ -618,7 +617,7 @@ function Paytable() {
         <span style={{ color: ACCENT }}>expanding symbol</span> is chosen and
         spreads across whole reels for huge pays.
       </p>
-    </div>
+    </CollapsiblePanel>
   );
 }
 
@@ -932,7 +931,7 @@ export default function PharaohsFortune() {
   return (
     <div className="mx-auto w-full max-w-5xl">
       <div
-        className="felt relative overflow-hidden rounded-3xl p-4 sm:p-6"
+        className="felt relative overflow-hidden rounded-3xl p-3 sm:p-6 [@media(max-height:600px)]:p-2"
         style={{
           background:
             "radial-gradient(ellipse at 50% -10%, #1c1305 0%, #0c0904 55%, #060402 100%)",
@@ -948,7 +947,7 @@ export default function PharaohsFortune() {
         />
 
         {/* header */}
-        <div className="relative mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="relative mb-2 flex flex-wrap items-center justify-between gap-3 sm:mb-4">
           <div>
             <h2
               className="font-display text-2xl font-bold tracking-wider sm:text-3xl"
@@ -1041,11 +1040,11 @@ export default function PharaohsFortune() {
           )}
         </AnimatePresence>
 
-        <div className="relative grid gap-4 lg:grid-cols-[1fr_auto]">
+        <div className="relative grid gap-2 sm:gap-4 lg:grid-cols-[1fr_auto]">
           {/* ---- Reels ---- */}
           <div className="min-w-0">
             <div
-              className="relative rounded-2xl p-2 sm:p-3"
+              className="relative mx-auto rounded-2xl p-2 sm:p-3 [@media(max-height:600px)]:max-w-[58vh] [@media(max-height:600px)]:p-1.5"
               style={{
                 background:
                   "linear-gradient(180deg, rgba(40,30,12,0.7), rgba(10,7,3,0.85))",
@@ -1157,7 +1156,7 @@ export default function PharaohsFortune() {
             </div>
 
             {/* Result line */}
-            <div className="mt-3 flex items-center justify-center">
+            <div className="mt-2 flex items-center justify-center sm:mt-3">
               <motion.div
                 key={resultText}
                 data-testid="round-result"
@@ -1233,7 +1232,7 @@ export default function PharaohsFortune() {
         </div>
 
         {/* ---- Controls ---- */}
-        <div className="relative mt-4">
+        <div className="relative mt-2 sm:mt-4">
           <div className="glass rounded-2xl p-3 sm:p-4">
             <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
               {CHIPS.map((v) => (

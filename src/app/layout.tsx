@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Cinzel, Inter } from "next/font/google";
 import "./globals.css";
 import { WalletProvider } from "@/lib/wallet";
+import { MotionProvider } from "@/components/MotionProvider";
 
 const display = Cinzel({
   subsets: ["latin"],
@@ -37,7 +38,9 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${display.variable} ${body.variable}`}>
       <body>
-        <WalletProvider>{children}</WalletProvider>
+        <MotionProvider>
+          <WalletProvider>{children}</WalletProvider>
+        </MotionProvider>
       </body>
     </html>
   );

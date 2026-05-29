@@ -23,6 +23,7 @@ import { useWallet } from "@/lib/wallet";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { PlayingCard } from "@/components/PlayingCard";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -1016,7 +1017,7 @@ export default function TexasHoldem() {
   return (
     <div className="mx-auto w-full max-w-4xl">
       <div
-        className="felt relative overflow-hidden rounded-3xl border border-emerald-300/15 p-4 shadow-felt sm:p-6"
+        className="felt relative overflow-hidden rounded-3xl border border-emerald-300/15 p-4 shadow-felt sm:p-6 [@media(max-height:600px)]:p-2"
         style={{
           background:
             "radial-gradient(120% 90% at 50% -10%, rgba(46,204,113,0.18), transparent 55%), radial-gradient(100% 100% at 50% 120%, rgba(0,0,0,0.45), transparent 60%)",
@@ -1059,7 +1060,7 @@ export default function TexasHoldem() {
         </Seat>
 
         {/* ===== Pot + board ===== */}
-        <div className="relative my-3 flex flex-col items-center gap-3">
+        <div className="relative my-2 flex flex-col items-center gap-2 sm:my-3 sm:gap-3 [@media(max-height:600px)]:my-1.5 [@media(max-height:600px)]:gap-1.5">
           {/* Pot readout */}
           <motion.div
             key={state.pot}
@@ -1097,7 +1098,7 @@ export default function TexasHoldem() {
           </AnimatePresence>
 
           {/* Board */}
-          <div className="flex min-h-[96px] items-center justify-center gap-1.5 sm:gap-2">
+          <div className="flex min-h-[96px] items-center justify-center gap-1.5 sm:gap-2 [@media(max-height:600px)]:min-h-[72px]">
             {[0, 1, 2, 3, 4].map((i) => {
               const card = state.board[i] ?? null;
               const shown = i < state.revealBoard && card != null;
@@ -1247,7 +1248,7 @@ export default function TexasHoldem() {
       </div>
 
       {/* ===== Controls ===== */}
-      <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_auto]">
+      <div className="mt-2 grid gap-2 sm:mt-4 sm:gap-3 lg:grid-cols-[1fr_auto]">
         {/* Action / buy-in panel */}
         <div className="glass rounded-2xl p-4">
           {idle ? (
@@ -1394,7 +1395,13 @@ export default function TexasHoldem() {
         </div>
 
         {/* Info / hand ranks panel */}
-        <div className="glass flex w-full flex-col gap-3 rounded-2xl p-4 lg:w-72">
+        <CollapsiblePanel
+          title="Action Log & Hand Ranks"
+          accent={ACCENT}
+          summary={<>blinds {SB}/{BB}</>}
+          className="w-full lg:w-72"
+        >
+         <div className="flex w-full flex-col gap-3">
           <div className="text-[11px] uppercase tracking-widest text-white/45">
             Action Log
           </div>
@@ -1446,7 +1453,8 @@ export default function TexasHoldem() {
             Heads-up no-limit. Blinds {SB}/{BB}. Button alternates each hand. Best
             five-card hand wins; ties split the pot.
           </div>
-        </div>
+         </div>
+        </CollapsiblePanel>
       </div>
     </div>
   );

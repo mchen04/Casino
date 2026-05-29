@@ -9,6 +9,7 @@ import { weightedPick, randFloat } from "@/lib/rng";
 import { Button } from "@/components/ui/Button";
 import { BetControls } from "@/components/BetControls";
 import { CountingNumber } from "@/components/CountingNumber";
+import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 
 /* ----------------------------------------------------------------------------
  * Big Six Money Wheel (Wheel of Fortune).
@@ -306,8 +307,8 @@ export default function MoneyWheel() {
   }, [ring, C, R, HUB]);
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-3 pb-10">
-      <div className="felt relative overflow-hidden rounded-3xl border border-white/10 p-4 shadow-felt sm:p-6">
+    <div className="mx-auto w-full max-w-5xl px-3 pb-4 sm:pb-10">
+      <div className="felt relative overflow-hidden rounded-3xl border border-white/10 p-3 shadow-felt sm:p-6">
         {/* ambient glow */}
         <div
           className="pointer-events-none absolute -inset-24 opacity-30 blur-3xl"
@@ -316,7 +317,7 @@ export default function MoneyWheel() {
           }}
         />
 
-        <div className="relative grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="relative grid gap-3 sm:gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
           {/* LEFT: the wheel showpiece */}
           <div className="flex flex-col items-center">
             <WheelStage
@@ -334,7 +335,7 @@ export default function MoneyWheel() {
             />
 
             {/* Result banner */}
-            <div className="mt-4 min-h-[58px] w-full max-w-md">
+            <div className="mt-2 min-h-[44px] w-full max-w-md sm:mt-4 sm:min-h-[58px]">
               <AnimatePresence mode="wait">
                 {resultText ? (
                   <motion.div
@@ -373,27 +374,28 @@ export default function MoneyWheel() {
 
             {/* Recent landings ticker */}
             {lastLanded.length > 0 && (
-              <div className="mt-3 flex w-full max-w-md flex-wrap items-center justify-center gap-1.5">
-                <span className="text-[10px] uppercase tracking-widest text-white/35">
-                  Recent
-                </span>
-                {lastLanded.map((l, i) => {
-                  const sp = SPOTS.find((s) => s.label === l) ?? SPOTS[0];
-                  return (
-                    <span
-                      key={`${l}-${i}`}
-                      className="grid h-6 min-w-[24px] place-items-center rounded-md px-1.5 text-[11px] font-bold"
-                      style={{
-                        background: `${sp.color}33`,
-                        color: sp.glow,
-                        border: `1px solid ${sp.glow}55`,
-                        opacity: 1 - i * 0.06,
-                      }}
-                    >
-                      {sp.kind === "logo" ? (l === "JOKER" ? "🃏" : "♛") : l}
-                    </span>
-                  );
-                })}
+              <div className="mt-3 w-full max-w-md">
+                <CollapsiblePanel title="Recent" accent={ACCENT}>
+                  <div className="flex flex-wrap items-center justify-center gap-1.5">
+                    {lastLanded.map((l, i) => {
+                      const sp = SPOTS.find((s) => s.label === l) ?? SPOTS[0];
+                      return (
+                        <span
+                          key={`${l}-${i}`}
+                          className="grid h-6 min-w-[24px] place-items-center rounded-md px-1.5 text-[11px] font-bold"
+                          style={{
+                            background: `${sp.color}33`,
+                            color: sp.glow,
+                            border: `1px solid ${sp.glow}55`,
+                            opacity: 1 - i * 0.06,
+                          }}
+                        >
+                          {sp.kind === "logo" ? (l === "JOKER" ? "🃏" : "♛") : l}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </CollapsiblePanel>
               </div>
             )}
           </div>
@@ -518,10 +520,7 @@ export default function MoneyWheel() {
             )}
 
             {/* Paytable / odds */}
-            <div className="glass rounded-2xl p-3">
-              <div className="mb-2 text-[10px] uppercase tracking-widest text-white/40">
-                Paytable & Odds
-              </div>
+            <CollapsiblePanel title="Paytable & Odds" accent={ACCENT}>
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-[10px] uppercase tracking-wider text-white/35">
@@ -576,7 +575,7 @@ export default function MoneyWheel() {
                 Win pays the segment value to 1 (stake returned plus profit). The
                 two logo segments each pay 40:1.
               </p>
-            </div>
+            </CollapsiblePanel>
           </div>
         </div>
       </div>
@@ -623,8 +622,8 @@ function WheelStage({
 }) {
   return (
     <div
-      className="relative"
-      style={{ width: "min(100%, 380px)", aspectRatio: "1 / 1" }}
+      className="relative w-[min(100%,380px)] [@media(max-height:600px)]:w-[min(100%,220px)]"
+      style={{ aspectRatio: "1 / 1" }}
     >
       {/* Outer ambient ring glow */}
       <div
