@@ -116,6 +116,20 @@ function cascade(grid: Cell[][], winners: Set<string>): Cell[][] {
 
 const MULT_LADDER = [1, 2, 3, 5, 8, 12, 20];
 
+// `res.units` already folds in the ways-product (counts multiplied across reels),
+// which routinely reaches the hundreds — so the per-spin payout needs heavy
+// damping. At 0.25 the game returned ~1839% RTP (an infinite money glitch);
+// 0.0125 lands it at ~95.8% RTP (Monte-Carlo verified, 1.5M spins incl. cascades,
+// the mult ladder and the MAX_WIN_UNITS cap).
+const WIN_SCALE = 0.0125;
+
+// Buy-a-bonus: pay BUY_COST_MULT× the bet for BUY_SPINS cascading spins whose
+// wins are all multiplied by BUY_MULT. Base RTP ~95.8%, so 10 spins × ×10
+// returns ~95.8× the bet — fair against the 100× cost.
+const BUY_COST_MULT = 100;
+const BUY_SPINS = 10;
+const BUY_MULT = 10;
+
 export default function NeonMegaways() {
   const wallet = useWallet();
   const [bet, setBet] = useState(20);
@@ -127,55 +141,53 @@ export default function NeonMegaways() {
   const [message, setMessage] = useState("Cascading reels · up to 46,656 ways");
   const busy = useRef(false);
   const mountedRef = useRef(true);
-  useEffect(() => () => {
-    mountedRef.current = false;
+  // Win multiplier active during a bought bonus (1 in normal play).
+  const buyMultRef = useRef(1);
+  const [bonusLeft, setBonusLeft] = useState(0);
+  useEffect(() => {
+    // Reset on mount too — under React StrictMode the mount→unmount→remount
+    // dance would otherwise leave this stuck false (killing every async spin).
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   const ways = useMemo(() => grid.reduce((a, reel) => a * reel.length, 1), [grid]);
 
-  const spin = useCallback(async () => {
-    if (busy.current || spinning) return;
-    if (bet < 1 || bet > wallet.balance) return;
-    if (!wallet.bet(bet)) return;
-
-    busy.current = true;
-    setSpinning(true);
+  // One full cascading spin: animates, credits winnings (× buyMultRef during a
+  // bought bonus) and returns the total won. Does NOT manage busy/bet — callers
+  // do. Returns 0 if unmounted mid-spin.
+  const playCascadeSpin = useCallback(async (): Promise<number> => {
+    const m = buyMultRef.current;
     setSpinWin(null);
     setWinners(new Set());
     setMultIndex(0);
     setMessage("Spinning…");
     sfx.tick();
 
-    // initial random grid + a brief "spin" feel
     let current = makeGrid();
     setGrid(current);
     await sleep(420);
-    if (!mountedRef.current) return;
+    if (!mountedRef.current) return 0;
     sfx.thud();
 
     let total = 0;
     let cascadeNum = 0;
 
-    // cascade loop
     for (;;) {
       const res = evaluate(current);
       if (res.scatters >= 4 && cascadeNum === 0) {
-        const bonus = bet * (res.scatters - 2);
+        const bonus = Math.round(bet * (res.scatters - 2) * m);
         total += bonus;
         setMessage(`💫 ${res.scatters} scatters · +${formatChips(bonus)} bonus`);
         await sleep(500);
-        if (!mountedRef.current) return;
+        if (!mountedRef.current) return total;
       }
       if (res.units <= 0 || res.winners.size === 0) break;
 
       const mult = MULT_LADDER[Math.min(cascadeNum, MULT_LADDER.length - 1)];
-      // `res.units` already folds in the ways-product (counts multiplied across
-      // reels), which routinely reaches the hundreds — so the per-spin payout
-      // needs heavy damping. At 0.25 the game returned ~1839% RTP (an infinite
-      // money glitch); 0.0125 lands it at ~95.8% RTP (Monte-Carlo verified, 1.5M
-      // spins incl. cascades, the mult ladder and the MAX_WIN_UNITS cap).
-      const WIN_SCALE = 0.0125;
-      const winChips = Math.round(bet * res.units * mult * WIN_SCALE);
+      const winChips = Math.round(bet * res.units * mult * WIN_SCALE * m);
       total += winChips;
       setMultIndex(Math.min(cascadeNum, MULT_LADDER.length - 1));
       setWinners(new Set(res.winners));
@@ -184,15 +196,14 @@ export default function NeonMegaways() {
       );
       sfx.win();
       await sleep(720);
-      if (!mountedRef.current) return;
+      if (!mountedRef.current) return total;
 
-      // explode + drop
       current = cascade(current, res.winners);
       setGrid(current);
       setWinners(new Set());
       cascadeNum++;
       await sleep(520);
-      if (!mountedRef.current) return;
+      if (!mountedRef.current) return total;
     }
 
     if (total > 0) {
@@ -206,10 +217,51 @@ export default function NeonMegaways() {
       sfx.lose();
       setMessage("No win — spin again");
     }
+    return total;
+  }, [bet, wallet]);
 
+  const spin = useCallback(async () => {
+    if (busy.current || spinning) return;
+    if (bet < 1 || bet > wallet.balance) return;
+    if (!wallet.bet(bet)) return;
+
+    busy.current = true;
+    setSpinning(true);
+    buyMultRef.current = 1;
+    await playCascadeSpin();
     setSpinning(false);
     busy.current = false;
-  }, [bet, spinning, wallet]);
+  }, [bet, spinning, wallet, playCascadeSpin]);
+
+  const buyCost = bet * BUY_COST_MULT;
+  const buyBonus = useCallback(async () => {
+    if (busy.current || spinning) return;
+    if (buyCost > wallet.balance) return;
+    if (!wallet.bet(buyCost)) return;
+
+    busy.current = true;
+    setSpinning(true);
+    buyMultRef.current = BUY_MULT;
+    sfx.jackpot();
+
+    let grand = 0;
+    for (let i = 0; i < BUY_SPINS; i++) {
+      setBonusLeft(BUY_SPINS - i);
+      const won = await playCascadeSpin();
+      if (!mountedRef.current) return;
+      grand += won;
+      setMessage(`Bonus ${i + 1}/${BUY_SPINS} · ${BUY_MULT}× · total ${formatChips(grand)}`);
+      await sleep(650);
+      if (!mountedRef.current) return;
+    }
+
+    buyMultRef.current = 1;
+    setBonusLeft(0);
+    setSpinWin(grand);
+    setMessage(`BONUS DONE · won ${formatChips(grand)} chips!`);
+    setSpinning(false);
+    busy.current = false;
+  }, [bet, spinning, wallet, buyCost, playCascadeSpin]);
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -346,6 +398,22 @@ export default function NeonMegaways() {
         onPrimary={spin}
         primaryDisabled={spinning || bet < 1 || bet > wallet.balance}
       />
+
+      <div className="mt-3 flex justify-center">
+        <motion.button
+          type="button"
+          data-testid="buy-bonus-btn"
+          whileTap={{ scale: 0.97 }}
+          disabled={spinning || buyCost > wallet.balance}
+          onClick={buyBonus}
+          className="rounded-2xl border border-neon-lime/50 bg-neon-lime/5 px-6 py-3 font-display text-sm font-bold text-neon-lime transition hover:bg-neon-lime/10 disabled:cursor-not-allowed disabled:opacity-40"
+          title={`Buy ${BUY_SPINS} cascading spins at ${BUY_MULT}× for ${BUY_COST_MULT}× your bet`}
+        >
+          {bonusLeft > 0
+            ? `BONUS RUNNING · ${bonusLeft} left`
+            : `🪙 Buy Bonus · ${formatChips(buyCost)}`}
+        </motion.button>
+      </div>
     </div>
   );
 }

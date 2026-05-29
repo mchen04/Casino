@@ -376,6 +376,13 @@ type GamePhase = "idle" | "spinning" | "resolved";
 
 const MIN_BET = 5;
 
+// Buy-a-bonus: pay BUY_COST_MULT× the bet for BUY_SPINS auto-spins whose wins
+// are all multiplied by BUY_MULT. Base RTP is ~95.2%, so 10 spins × ×10 returns
+// ~95.2× the bet — fair against the 100× cost.
+const BUY_COST_MULT = 100;
+const BUY_SPINS = 10;
+const BUY_MULT = 10;
+
 export default function LuckySevens() {
   const wallet = useWallet();
   const [bet, setBet] = useState(50);
@@ -406,6 +413,12 @@ export default function LuckySevens() {
   const autoRef = useRef(false);
   autoRef.current = autoSpin;
 
+  // Buy-bonus: remaining bonus spins + the active win multiplier (refs so the
+  // async spin loop always sees the latest value).
+  const bonusLeftRef = useRef(0);
+  const buyMultRef = useRef(1);
+  const [bonusActive, setBonusActive] = useState(false);
+
   const clearTimers = useCallback(() => {
     timers.current.forEach((t) => clearTimeout(t));
     timers.current = [];
@@ -428,14 +441,21 @@ export default function LuckySevens() {
   const doSpin = useCallback(() => {
     if (phase === "spinning") return;
     if (!wallet.ready) return;
-    if (bet < MIN_BET || bet > wallet.balance) {
-      setAutoSpin(false);
-      return;
-    }
-    // Take the stake first. Abort if unaffordable.
-    if (!wallet.bet(bet)) {
-      setAutoSpin(false);
-      return;
+    // Bonus spins are pre-paid by the buy — they don't draw from the wallet and
+    // they consume one of the remaining bought spins.
+    const isBonus = bonusLeftRef.current > 0;
+    if (isBonus) {
+      bonusLeftRef.current -= 1;
+    } else {
+      if (bet < MIN_BET || bet > wallet.balance) {
+        setAutoSpin(false);
+        return;
+      }
+      // Take the stake first. Abort if unaffordable.
+      if (!wallet.bet(bet)) {
+        setAutoSpin(false);
+        return;
+      }
     }
 
     clearTimers();
@@ -481,7 +501,9 @@ export default function LuckySevens() {
         tickIvRef.current = null;
       }
       const result = evaluateLine(line);
-      const gross = bet * result.multiplier; // x already includes the stake
+      // Bonus spins multiply the win; normal spins use ×1.
+      const gross =
+        bet * result.multiplier * (isBonus ? buyMultRef.current : 1); // x includes stake
       setOutcome(result);
       setWinReels(winningReels(line, result));
       setPhase("resolved");
@@ -501,14 +523,18 @@ export default function LuckySevens() {
         sfx.lose();
       }
 
-      // Auto-spin continuation — use the ref to always call the latest doSpin,
-      // avoiding the stale-closure bug where the captured closure would see
-      // phase === "spinning" and bail out immediately.
-      if (autoRef.current) {
+      // Continuation — keep going while auto-spin is on OR bonus spins remain.
+      // Uses the ref to always call the latest doSpin (avoids the stale-closure
+      // bug where the captured closure sees phase === "spinning" and bails).
+      if (autoRef.current || bonusLeftRef.current > 0) {
         const again = setTimeout(() => {
-          if (autoRef.current) doSpinRef.current();
+          if (autoRef.current || bonusLeftRef.current > 0) doSpinRef.current();
         }, 1400);
         timers.current.push(again);
+      } else if (isBonus) {
+        // The bought bonus round just finished — clear the multiplier.
+        buyMultRef.current = 1;
+        setBonusActive(false);
       }
     }, stopTimes[2] + 520);
     timers.current.push(resolveT);
@@ -516,6 +542,21 @@ export default function LuckySevens() {
 
   // Keep the ref in sync with the latest doSpin every render.
   doSpinRef.current = doSpin;
+
+  const buyCost = bet * BUY_COST_MULT;
+  const handleBuy = useCallback(() => {
+    if (phase === "spinning" || !wallet.ready) return;
+    if (bonusLeftRef.current > 0) return;
+    if (buyCost > wallet.balance) return;
+    if (!wallet.bet(buyCost)) return;
+    setAutoSpin(false);
+    autoRef.current = false;
+    bonusLeftRef.current = BUY_SPINS;
+    buyMultRef.current = BUY_MULT;
+    setBonusActive(true);
+    sfx.jackpot();
+    doSpinRef.current();
+  }, [phase, wallet, buyCost]);
 
   const toggleAuto = useCallback(() => {
     setAutoSpin((a) => {
@@ -737,7 +778,7 @@ export default function LuckySevens() {
             data-testid="play-btn"
             size="lg"
             variant="danger"
-            disabled={primaryDisabled}
+            disabled={primaryDisabled || bonusActive}
             onClick={doSpin}
             className="min-w-[160px]"
           >
@@ -759,10 +800,24 @@ export default function LuckySevens() {
             data-testid="autospin-btn"
             size="lg"
             variant={autoSpin ? "gold" : "ghost"}
-            disabled={!wallet.ready || (!autoSpin && !canBet)}
+            disabled={!wallet.ready || bonusActive || (!autoSpin && !canBet)}
             onClick={toggleAuto}
           >
             {autoSpin ? "Auto: ON" : "Auto Spin"}
+          </Button>
+
+          <Button
+            data-testid="buy-bonus-btn"
+            size="lg"
+            variant="ghost"
+            disabled={!wallet.ready || spinning || bonusActive || buyCost > balance}
+            onClick={handleBuy}
+            className="border border-amber-300/50 text-amber-200"
+            title={`Buy ${BUY_SPINS} spins at ${BUY_MULT}× for ${BUY_COST_MULT}× your bet`}
+          >
+            {bonusActive
+              ? `BONUS · ${bonusLeftRef.current}`
+              : `🪙 Buy Bonus · ${formatChips(buyCost)}`}
           </Button>
         </div>
 

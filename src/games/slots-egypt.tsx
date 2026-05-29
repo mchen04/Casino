@@ -628,6 +628,12 @@ function Paytable() {
 
 const CHIPS = [5, 25, 100, 500];
 
+// Buy-a-bonus: pay BUY_COST_MULT× the bet to launch the free-spins round with a
+// ×BUY_MULT win multiplier. The free-spin round is worth ~12.45× the bet, so
+// ×8 → ~99.6× value, fair against the ~104× cost (~95.8% RTP, sim-verified).
+const BUY_COST_MULT = 104;
+const BUY_MULT = 8;
+
 export default function PharaohsFortune() {
   const wallet = useWallet();
 
@@ -647,6 +653,9 @@ export default function PharaohsFortune() {
   const [showExpandReveal, setShowExpandReveal] = useState<SymbolId | null>(null);
 
   const inFree = freeLeft > 0 || showExpandReveal != null;
+  // Win multiplier active during a *bought* free-spins round (1 otherwise, so a
+  // naturally-triggered bonus is never multiplied and base RTP is untouched).
+  const buyMultRef = useRef(1);
   const stopTimers = useRef<number[]>([]);
   const stopIntervals = useRef<number[]>([]);
   const mounted = useRef(true);
@@ -781,9 +790,14 @@ export default function PharaohsFortune() {
         if (!mounted.current) return;
         settleResult(res, true, totalBet);
         if (res.total > 0) {
-          accumulated += res.total;
-          wallet.win(res.total); // credit free-spin winnings (no stake to return)
+          // Bought rounds multiply every free-spin win; natural ones use ×1.
+          const won = Math.round(res.total * buyMultRef.current);
+          accumulated += won;
+          wallet.win(won); // credit free-spin winnings (no stake to return)
           setFreeTotal(accumulated);
+          if (buyMultRef.current > 1) {
+            setMessage(`${BUY_MULT}× boost — +${formatChips(won)}!`);
+          }
         }
         // Retrigger: +N spins (capped to keep it sane).
         if (res.retrigger) {
@@ -856,6 +870,37 @@ export default function PharaohsFortune() {
       setBusy(false);
     }
   }, [busy, spinning, affordable, bet, wallet, runSpin, settleResult, playFreeSpins]);
+
+  /* ---- buy the bonus: launch the free-spins round directly (×BUY_MULT) --- */
+  const buyCost = bet * BUY_COST_MULT;
+  const handleBuyBonus = useCallback(async () => {
+    if (busy || spinning) return;
+    if (buyCost > wallet.balance) return;
+    if (!wallet.bet(buyCost)) return;
+
+    setBusy(true);
+    setFreeTotal(0);
+    setResult(null);
+    buyMultRef.current = BUY_MULT;
+
+    const chosen = weightedPick(
+      EXPANDING_POOL,
+      EXPANDING_POOL.map((id) => SYMBOLS[id].weight),
+    );
+    sfx.jackpot();
+    setMessage(`Bonus bought — ${FREE_SPINS} free spins at ${BUY_MULT}×!`);
+    setShowExpandReveal(chosen);
+    sfx.win();
+    await new Promise<void>((r) => {
+      const id = window.setTimeout(r, 2100);
+      stopTimers.current.push(id);
+    });
+    if (!mounted.current) return;
+    setShowExpandReveal(null);
+    setExpanding(chosen);
+    await playFreeSpins(FREE_SPINS, chosen, bet);
+    buyMultRef.current = 1; // round over — clear the boost
+  }, [busy, spinning, bet, wallet, buyCost, playFreeSpins]);
 
   /* ---- bet editing helpers ---------------------------------------------- */
 
@@ -1272,6 +1317,18 @@ export default function PharaohsFortune() {
                   : spinning
                     ? "SPINNING…"
                     : "SPIN"}
+              </Button>
+
+              <Button
+                size="lg"
+                variant="ghost"
+                data-testid="buy-bonus-btn"
+                className="min-w-[150px] border border-[#f1c40f]/50 text-[#f1c40f]"
+                disabled={lockBet || buyCost > wallet.balance}
+                onClick={handleBuyBonus}
+                title={`Buy ${FREE_SPINS} free spins at ${BUY_MULT}× for ${BUY_COST_MULT}× your bet`}
+              >
+                🪙 Buy Bonus · {formatChips(buyCost)}
               </Button>
             </div>
 
