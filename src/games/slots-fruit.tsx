@@ -515,6 +515,13 @@ const MIN_BET = 10; // must be a multiple of LINES so per-line is whole
 const REEL_STAGGER_MS = 220;
 const SPIN_BASE_MS = 620;
 
+// Buy-a-bonus: pay BUY_COST_MULT× the total bet for BUY_SPINS free spins whose
+// wins are all multiplied by BUY_MULT. Tuned so the buy returns ~96.9% (sim:
+// 10 spins × ×10 incl. retriggers ≈ 96.9× the total bet) — fair vs the 100× cost.
+const BUY_COST_MULT = 100;
+const BUY_SPINS = 10;
+const BUY_MULT = 10;
+
 export default function FruitFrenzy() {
   const wallet = useWallet();
   const { balance, ready } = wallet;
@@ -541,6 +548,9 @@ export default function FruitFrenzy() {
   const [freeSpins, setFreeSpins] = useState(0);
   const [freeBanner, setFreeBanner] = useState(false);
   const [inFreeSpin, setInFreeSpin] = useState(false);
+  // Win multiplier active during a *bought* bonus (1 during normal play and
+  // naturally-triggered free spins, so the base RTP is never inflated).
+  const [buyMult, setBuyMult] = useState(1);
 
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const cycleWinRef = useRef(0); // accumulated free-spin session win
@@ -645,7 +655,9 @@ export default function FruitFrenzy() {
       const res = evaluateSpin(grid);
       setResult(res);
 
-      const gross = Math.round(bet * res.totalMultiplier);
+      // Bought-bonus spins multiply every win; normal/natural spins use ×1.
+      const winMult = free ? buyMult : 1;
+      const gross = Math.round(bet * res.totalMultiplier * winMult);
       const triggersFree = res.scatterCount >= SCATTERS_FOR_FREE;
 
       // Pay line winnings.
@@ -720,7 +732,7 @@ export default function FruitFrenzy() {
       setPhase("resolved");
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [bet, wallet],
+    [bet, wallet, buyMult],
   );
 
   // Always keep the ref pointed at the latest resolveSpin so runSpin's
@@ -743,7 +755,7 @@ export default function FruitFrenzy() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, freeSpins]);
 
-  // When a free-spin session ends, summarise.
+  // When a free-spin session ends, summarise and clear any bought multiplier.
   useEffect(() => {
     if (phase === "resolved" && freeSpins === 0 && inFreeSpin) {
       const total = cycleWinRef.current;
@@ -755,6 +767,7 @@ export default function FruitFrenzy() {
         setResultText("Free spins done");
       }
       setInFreeSpin(false);
+      setBuyMult(1);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, freeSpins, inFreeSpin]);
@@ -772,6 +785,30 @@ export default function FruitFrenzy() {
     cycleWinRef.current = 0;
     runSpin(false);
   }, [busy, freeSpins, bet, wallet, runSpin]);
+
+  /** Buy the bonus: pay BUY_COST_MULT× the bet for an enhanced free-spin round. */
+  const buyCost = bet * BUY_COST_MULT;
+  const handleBuyBonus = useCallback(() => {
+    if (busy || freeSpins > 0) return;
+    if (bet < MIN_BET) return;
+    if (!wallet.bet(buyCost)) {
+      sfx.lose();
+      setResultText(`Need ${formatChips(buyCost)} to buy the bonus`);
+      return;
+    }
+    sfx.jackpot();
+    clearTimers();
+    cycleWinRef.current = 0;
+    setLastWin(0);
+    setBuyMult(BUY_MULT);
+    setInFreeSpin(true);
+    setFreeBanner(true);
+    setResultText(`Bonus bought — ${BUY_SPINS} super spins at ${BUY_MULT}×!`);
+    setFreeSpins(BUY_SPINS);
+    // Kick the auto-free-spin driver (it runs while phase==="resolved").
+    setPhase("resolved");
+    timers.current.push(setTimeout(() => setFreeBanner(false), 1800));
+  }, [busy, freeSpins, bet, wallet, buyCost, clearTimers]);
 
   // Winning cell lookup for highlighting.
   const winningCellSet = useMemo(() => {
@@ -805,6 +842,7 @@ export default function FruitFrenzy() {
 
   const won = lastWin > 0 && phase === "resolved";
   const playDisabled = !ready || busy || freeSpins > 0 || !affordable;
+  const buyDisabled = !ready || busy || freeSpins > 0 || buyCost > balance;
 
   return (
     <div className="mx-auto w-full max-w-5xl">
@@ -990,6 +1028,19 @@ export default function FruitFrenzy() {
                   : busy
                     ? "SPINNING…"
                     : `SPIN · ${formatChips(bet)}`}
+              </Button>
+            </motion.div>
+            <motion.div whileTap={{ scale: 0.97 }}>
+              <Button
+                size="lg"
+                variant="ghost"
+                onClick={handleBuyBonus}
+                disabled={buyDisabled}
+                data-testid="buy-bonus-btn"
+                className="min-w-[150px] border border-[#2ecc71]/50 text-[#2ecc71]"
+                title={`Buy ${BUY_SPINS} free spins at ${BUY_MULT}× for ${BUY_COST_MULT}× your bet`}
+              >
+                🪙 BUY BONUS · {formatChips(buyCost)}
               </Button>
             </motion.div>
             <Button
