@@ -714,6 +714,7 @@ export default function Craps() {
     sfx.thud();
     setPhase("rolling");
     setRolling(true);
+    setCelebrate(false);
     setLastDelta(0);
     setResultText(comeOut ? "Come-out roll…" : `Rolling for the point (${point})…`);
     setResultTone("info");

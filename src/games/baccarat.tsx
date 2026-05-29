@@ -495,6 +495,7 @@ export default function Baccarat() {
             show={
               resolved &&
               delta !== null &&
+              delta > 0 &&
               (winningSpots.has("tie") || delta >= totalStaked * 4)
             }
             seed={delta ?? 0}

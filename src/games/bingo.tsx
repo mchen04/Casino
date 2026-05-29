@@ -464,7 +464,7 @@ export default function Bingo() {
   const callLabel = currentBall != null ? `${letterFor(currentBall)}-${currentBall}` : "—";
 
   // Win celebration: fire only once the round has RESOLVED with a payout.
-  const won = phase === "resolved" && (result?.gross ?? 0) > 0;
+  const won = phase === "resolved" && (result?.profit ?? 0) > 0;
   // Payout measured in bet-per-card units feeds the intensity tier.
   const winMult = result && bet > 0 ? result.gross / bet : 0;
   const celebrationTier: "win" | "big" | "jackpot" =
@@ -500,7 +500,7 @@ export default function Bingo() {
               bonus={bonusPhase}
               drawn={calls.length}
               burst={burst}
-              win={(result?.gross ?? 0) > 0}
+              win={(result?.profit ?? 0) > 0}
             />
 
             {/* readouts */}

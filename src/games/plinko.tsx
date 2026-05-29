@@ -352,6 +352,9 @@ export default function Plinko() {
   const [history, setHistory] = useState<ResultLog[]>([]);
   const [burstKey, setBurstKey] = useState(0);
   const [burstMult, setBurstMult] = useState(0);
+  // Drives the Celebration; set true only on winning landings so a concurrent
+  // push/loss ball resolving moments later can't hide an in-flight win burst.
+  const [celebrate, setCelebrate] = useState(false);
 
   const geom = useMemo(() => makeGeom(rows), [rows]);
   const multipliers = PAYOUTS[rows][risk];
@@ -382,11 +385,13 @@ export default function Plinko() {
         sfx.thud();
         setBurstMult(b.mult);
         setBurstKey((k) => k + 1);
+        setCelebrate(true);
       } else if (b.mult >= 1) {
         sfx.win();
         if (b.mult > 1) {
           setBurstMult(b.mult);
           setBurstKey((k) => k + 1);
+          setCelebrate(true);
         } else {
           sfx.thud();
         }
@@ -563,7 +568,7 @@ export default function Plinko() {
           >
             {/* confetti + coin fountain on a profitable landing (mult > 1) */}
             <Celebration
-              show={burstMult > 1}
+              show={celebrate}
               seed={burstKey}
               tier={burstMult >= 10 ? "jackpot" : burstMult >= 3 ? "big" : "win"}
               colors={["#22e1ff", "#ffd24a", "#8aff80", "#ffffff"]}

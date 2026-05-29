@@ -547,10 +547,10 @@ export default function VideoPoker() {
         <div className="relative z-10 grid gap-2 sm:gap-4 md:grid-cols-[1.65fr_1fr]">
           {/* ---------------- Table / cards ---------------- */}
           <div className="flex flex-col">
-            <div className="glass relative flex flex-1 flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl p-4 sm:gap-4 sm:p-6 [@media(max-height:600px)]:p-3">
+            <div className="glass relative flex flex-1 flex-col items-center justify-center gap-2 rounded-2xl p-4 sm:gap-4 sm:p-6 [@media(max-height:600px)]:p-3">
               {/* Win celebration overlay */}
               <Celebration
-                show={phase === "result" && (outcome?.gross ?? 0) > 0}
+                show={phase === "result" && (outcome?.net ?? 0) > 0}
                 seed={outcome?.gross ?? 0}
                 tier={
                   outcome?.key === "royal" ||

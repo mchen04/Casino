@@ -520,9 +520,9 @@ export default function Mines() {
         {/* ambient grid glow */}
         <div className="bg-grid pointer-events-none absolute inset-0 opacity-20" />
 
-        {/* win celebration — fires only on a successful cash-out, not on bust */}
+        {/* win celebration — fires only on a net-positive cash-out, not on bust or break-even */}
         <Celebration
-          show={cashedWon}
+          show={cashedWon && winPayout > stake}
           seed={winPayout}
           tier={winTier}
           colors={["#8aff80", "#22e1ff", "#ffd24a", "#ffffff"]}

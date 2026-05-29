@@ -584,10 +584,10 @@ export default function Blackjack() {
         resolved.length === 1 && resolved[0].outcome === "blackjack";
       if (isNatural) {
         setCelebration({ payout: grossReturn, tier: "big" });
-      } else if (wageredThisRound > 0 && grossReturn >= wageredThisRound * 2.5) {
+      } else if (net >= wageredThisRound * 1.5) {
         setCelebration({
           payout: grossReturn,
-          tier: grossReturn >= wageredThisRound * 4 ? "jackpot" : "big",
+          tier: net >= wageredThisRound * 3 ? "jackpot" : "big",
         });
       } else {
         setCelebration(null);

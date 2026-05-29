@@ -599,7 +599,7 @@ export default function Roulette() {
 
       setWinningSpots(winners);
       setLastNet(net);
-      if (gross > 0) {
+      if (net > 0) {
         const tier: "win" | "big" | "jackpot" =
           straightHit || gross >= stake * 20
             ? "jackpot"

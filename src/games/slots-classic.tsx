@@ -590,7 +590,7 @@ export default function LuckySevens() {
       >
         {/* full-surface win celebration overlay */}
         <Celebration
-          show={phase === "resolved" && payout > 0}
+          show={phase === "resolved" && lastDelta > 0}
           seed={payout}
           tier={
             outcome?.tier === "jackpot"

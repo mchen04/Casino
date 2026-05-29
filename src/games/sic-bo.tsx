@@ -656,11 +656,17 @@ export default function SicBo() {
             background: `radial-gradient(circle at 50% 0%, ${ACCENT}22, transparent 55%)`,
           }}
         />
+        <Celebration
+          show={wonPayout > 0}
+          seed={wonPayout}
+          tier={celebrationTier}
+          colors={["#fd79a8", "#ffd24a", "#22e1ff", "#ffffff"]}
+        />
 
         {/* Dice arena */}
         <div className="relative mb-3 grid place-items-center sm:mb-4">
           <div
-            className="relative flex items-center justify-center gap-4 overflow-hidden rounded-2xl px-6 py-4 sm:gap-7 sm:px-12 sm:py-6 [@media(max-height:600px)]:gap-3 [@media(max-height:600px)]:px-4 [@media(max-height:600px)]:py-2"
+            className="relative flex items-center justify-center gap-4 rounded-2xl px-6 py-4 sm:gap-7 sm:px-12 sm:py-6 [@media(max-height:600px)]:gap-3 [@media(max-height:600px)]:px-4 [@media(max-height:600px)]:py-2"
             style={{
               background:
                 "radial-gradient(circle at 50% 40%, rgba(0,0,0,0.35), rgba(0,0,0,0.15))",
@@ -693,12 +699,6 @@ export default function SicBo() {
               </div>
             ))}
             <AnimatePresence>{showBurst && <WinBurst />}</AnimatePresence>
-            <Celebration
-              show={wonPayout > 0}
-              seed={wonPayout}
-              tier={celebrationTier}
-              colors={["#fd79a8", "#ffd24a", "#22e1ff", "#ffffff"]}
-            />
           </div>
 
           {/* total readout */}

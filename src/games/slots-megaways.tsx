@@ -142,6 +142,9 @@ export default function NeonMegaways() {
   const [multIndex, setMultIndex] = useState(0);
   const [spinning, setSpinning] = useState(false);
   const [spinWin, setSpinWin] = useState<number | null>(null);
+  // Net profit for the last resolved spin/bonus (total won minus stake paid).
+  // The Celebration gates on this so a net-LOSING spin never triggers it.
+  const [lastNet, setLastNet] = useState(0);
   const [message, setMessage] = useState("Cascading reels · up to 46,656 ways");
   const busy = useRef(false);
   const mountedRef = useRef(true);
@@ -232,7 +235,8 @@ export default function NeonMegaways() {
     busy.current = true;
     setSpinning(true);
     buyMultRef.current = 1;
-    await playCascadeSpin();
+    const total = await playCascadeSpin();
+    setLastNet(total - bet);
     setSpinning(false);
     busy.current = false;
   }, [bet, spinning, wallet, playCascadeSpin]);
@@ -263,6 +267,7 @@ export default function NeonMegaways() {
       }
       if (mountedRef.current) {
         setSpinWin(grand);
+        setLastNet(grand - buyCost);
         setMessage(`BONUS DONE · won ${formatChips(grand)} chips!`);
       }
     } finally {
@@ -277,7 +282,7 @@ export default function NeonMegaways() {
     <div className="mx-auto max-w-5xl">
       <div className="glass relative overflow-hidden rounded-3xl border border-neon-violet/30 p-4 sm:p-6 [@media(max-height:600px)]:p-3">
         <Celebration
-          show={!spinning && spinWin !== null && spinWin > 0}
+          show={!spinning && spinWin !== null && lastNet > 0}
           seed={spinWin ?? 0}
           tier={
             MULT_LADDER[multIndex] >= 8 || (spinWin ?? 0) >= bet * 20

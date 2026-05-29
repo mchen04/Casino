@@ -507,7 +507,7 @@ export default function Limbo() {
 
           {/* Win celebration overlay (confetti + coin fountain) */}
           <Celebration
-            show={phase === "resolved" && round !== null && round.won}
+            show={phase === "resolved" && round !== null && round.won && round.delta > 0}
             seed={round ? round.delta : 0}
             tier={
               round && round.target >= 10

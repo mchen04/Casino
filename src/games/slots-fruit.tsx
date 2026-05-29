@@ -536,6 +536,9 @@ export default function FruitFrenzy() {
   const [result, setResult] = useState<SpinResult | null>(null);
   const [resultText, setResultText] = useState("");
   const [lastWin, setLastWin] = useState(0);
+  // Net profit of the last spin (gross minus stake paid that spin). Free/bought
+  // spins pay no stake, so their net equals gross. Used to gate the celebration.
+  const [lastNet, setLastNet] = useState(0);
   const [highlightLine, setHighlightLine] = useState<number[]>([]);
   const [burst, setBurst] = useState(0);
   const [showAllLines, setShowAllLines] = useState(false);
@@ -654,6 +657,8 @@ export default function FruitFrenzy() {
       // Bought-bonus spins multiply every win; normal/natural spins use ×1.
       const winMult = free ? buyMult : 1;
       const gross = Math.round(bet * res.totalMultiplier * winMult);
+      // Free/bought spins deducted no stake this spin, so their net is the gross.
+      setLastNet(gross - (free ? 0 : bet));
       const triggersFree = res.scatterCount >= SCATTERS_FOR_FREE;
 
       // Pay line winnings.
@@ -796,6 +801,9 @@ export default function FruitFrenzy() {
     clearTimers();
     cycleWinRef.current = 0;
     setLastWin(0);
+    // Buying the bonus is a stake outlay; net is non-positive until the first
+    // bonus spin resolves. Reset so the celebration doesn't fire on the buy.
+    setLastNet(0);
     setBuyMult(BUY_MULT);
     setInFreeSpin(true);
     setFreeBanner(true);
@@ -837,6 +845,9 @@ export default function FruitFrenzy() {
   );
 
   const won = lastWin > 0 && phase === "resolved";
+  // Only celebrate when the spin was net-positive (lastNet > 0). A low-fruit line
+  // can pay a sub-1x gross (e.g. CHERRY/LEMON 0.8x), which is a net loss.
+  const celebrate = lastNet > 0 && phase === "resolved";
   // Celebration intensity: a free-spins/scatter trigger or a huge win → jackpot.
   const triggeredFree = (result?.scatterCount ?? 0) >= SCATTERS_FOR_FREE;
   const winRatio = bet > 0 ? lastWin / bet : 0;
@@ -996,7 +1007,7 @@ export default function FruitFrenzy() {
 
             {/* win-celebration overlay (confetti + coin fountain) */}
             <Celebration
-              show={won}
+              show={celebrate}
               seed={lastWin}
               tier={celebrationTier}
               colors={["#2ecc71", "#ffd24a", "#ff5e7e", "#22e1ff", "#ffffff"]}

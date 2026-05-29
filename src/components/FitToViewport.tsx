@@ -88,6 +88,11 @@ export function FitToViewport({
     };
   }, [schedule]);
 
+  // Until the first measurement lands, `boxH` is undefined; suppress the
+  // transition so the initial fit applies instantly instead of animating
+  // down from the full, unscaled size on every game load.
+  const settled = boxH !== undefined;
+
   return (
     <div
       ref={outerRef}
@@ -99,7 +104,9 @@ export function FitToViewport({
         style={{
           transform: scale === 1 ? undefined : `scale(${scale})`,
           transformOrigin: "top center",
-          transition: "transform 180ms cubic-bezier(0.2,0.7,0.2,1)",
+          transition: settled
+            ? "transform 180ms cubic-bezier(0.2,0.7,0.2,1)"
+            : "none",
           width: "100%",
         }}
       >

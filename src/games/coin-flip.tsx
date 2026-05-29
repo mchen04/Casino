@@ -519,7 +519,7 @@ export default function CoinFlip() {
         </div>
 
         {/* ===== Stage ===== */}
-        <div className="relative grid place-items-center overflow-hidden rounded-2xl border border-white/5 bg-black/25 px-3 py-3 sm:py-8 [@media(max-height:600px)]:py-2">
+        <div className="relative grid place-items-center rounded-2xl border border-white/5 bg-black/25 px-3 py-3 sm:py-8 [@media(max-height:600px)]:py-2">
           <Celebration
             show={celebrate}
             seed={burst}
