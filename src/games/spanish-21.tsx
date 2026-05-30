@@ -444,7 +444,7 @@ export default function Spanish21() {
             ...base,
             done: true,
             outcome: "blackjack",
-            payout: Math.round(stake * 2.5),
+            payout: stake * 2.5, // 3:2 incl. stake (exact)
           };
           settleRef.current([hand], dCards, true);
         } else {
@@ -668,7 +668,7 @@ export default function Spanish21() {
         // Player blackjack (post-deal path is rare but covered).
         if (playerBJ) {
           out.outcome = "blackjack";
-          out.payout = Math.round(out.bet * 2.5);
+          out.payout = out.bet * 2.5; // 3:2 incl. stake (exact)
           totalReturn += out.payout;
           return out;
         }
@@ -682,7 +682,7 @@ export default function Spanish21() {
           const base = out.doubled ? out.bet / 2 : out.bet;
           const bonus = evalBonus(out.cards, out.fromSplit);
           out.bonus = bonus;
-          if (bonus) pay += Math.round(base * bonus.mult);
+          if (bonus) pay += base * bonus.mult; // exact bonus — wallet rounds to the cent
           out.payout = pay;
           totalReturn += out.payout;
           return out;

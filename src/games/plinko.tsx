@@ -66,7 +66,7 @@ const PAYOUTS: Record<RowCount, Record<Risk, number[]>> = {
   },
   16: {
     low: [
-      18, 6, 3, 1.8, 1.4, 1.2, 1, 0.9, 0.7, 0.9, 1, 1.2, 1.4, 1.8, 3, 6, 18,
+      18, 6, 3, 1.8, 1.4, 1.2, 1, 0.9, 0.76, 0.9, 1, 1.2, 1.4, 1.8, 3, 6, 18,
     ],
     medium: [
       110, 41, 10, 5, 3, 1.5, 1, 0.5, 0.3, 0.5, 1, 1.5, 3, 5, 10, 41, 110,
@@ -372,7 +372,7 @@ export default function Plinko() {
   // -------------------------------------------------------------------------
   const resolveBall = useCallback(
     (b: Ball) => {
-      const gross = Math.round(b.stake * b.mult);
+      const gross = b.stake * b.mult;
       if (gross > 0) win(gross);
       const delta = gross - b.stake;
       const log: ResultLog = { id: b.id, bucket: b.bucket, mult: b.mult, delta };

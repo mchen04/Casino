@@ -234,8 +234,9 @@ function evaluateLines(grid: Grid, totalBet: number): LineWin[] {
       const def = SYMBOLS[lead];
       const mult = def.pays[count - 3];
       if (mult > 0) {
-        // Paytable multipliers apply to the TOTAL bet.
-        const payout = Math.round(mult * totalBet);
+        // Paytable multipliers apply to the TOTAL bet. Keep the exact value —
+        // wallet.win() rounds to the cent, and formatChips renders 2 decimals.
+        const payout = mult * totalBet;
         wins.push({ line: lineIdx, symbol: lead, count, cells, payout });
       }
     }
@@ -252,7 +253,8 @@ function evaluateScatter(grid: Grid, totalBet: number): ScatterWin | null {
   }
   if (cells.length < SCATTER_TRIGGER) return null;
   const mult = SCATTER_PAYS[Math.min(5, cells.length)] ?? 0;
-  return { count: cells.length, cells, payout: Math.round(mult * totalBet) };
+  // Exact scatter payout — wallet.win() handles cent-rounding.
+  return { count: cells.length, cells, payout: mult * totalBet };
 }
 
 /**
@@ -283,8 +285,9 @@ function evaluateExpand(
   if (mult <= 0) return null;
 
   // The expanding symbol pays a full total-bet win for its run length — the
-  // signature big Book-of-Ra payout (on top of any other line wins).
-  const payout = Math.round(mult * totalBet);
+  // signature big Book-of-Ra payout (on top of any other line wins). Keep the
+  // exact value; wallet.win() rounds to the cent.
+  const payout = mult * totalBet;
   const reels: number[] = [];
   for (let r = 0; r < run; r++) reels.push(r);
   return { symbol: expanding, reels, lines: ROWS, payout };
@@ -791,7 +794,8 @@ export default function PharaohsFortune() {
         settleResult(res, true, totalBet);
         if (res.total > 0) {
           // Bought rounds multiply every free-spin win; natural ones use ×1.
-          const won = Math.round(res.total * buyMultRef.current);
+          // Keep the exact value — wallet.win() rounds to the cent.
+          const won = res.total * buyMultRef.current;
           accumulated += won;
           wallet.win(won); // credit free-spin winnings (no stake to return)
           setFreeTotal(accumulated);

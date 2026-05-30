@@ -549,7 +549,8 @@ export default function ScratchCards() {
       setShowWin(true);
 
       if (outcome.prize) {
-        const gross = Math.round(outcome.prize.mult * s);
+        // Exact return: mult INCLUDES the stake. wallet.win() rounds to the cent.
+        const gross = outcome.prize.mult * s;
         wallet.win(gross);
         setLastWin(gross);
         setLastDelta(gross - s);

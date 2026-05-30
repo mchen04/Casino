@@ -290,7 +290,7 @@ export default function Bingo() {
         mult = lineMultFor(flb);
       }
       if (mult > bestMult) bestMult = mult;
-      const payout = Math.floor(bet * mult);
+      const payout = bet * mult;
       gross += payout;
       return { id: card.id, pattern, firstLineBall: flb, mult, payout };
     });

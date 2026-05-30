@@ -326,7 +326,7 @@ export default function CoinFlip() {
   const potentialPot = useMemo(() => {
     const stake = streakActive ? streakStake : bet;
     const level = streakActive ? streak + 1 : 1;
-    return Math.round(stake * Math.pow(PAYOUT, level));
+    return stake * Math.pow(PAYOUT, level);
   }, [streakActive, streakStake, bet, streak]);
 
   // -------------------------------------------------------------------------
@@ -382,7 +382,7 @@ export default function CoinFlip() {
     setHistory((h) => [{ side: landedSide, id: hid }, ...h].slice(0, 14));
 
     if (won) {
-      const newPot = Math.round(stakeForRound * Math.pow(PAYOUT, priorStreak + 1));
+      const newPot = stakeForRound * Math.pow(PAYOUT, priorStreak + 1);
       setStreak((s) => s + 1);
       setPot(newPot);
       setBurst((b) => b + 1);

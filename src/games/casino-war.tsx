@@ -21,7 +21,7 @@ import { sleep } from "@/lib/async";
 //  Money model (gross via win(), which already includes the returned stake):
 //   - Straight win  : win(stake * 2)                        net +stake
 //   - Straight loss : credit nothing                        net -stake
-//   - Surrender     : win(floor(stake / 2))                 net -ceil(stake/2)
+//   - Surrender     : win(stake / 2)                        net -stake/2
 //   - War win        : original PUSHES + war bet pays 1:1
 //                      win(stake)  +  win(warStake * 2)      net +stake
 //   - War TIE bonus : war bet PUSHES + original pays 2:1 bonus
@@ -201,7 +201,7 @@ export default function CasinoWar() {
     if (phase !== "tie") return;
     if (resolvingRef.current) return; // guard against rapid-click
     resolvingRef.current = true;
-    const refund = Math.floor(bet / 2); // forfeit half the bet
+    const refund = bet / 2; // forfeit exactly half the bet
     if (refund > 0) win(refund);
     finish({
       outcome: "surrender",
@@ -539,7 +539,7 @@ export default function CasinoWar() {
                 data-testid="surrender-btn"
                 onClick={surrender}
               >
-                🏳️ Surrender (−{formatChips(Math.ceil(bet / 2))})
+                🏳️ Surrender (−{formatChips(bet / 2)})
               </Button>
               <Button
                 variant="danger"

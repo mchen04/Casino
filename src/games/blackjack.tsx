@@ -504,7 +504,7 @@ export default function Blackjack() {
           payout = h.bet; // refund stake
         } else if (pBJ) {
           outcome = "blackjack";
-          payout = Math.round(h.bet * 2.5); // 3:2 incl. stake
+          payout = h.bet * 2.5; // 3:2 incl. stake (exact — wallet rounds to the cent)
         } else if (dealerBJ) {
           outcome = "lose";
           payout = 0;

@@ -546,7 +546,7 @@ export default function TeenPatti() {
           // Gross profit = 1:1 on the stake, plus the bonus for strong hands.
           const bonus = bonusFor(pRank.category);
           const grossProfit = totalBet + totalBet * bonus;
-          const commission = Math.round(grossProfit * COMMISSION);
+          const commission = grossProfit * COMMISSION; // exact 15% — wallet rounds to the cent
           const netProfit = grossProfit - commission;
           const baseWin = totalBet + netProfit; // stake returned + net profit
           totalReturn += baseWin;

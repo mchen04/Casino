@@ -656,7 +656,7 @@ export default function FruitFrenzy() {
 
       // Bought-bonus spins multiply every win; normal/natural spins use ×1.
       const winMult = free ? buyMult : 1;
-      const gross = Math.round(bet * res.totalMultiplier * winMult);
+      const gross = bet * res.totalMultiplier * winMult; // exact — wallet rounds to the cent
       // Free/bought spins deducted no stake this spin, so their net is the gross.
       setLastNet(gross - (free ? 0 : bet));
       const triggersFree = res.scatterCount >= SCATTERS_FOR_FREE;

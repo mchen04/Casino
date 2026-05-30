@@ -436,7 +436,7 @@ export default function UltimateTexasHoldem() {
       if (playerWins) {
         const ratio = blindRatio(pHand.category);
         if (ratio > 0) {
-          const profit = Math.round(ante * ratio);
+          const profit = ante * ratio; // exact bonus — wallet rounds to the cent
           wallet.win(ante + profit); // stake back + bonus profit
           net += profit;
           lines.push({ label: `Blind (${pHand.name})`, amount: profit });

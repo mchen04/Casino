@@ -349,7 +349,7 @@ export default function Mines() {
     () => multiplierFor(mines, safeCount + 1),
     [mines, safeCount],
   );
-  const cashoutValue = Math.floor(stake * currentMult);
+  const cashoutValue = stake * currentMult;
 
   const affordable = bet >= MIN_BET && bet <= balance;
   const canCashOut = inRound && safeCount > 0 && !resolving;
@@ -432,7 +432,7 @@ export default function Mines() {
         lockRef.current = true;
         setResolving(true);
         const mult = multiplierFor(mines, newSafe);
-        const gross = Math.floor(stake * mult);
+        const gross = stake * mult;
         void (async () => {
           await sleep(360);
           wallet.win(gross); // credit even if the player navigated away mid-reveal
@@ -461,7 +461,7 @@ export default function Mines() {
     lockRef.current = true;
     setResolving(true);
     const mult = currentMult;
-    const gross = Math.floor(stake * mult);
+    const gross = stake * mult;
     wallet.win(gross);
     // Reveal the remaining board so the player sees where the mines were.
     setRevealed(new Set(Array.from({ length: TILES }, (_, k) => k)));
@@ -936,7 +936,7 @@ function OddsPanel({ mines, bet }: { mines: number; bet: number }) {
           <>
             {" "}At {formatChips(bet)} bet, clearing all {maxGems} gems pays{" "}
             <span style={{ color: ACCENT }} className="font-semibold">
-              {formatChips(Math.floor(bet * multiplierFor(mines, maxGems)))}
+              {formatChips(bet * multiplierFor(mines, maxGems))}
             </span>
             .
           </>

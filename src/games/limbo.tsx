@@ -195,7 +195,7 @@ export default function Limbo() {
   // Derived odds for the current target.
   const chanceFrac = useMemo(() => winChanceForTarget(target), [target]);
   const chancePct = chanceFrac * 100;
-  const potentialReturn = Math.floor(bet * target);
+  const potentialReturn = bet * target;
   const potentialProfit = potentialReturn - bet;
 
   const outcome: "win" | "lose" | null =
@@ -285,7 +285,7 @@ export default function Limbo() {
     if (!mountedRef.current) return;
 
     const won = res >= tgt;
-    const gross = won ? Math.floor(stake * tgt) : 0;
+    const gross = won ? stake * tgt : 0;
     const delta = won ? gross - stake : -stake;
 
     if (won) {

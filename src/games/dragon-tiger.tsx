@@ -166,9 +166,9 @@ export default function DragonTiger() {
       // Compute gross returned to the wallet across all spots.
       let gross = 0;
       if (isTie) {
-        // Side bets lose HALF -> half the stake is returned.
-        gross += Math.floor(placed.dragon / 2);
-        gross += Math.floor(placed.tiger / 2);
+        // Side bets lose HALF -> half the stake is returned (exact).
+        gross += placed.dragon / 2;
+        gross += placed.tiger / 2;
         gross += placed.tie * 9; // 8:1 + stake
         if (isSuitTie) gross += placed.suitTie * 51; // 50:1 + stake
       } else {
