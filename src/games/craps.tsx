@@ -493,7 +493,7 @@ export default function Craps() {
             // Bet stays working; only the 7:6 profit is paid out.
             const profit = (bets[key] / 6) * 7;
             payout += profit;
-            events.push({ text: `Place ${num} hits — pays 7:6 (+${Math.round(profit)})`, tone: "win" });
+            events.push({ text: `Place ${num} hits — pays 7:6 (+${formatChips(profit)})`, tone: "win" });
           } else if (t === 7) {
             staked += bets[key];
             events.push({ text: `Place ${num} loses on the 7 (-${bets[key]})`, tone: "lose" });
@@ -584,7 +584,7 @@ export default function Craps() {
             staked += passOdds;
             payout += passOdds + profit;
             events.push({
-              text: `Pass odds win ${r.num}:${r.den} (+${Math.round(profit)})`,
+              text: `Pass odds win ${r.num}:${r.den} (+${formatChips(profit)})`,
               tone: "win",
             });
             nextPassOdds = 0;
@@ -625,7 +625,7 @@ export default function Craps() {
             staked += dontOdds;
             payout += dontOdds + profit;
             events.push({
-              text: `Don't odds win ${r.num}:${r.den} (+${Math.round(profit)})`,
+              text: `Don't odds win ${r.num}:${r.den} (+${formatChips(profit)})`,
               tone: "win",
             });
             nextDontOdds = 0;
@@ -668,17 +668,16 @@ export default function Craps() {
         }
       }
 
-      // Credit the wallet exactly once.
-      const grossRounded = Math.round(payout);
-      if (grossRounded > 0) wallet.win(grossRounded);
+      // Credit the wallet exactly once with the EXACT total (wallet rounds to the cent).
+      if (payout > 0) wallet.win(payout);
 
       // Net delta vs chips that were riding this roll (already deducted on placement).
-      const net = grossRounded - Math.round(staked);
+      const net = payout - staked;
 
       return {
         events,
         net,
-        gross: grossRounded,
+        gross: payout,
         nextBets,
         nextPassOdds,
         nextDontOdds,

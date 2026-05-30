@@ -206,12 +206,16 @@ export default function HiLo() {
     };
   }, []);
 
-  // Draw a fresh card from the shoe, reshuffling when exhausted.
+  // Draw a fresh, INDEPENDENT card — a brand-new full 52-card deck is shuffled for
+  // every single draw and only its top card is taken. This makes each comparison
+  // draw uniform over all 13 ranks (4 of each), exactly matching the rank-only
+  // probabilities the odds()/stepMultiplier() pricing assumes — so every guess
+  // carries precisely the priced 3% house edge instead of being skewed by a
+  // depleting shoe (which had the base card removed). The shoe refs are kept as a
+  // single-draw scratch buffer purely to preserve the existing reshuffle visuals.
   const drawCard = useCallback((): Card => {
-    if (shoeIdxRef.current >= shoeRef.current.length) {
-      shoeRef.current = makeShoe(1);
-      shoeIdxRef.current = 0;
-    }
+    shoeRef.current = makeShoe(1);
+    shoeIdxRef.current = 0;
     const c = shoeRef.current[shoeIdxRef.current] as Card;
     shoeIdxRef.current += 1;
     return c;
@@ -228,7 +232,7 @@ export default function HiLo() {
   const higherStep = stepMultiplier(liveOdds.pHigher);
   const lowerStep = stepMultiplier(liveOdds.pLower);
 
-  const potentialWin = stakeRef.current > 0 ? Math.floor(stakeRef.current * mult) : 0;
+  const potentialWin = stakeRef.current > 0 ? stakeRef.current * mult : 0;
   const canAfford = bet > 0 && bet <= balance;
 
   // ── Start a round ─────────────────────────────────────────────────────────
@@ -325,7 +329,7 @@ export default function HiLo() {
   const cashOut = useCallback(() => {
     if (phase !== "playing" || streak.length === 0) return;
     const stake = stakeRef.current;
-    const gross = Math.floor(stake * mult);
+    const gross = stake * mult;
     walletWin(gross);
     const profit = gross - stake;
     sfx.jackpot();

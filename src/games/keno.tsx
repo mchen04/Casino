@@ -29,7 +29,7 @@ import { sleep } from "@/lib/async";
 //       x === 0  -> credit nothing (loss)
 //       x === 1  -> win(stake)      (push / money back)
 //       x  >  1  -> win(stake * x)  (profit)
-//   - Top pick-10 / hit-10 pays 1000× for a jackpot moment.
+//   - Top pick-10 / hit-10 pays 2000× for a jackpot moment.
 //
 // All randomness is a single Fisher-Yates shuffle of 1..80; the first 20 are
 // the drawn balls. Independent and unbiased; the edge lives in the paytable.
@@ -51,7 +51,7 @@ type Phase = "betting" | "drawing" | "resolved";
 // Re-tuned so EVERY pick count returns ~90-92% (exact hypergeometric RTP,
 // computed from P(s,h)=C(s,h)C(80-s,20-h)/C(80,20)). The previous table only
 // paid ~92% on pick-2 and as little as 32% on pick-10 — most rows were a
-// 45-68% house edge. The pick-10/hit-10 1000x jackpot is preserved.
+// 45-68% house edge. The pick-10/hit-10 jackpot pays 2000x (>= the 9/10 1415x).
 // ---------------------------------------------------------------------------
 const PAYTABLE: Record<number, number[]> = {
   1: [0, 3.6],
@@ -63,7 +63,7 @@ const PAYTABLE: Record<number, number[]> = {
   7: [0, 0, 0, 2, 4, 24, 160, 805],
   8: [0, 0, 0, 0, 4.1, 17, 83, 415, 1245],
   9: [0, 0, 0, 0, 2.2, 8.7, 44, 175, 760, 1740],
-  10: [0, 0, 0, 0, 0, 5.7, 28, 140, 425, 1415, 1000],
+  10: [0, 0, 0, 0, 0, 5.7, 28, 140, 425, 1415, 2000],
 };
 
 function payoutMultiplier(spots: number, hits: number): number {
@@ -364,7 +364,7 @@ export default function Keno() {
     // Resolve.
     const finalHits = balls.reduce((c, n) => (picks.has(n) ? c + 1 : c), 0);
     const mult = payoutMultiplier(spots, finalHits);
-    const gross = Math.round(amount * mult);
+    const gross = amount * mult;
 
     setHits(finalHits);
     setMultiplier(mult);
@@ -657,7 +657,7 @@ export default function Keno() {
                         {formatMultiplier(r.mult)}
                       </span>
                       <span className="text-right text-white/50">
-                        {formatChips(Math.round(Math.max(bet, MIN_BET) * r.mult))}
+                        {formatChips(Math.max(bet, MIN_BET) * r.mult)}
                       </span>
                     </motion.div>
                   );

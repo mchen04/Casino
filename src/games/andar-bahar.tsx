@@ -128,7 +128,8 @@ export default function AndarBahar() {
   const pickMultiplier = pickStarts ? 1.9 : 2;
   // Conservative "to win" uses 1.9× (worst case for player) during betting
   // so we never over-promise; once dealing starts the actual multiplier is fixed.
-  const pickPotential = Math.floor(bet * (isBetting ? 1.9 : pickMultiplier));
+  // Exact value (no truncation) — wallet credits the exact return rounded to the cent.
+  const pickPotential = bet * (isBetting ? 1.9 : pickMultiplier);
 
   /* ---- Resolve a finished deal: credit wallet, set result text ---- */
   const resolve = useCallback(
@@ -140,7 +141,8 @@ export default function AndarBahar() {
       const won = result.winner === placedSide;
       // Starting side pays 0.9:1, other side pays 1:1.
       const mult = placedSide === result.startSide ? 1.9 : 2;
-      const gross = won ? Math.floor(stake * mult) : 0;
+      // Pass the EXACT return (stake*mult) — wallet.win() rounds to the cent.
+      const gross = won ? stake * mult : 0;
       const net = gross - stake;
       if (gross > 0) wallet.win(gross);
 

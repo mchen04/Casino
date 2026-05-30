@@ -18,15 +18,15 @@ import { Celebration } from "@/components/Celebration";
  * Bet types & payouts (multiplier x = win(stake * x), x already includes stake):
  *  - SMALL  : total 4..10, LOSES on any triple. 1:1  -> x2
  *  - BIG    : total 11..17, LOSES on any triple. 1:1 -> x2
- *  - SPECIFIC TRIPLE (pick 1-6): all three match -> 150:1 -> x151
- *  - ANY TRIPLE : any three-of-a-kind -> 24:1 -> x25
- *  - SPECIFIC DOUBLE (pick 1-6): chosen number appears >=2 -> 8:1 -> x9
+ *  - SPECIFIC TRIPLE (pick 1-6): all three match -> 180:1 -> x181
+ *  - ANY TRIPLE : any three-of-a-kind -> 30:1 -> x31
+ *  - SPECIFIC DOUBLE (pick 1-6): chosen number appears >=2 -> 10:1 -> x11
  *  - SINGLE NUMBER (1-6): appears once/twice/thrice -> 1:1 / 2:1 / 3:1
  *        (x2 / x3 / x4 respectively — stake-inclusive)
  *  - TOTAL bets:
- *        4 & 17 -> 50:1  (x51)
- *        5 & 16 -> 18:1  (x19)
- *        6 & 15 -> 14:1  (x15)
+ *        4 & 17 -> 60:1  (x61)
+ *        5 & 16 -> 30:1  (x31)
+ *        6 & 15 -> 18:1  (x19)
  *        7 & 14 -> 12:1  (x13)
  *        8 & 13 -> 8:1   (x9)
  *        9,10,11,12 -> 6:1 (x7)
@@ -66,13 +66,13 @@ function totalMultiplier(total: number): number {
   switch (total) {
     case 4:
     case 17:
-      return 51; // 50:1
+      return 61; // 60:1 (standard)
     case 5:
     case 16:
-      return 19; // 18:1
+      return 31; // 30:1 (standard)
     case 6:
     case 15:
-      return 15; // 14:1
+      return 19; // 18:1 (standard)
     case 7:
     case 14:
       return 13; // 12:1
@@ -108,7 +108,7 @@ function settleBet(key: BetKey, r: RollResult): number {
     return r.total >= 11 && r.total <= 17 ? 2 : 0;
   }
   if (key === "anyTriple") {
-    return r.isTriple ? 25 : 0; // 24:1
+    return r.isTriple ? 31 : 0; // 30:1 (standard)
   }
   const [kind, raw] = key.split(":");
   const n = Number(raw); // face (1-6) for single/double/triple, total (4-17) for total
@@ -118,10 +118,10 @@ function settleBet(key: BetKey, r: RollResult): number {
     return c > 0 ? c + 1 : 0;
   }
   if (kind === "double") {
-    return (r.counts[n as Die] ?? 0) >= 2 ? 9 : 0; // 8:1
+    return (r.counts[n as Die] ?? 0) >= 2 ? 11 : 0; // 10:1 (standard)
   }
   if (kind === "triple") {
-    return r.isTriple && r.tripleFace === n ? 151 : 0; // 150:1
+    return r.isTriple && r.tripleFace === n ? 181 : 0; // 180:1 (standard)
   }
   if (kind === "total") {
     return r.total === n ? totalMultiplier(n) : 0;
@@ -816,7 +816,7 @@ export default function SicBo() {
         {/* Row 3: SPECIFIC DOUBLE 1-6 */}
         <div className="relative mt-2">
           <div className="mb-1 text-[10px] uppercase tracking-widest text-white/35">
-            Specific double — 8:1 (chosen face appears twice+)
+            Specific double — 10:1 (chosen face appears twice+)
           </div>
           <div className="grid grid-cols-6 gap-1.5 sm:gap-2">
             {([1, 2, 3, 4, 5, 6] as Die[]).map((n) => (
@@ -824,7 +824,7 @@ export default function SicBo() {
                 key={`double-${n}`}
                 testid={`bet-double-${n}`}
                 title=""
-                pays="8:1"
+                pays="10:1"
                 amount={placedAmt(`double:${n}`)}
                 win={cellWin(`double:${n}`)}
                 loseDim={cellDim(`double:${n}`)}
@@ -844,7 +844,7 @@ export default function SicBo() {
         {/* Row 4: SPECIFIC TRIPLE 1-6 + ANY TRIPLE */}
         <div className="relative mt-2">
           <div className="mb-1 text-[10px] uppercase tracking-widest text-white/35">
-            Triples — specific 150:1 · any 24:1
+            Triples — specific 180:1 · any 30:1
           </div>
           <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
             {([1, 2, 3, 4, 5, 6] as Die[]).map((n) => (
@@ -852,7 +852,7 @@ export default function SicBo() {
                 key={`triple-${n}`}
                 testid={`bet-triple-${n}`}
                 title=""
-                pays="150:1"
+                pays="180:1"
                 amount={placedAmt(`triple:${n}`)}
                 win={cellWin(`triple:${n}`)}
                 loseDim={cellDim(`triple:${n}`)}
@@ -871,7 +871,7 @@ export default function SicBo() {
               testid="bet-any-triple"
               title="ANY"
               sub="triple"
-              pays="24:1"
+              pays="30:1"
               amount={placedAmt("anyTriple")}
               win={cellWin("anyTriple")}
               loseDim={cellDim("anyTriple")}

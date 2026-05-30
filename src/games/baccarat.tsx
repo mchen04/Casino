@@ -67,7 +67,8 @@ interface RoadEntry {
 type Phase = "betting" | "dealing" | "resolved";
 
 // Payout helpers — returns the GROSS credit for a winning/pushing spot.
-// (win() already floors, but we floor explicitly for clarity on the banker commission.)
+// win() now credits the EXACT amount rounded to the cent, so we pass the exact
+// gross (e.g. the banker 0.95:1 commission produces stake*1.95 unfloored).
 function grossFor(spot: SpotId, stake: number, res: Resolution): number {
   switch (spot) {
     case "player":
@@ -75,7 +76,7 @@ function grossFor(spot: SpotId, stake: number, res: Resolution): number {
       if (res.outcome === "tie") return stake; // push
       return 0;
     case "banker":
-      if (res.outcome === "banker") return Math.floor(stake * 1.95);
+      if (res.outcome === "banker") return stake * 1.95;
       if (res.outcome === "tie") return stake; // push
       return 0;
     case "tie":

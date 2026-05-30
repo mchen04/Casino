@@ -137,7 +137,7 @@ export default function Dice() {
   const chancePct = useMemo(() => winChance(target, mode) * 100, [target, mode]);
   const multiplier = useMemo(() => payoutFor(target, mode), [target, mode]);
   const profitOnWin = useMemo(
-    () => Math.max(0, Math.round(bet * multiplier - bet)),
+    () => Math.max(0, bet * multiplier - bet),
     [bet, multiplier],
   );
 
@@ -186,7 +186,7 @@ export default function Dice() {
 
     const won = m === "over" ? final > t : final < t;
     const gross = won ? stake * mult : 0;
-    const delta = won ? Math.round(gross - stake) : -stake;
+    const delta = won ? gross - stake : -stake;
 
     const res: RollResult = {
       roll: final,
@@ -200,7 +200,7 @@ export default function Dice() {
     setHistory((h) => [res, ...h].slice(0, 16));
 
     if (won) {
-      win(Math.round(gross));
+      win(gross);
       setBurst((b) => b + 1);
       if (mult >= 8) sfx.jackpot();
       else sfx.win();

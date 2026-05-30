@@ -412,7 +412,7 @@ export default function PaiGowPoker() {
         setResolution(res);
         let gross = 0;
         if (res.outcome === "win") {
-          gross = Math.floor(bet * 1.95); // even money minus 5% commission
+          gross = bet * 1.95; // even money minus exact 5% commission
           wallet.win(gross);
           setLastDelta(gross - bet);
           sfx.win();
