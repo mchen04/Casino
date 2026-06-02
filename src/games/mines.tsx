@@ -3,7 +3,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useWallet } from "@/lib/wallet";
-import { shuffle, clamp } from "@/lib/rng";
+import { usePlayRound } from "@/lib/playRound";
+import { clamp } from "@/lib/rng";
 import { formatChips, formatDelta, formatMultiplier } from "@/lib/format";
 import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
@@ -307,6 +308,8 @@ function Tile({ index, kind, revealed, detonated, exposed, disabled, onPick }: T
 export default function Mines() {
   const wallet = useWallet();
   const { balance, ready } = wallet;
+  const { start: roundStart, act: roundAct } = usePlayRound();
+  const roundIdRef = useRef<string | null>(null);
 
   const [bet, setBet] = useState(DEFAULT_BET);
   const [mines, setMines] = useState(DEFAULT_MINES);
@@ -327,8 +330,11 @@ export default function Mines() {
   const lockRef = useRef(false);
   // Guards async reveal continuations against setState-after-unmount.
   const mountedRef = useRef(true);
-  useEffect(() => () => {
-    mountedRef.current = false;
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   // Result feedback.
@@ -371,14 +377,23 @@ export default function Mines() {
   };
 
   // -- start a round -------------------------------------------------------
-  const startRound = useCallback(() => {
+  const startRound = useCallback(async () => {
     if (phase !== "betting") return;
     if (bet < MIN_BET || bet > balance) return;
-    if (!wallet.bet(bet)) return; // deduct stake; abort if unaffordable
+    if (lockRef.current) return;
+    lockRef.current = true;
 
-    const positions = shuffle(Array.from({ length: TILES }, (_, i) => i)).slice(0, mines);
+    // Server (logged-in) or guest demo commits the mine positions (hidden).
+    let handle;
+    try {
+      handle = await roundStart("mines", bet, { mines });
+    } catch {
+      lockRef.current = false;
+      return;
+    }
+    roundIdRef.current = handle.roundId ?? null;
     lockRef.current = false;
-    setMineSet(new Set(positions));
+    setMineSet(new Set()); // unknown until the round ends — the server owns them
     setRevealed(new Set());
     setPicked(new Set());
     setDetonatedIdx(null);
@@ -386,38 +401,45 @@ export default function Mines() {
     setResult(null);
     setPhase("playing");
     sfx.chip();
-  }, [phase, bet, balance, mines, wallet]);
+  }, [phase, bet, balance, mines, roundStart]);
 
-  // -- pick a tile ---------------------------------------------------------
+  // -- pick a tile (server decides gem vs mine) ---------------------------
   const pickTile = useCallback(
-    (i: number) => {
+    async (i: number) => {
       if (phase !== "playing" || resolving || lockRef.current) return;
       if (revealed.has(i)) return;
+      const rid = roundIdRef.current;
+      if (!rid) return;
+      lockRef.current = true;
 
-      if (mineSet.has(i)) {
+      let handle;
+      try {
+        handle = await roundAct(rid, "pick", { index: i });
+      } catch {
+        lockRef.current = false;
+        return;
+      }
+      const pv = handle.publicView;
+      const kind = pv.kind as string;
+
+      if (kind === "mine") {
         // BOOM — reveal the detonated mine, then the rest of the board.
-        lockRef.current = true;
         setResolving(true);
+        setMineSet(new Set((pv.minePositions as number[]) ?? []));
         setDetonatedIdx(i);
         setRevealed((r) => new Set(r).add(i));
         sfx.thud();
         sfx.lose();
         const lost = stake;
-        // Reveal whole board shortly after the explosion.
-        void (async () => {
-          await sleep(420);
-          if (!mountedRef.current) return;
-          setRevealed(new Set(Array.from({ length: TILES }, (_, k) => k)));
-          await sleep(120);
-          if (!mountedRef.current) return;
-          setPhase("busted");
-          setResult({
-            won: false,
-            amount: -lost,
-            text: `Boom! You hit a mine. Lost ${formatChips(lost)}.`,
-          });
-          setResolving(false);
-        })();
+        await sleep(420);
+        if (!mountedRef.current) return;
+        setRevealed(new Set(Array.from({ length: TILES }, (_, k) => k)));
+        await sleep(120);
+        if (!mountedRef.current) return;
+        setPhase("busted");
+        setResult({ won: false, amount: -lost, text: `Boom! You hit a mine. Lost ${formatChips(lost)}.` });
+        setResolving(false);
+        lockRef.current = false;
         return;
       }
 
@@ -426,56 +448,53 @@ export default function Mines() {
       setPicked((p) => new Set(p).add(i));
       sfx.card();
 
-      const newSafe = picked.size + 1;
-      // Auto-resolve if every gem has been found (perfect clear).
-      if (newSafe >= TILES - mines) {
-        lockRef.current = true;
+      if (handle.done) {
+        // Perfect clear — server auto-won.
         setResolving(true);
-        const mult = multiplierFor(mines, newSafe);
-        const gross = stake * mult;
-        void (async () => {
-          await sleep(360);
-          wallet.win(gross); // credit even if the player navigated away mid-reveal
-          if (!mountedRef.current) return;
-          // expose the (now obvious) mines too
-          setRevealed(new Set(Array.from({ length: TILES }, (_, k) => k)));
-          setPhase("cashed");
-          setResult({
-            won: true,
-            amount: gross - stake,
-            text: `Perfect clear! All gems found — won ${formatChips(gross)}.`,
-          });
-          sfx.jackpot();
-          setResolving(false);
-        })();
+        const gross = handle.payout ?? stake * Number(pv.mult);
+        setMineSet(new Set((pv.minePositions as number[]) ?? []));
+        await sleep(360);
+        if (!mountedRef.current) return;
+        setRevealed(new Set(Array.from({ length: TILES }, (_, k) => k)));
+        setPhase("cashed");
+        setResult({ won: true, amount: gross - stake, text: `Perfect clear! All gems found — won ${formatChips(gross)}.` });
+        sfx.jackpot();
+        setResolving(false);
       } else {
         sfx.tick();
       }
+      lockRef.current = false;
     },
-    [phase, resolving, revealed, picked, mineSet, mines, stake, wallet],
+    [phase, resolving, revealed, stake, roundAct],
   );
 
   // -- cash out ------------------------------------------------------------
-  const cashOut = useCallback(() => {
+  const cashOut = useCallback(async () => {
     if (!canCashOut || lockRef.current) return;
+    const rid = roundIdRef.current;
+    if (!rid) return;
     lockRef.current = true;
     setResolving(true);
     const mult = currentMult;
-    const gross = stake * mult;
-    wallet.win(gross);
-    // Reveal the remaining board so the player sees where the mines were.
+
+    let handle;
+    try {
+      handle = await roundAct(rid, "cashout");
+    } catch {
+      lockRef.current = false;
+      setResolving(false);
+      return;
+    }
+    const gross = handle.payout ?? stake * mult;
+    setMineSet(new Set((handle.publicView.minePositions as number[]) ?? []));
     setRevealed(new Set(Array.from({ length: TILES }, (_, k) => k)));
     setPhase("cashed");
-    setResult({
-      won: true,
-      amount: gross - stake,
-      text: `Cashed out at ${formatMultiplier(mult)} — won ${formatChips(gross)}.`,
-    });
-    const big = gross >= stake * 5;
-    if (big) sfx.jackpot();
+    setResult({ won: true, amount: gross - stake, text: `Cashed out at ${formatMultiplier(mult)} — won ${formatChips(gross)}.` });
+    if (gross >= stake * 5) sfx.jackpot();
     else sfx.win();
     setResolving(false);
-  }, [canCashOut, currentMult, stake, wallet]);
+    lockRef.current = false;
+  }, [canCashOut, currentMult, stake, roundAct]);
 
   // -- new round / reset to betting ---------------------------------------
   const newRound = useCallback(() => {
