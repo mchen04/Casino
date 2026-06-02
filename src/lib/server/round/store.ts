@@ -44,8 +44,31 @@ export function newRoundId(): string {
   return crypto.randomBytes(18).toString("hex");
 }
 
-export async function saveRound(id: string, round: StoredRound): Promise<void> {
-  await kv.set(ROUND_KEY(id), round, { ex: ROUND_TTL });
+/**
+ * Persist a round. On the START path it creates the key; on an ACT update pass
+ * `onlyIfExists` so a round that was just settled-and-deleted by a racing final
+ * act can NEVER be resurrected (a plain SET would recreate the deleted key and
+ * defeat settleRound's consume-on-credit idempotency).
+ */
+export async function saveRound(id: string, round: StoredRound, onlyIfExists = false): Promise<void> {
+  await kv.set(ROUND_KEY(id), round, onlyIfExists ? { ex: ROUND_TTL, xx: true } : { ex: ROUND_TTL });
+}
+
+/**
+ * Serialize concurrent acts on ONE round. A non-blocking NX lock with a short
+ * TTL: the first act on a round holds it; a concurrent/retried act fails to
+ * acquire and is rejected (409) rather than load-modify-saving the same state in
+ * parallel — which is what would otherwise let two simultaneous craps rolls (or
+ * a blackjack hit+stand) each credit the balance off one stored bet. The TTL
+ * keeps a crashed request from deadlocking the round.
+ */
+const LOCK_TTL = 15; // seconds
+export async function acquireRoundLock(id: string): Promise<boolean> {
+  const res = await kv.set(`${ROUND_KEY(id)}:lock`, "1", { nx: true, ex: LOCK_TTL });
+  return res === "OK";
+}
+export async function releaseRoundLock(id: string): Promise<void> {
+  await kv.del(`${ROUND_KEY(id)}:lock`);
 }
 
 export async function loadRound(id: string): Promise<StoredRound | null> {

@@ -206,7 +206,18 @@ export function houseWay(cards: Card[]): Split {
     const sorted = [...cards].sort((a, b) => STRENGTH(b) - STRENGTH(a));
     return sortSplit({ high: sorted.slice(0, 5), low: sorted.slice(5, 7) });
   }
-  legal.sort((a, b) => {
+  // A made STRAIGHT/FLUSH (or straight/royal flush) in the back must be KEPT —
+  // never broken just to peel a small pair into the front (that would collapse a
+  // flush down to a pair). Full houses / two pair are NOT "keep" hands: they are
+  // meant to split (trips back + pair front; pair back + pair front), which the
+  // comparator does. So when the best back is a straight/flush family, restrict
+  // to splits that preserve that category, then play the best legal front.
+  const maxBackCat = legal.reduce((m, e) => Math.max(m, e.back.category), 0);
+  const KEEP = new Set<number>([
+    HandCategory.Straight, HandCategory.Flush, HandCategory.StraightFlush, HandCategory.RoyalFlush,
+  ]);
+  const pool = KEEP.has(maxBackCat) ? legal.filter((e) => e.back.category === maxBackCat) : legal;
+  pool.sort((a, b) => {
     const ap = a.front.pair ? 1 : 0;
     const bp = b.front.pair ? 1 : 0;
     if (ap !== bp) return bp - ap; // 1) a pair in the front beats a high-card front
@@ -214,7 +225,7 @@ export function houseWay(cards: Card[]): Split {
     if (b.front.score !== a.front.score) return b.front.score - a.front.score; // 3) strongest front
     return b.back.score - a.back.score; // 4) then strongest back
   });
-  return sortSplit(legal[0].split);
+  return sortSplit(pool[0].split);
 }
 
 /** Sort each sub-hand high→low for stable, readable display. */
