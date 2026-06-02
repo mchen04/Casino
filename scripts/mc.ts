@@ -97,6 +97,16 @@ const SCENARIOS: Scenario[] = [
 
   // Neon Megaways — RTP ~95.8% (published 4.7% edge).
   { label: "slots-megaways", game: "slots-megaways", bet: 100, params: {}, targetEdge: 4.7, tol: 1.2 },
+
+  // Bingo — RTP ~92% (published ~8% edge). Any valid card has identical RTP.
+  {
+    label: "bingo 1-card",
+    game: "bingo",
+    bet: 100,
+    params: { cards: [[[1, 2, 3, 4, 5], [16, 17, 18, 19, 20], [31, 32, 0, 34, 35], [46, 47, 48, 49, 50], [61, 62, 63, 64, 65]]] },
+    targetEdge: 8.0,
+    tol: 1.0,
+  },
 ];
 
 function runScenario(s: Scenario, rounds: number) {

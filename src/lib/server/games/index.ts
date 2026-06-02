@@ -17,6 +17,7 @@ import { sicBoSpec } from "./sic-bo";
 import { slotsClassicSpec } from "./slots-classic";
 import { tiannasTreasurySpec } from "./tiannas-treasury";
 import { slotsMegawaysSpec } from "./slots-megaways";
+import { bingoSpec } from "./bingo";
 
 let done = false;
 export function registerAll(): void {
@@ -37,6 +38,7 @@ export function registerAll(): void {
   register(slotsClassicSpec);
   register(tiannasTreasurySpec);
   register(slotsMegawaysSpec);
+  register(bingoSpec);
 }
 
 registerAll();
