@@ -1,4 +1,4 @@
-import { kv, BAL_KEY, USER_KEY, LEADERBOARD_KEY, isOnLeaderboard, type UserRecord } from "@/lib/kv";
+import { kv, BAL_KEY, CLAIM_KEY, USER_KEY, LEADERBOARD_KEY, isOnLeaderboard, type UserRecord } from "@/lib/kv";
 
 /**
  * Server-authoritative wallet.
@@ -48,6 +48,25 @@ redis.call('SET', KEYS[1], nxt)
 return nxt
 `;
 
+// Atomic time-gated bonus claim across the claim-timestamp key (KEYS[1]) and the
+// balance key (KEYS[2]). Enforces one claim per interval AND credits the
+// authoritative balance in a single atomic step (no TOCTOU, no wrong-key bug).
+// ARGV: now(ms), interval(ms), amount(cents). Returns {status, nextClaimAt, balCents}.
+const CLAIM = `
+local last = tonumber(redis.call('GET', KEYS[1]) or '0')
+local now = tonumber(ARGV[1])
+local interval = tonumber(ARGV[2])
+local bal = redis.call('GET', KEYS[2])
+if bal == false then bal = 0 else bal = tonumber(bal) end
+if now < last + interval then
+  return {0, last + interval, bal}
+end
+redis.call('SET', KEYS[1], now)
+bal = bal + tonumber(ARGV[3])
+redis.call('SET', KEYS[2], bal)
+return {1, now + interval, bal}
+`;
+
 export interface SettleResult {
   ok: boolean;
   reason?: "insufficient" | "uninitialised";
@@ -84,6 +103,31 @@ export async function debit(username: string, amountCents: number): Promise<Sett
 export async function credit(username: string, amountCents: number): Promise<number> {
   const next = (await kv.eval(CREDIT, [BAL_KEY(username)], [String(amountCents)])) as number;
   return toChips(Number(next));
+}
+
+/** Atomically claim the time-gated bonus and credit the authoritative balance. */
+export async function claimBonus(
+  username: string,
+  amountChips: number,
+  intervalMs: number,
+  nowMs: number,
+): Promise<{ claimed: boolean; nextClaimAt: number; balance: number }> {
+  const res = (await kv.eval(
+    CLAIM,
+    [CLAIM_KEY(username), BAL_KEY(username)],
+    [String(nowMs), String(intervalMs), String(toCents(amountChips))],
+  )) as [number, number, number];
+  return {
+    claimed: Number(res[0]) === 1,
+    nextClaimAt: Number(res[1]),
+    balance: toChips(Number(res[2])),
+  };
+}
+
+/** Read the last-claim timestamp (ms); 0 if never claimed. */
+export async function getLastClaim(username: string): Promise<number> {
+  const raw = await kv.get<number | string>(CLAIM_KEY(username));
+  return raw === null || raw === undefined ? 0 : Number(raw);
 }
 
 /** Read the authoritative balance in chips (NaN if uninitialised). */

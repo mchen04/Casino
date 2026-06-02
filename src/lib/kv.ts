@@ -45,6 +45,8 @@ export const SESSION_KEY = (t: string) => `${PREFIX}session:${t}`;
 export const BAL_KEY = (u: string) => `${PREFIX}bal:${u.toLowerCase()}`;
 /** Server-held round state for multi-step games. */
 export const ROUND_KEY = (id: string) => `${PREFIX}round:${id}`;
+/** Last bonus-claim timestamp (ms), its own key so claims can be made atomic. */
+export const CLAIM_KEY = (u: string) => `${PREFIX}claim:${u.toLowerCase()}`;
 export const LEADERBOARD_KEY = `${PREFIX}leaderboard`;
 export const SESSION_TTL = 60 * 60 * 24 * 7; // 7 days
 export const ROUND_TTL = 60 * 60; // 1 hour — abandoned rounds expire
