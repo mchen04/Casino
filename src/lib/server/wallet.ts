@@ -67,6 +67,19 @@ redis.call('SET', KEYS[2], bal)
 return {1, now + interval, bal}
 `;
 
+// Atomic bankruptcy bailout: credit ARGV[2] cents ONLY when the balance is below
+// the broke floor ARGV[1] cents. The floor check + credit happen in one step so a
+// solvent player can never use this to mint chips, and a broke one can never be
+// lifted above ~floor+grant. Returns {status, balCents}: 1 = granted, 0 = solvent.
+const RESCUE = `
+local cur = redis.call('GET', KEYS[1])
+if cur == false then cur = 0 else cur = tonumber(cur) end
+if cur >= tonumber(ARGV[1]) then return {0, cur} end
+local nxt = cur + tonumber(ARGV[2])
+redis.call('SET', KEYS[1], nxt)
+return {1, nxt}
+`;
+
 export interface SettleResult {
   ok: boolean;
   reason?: "insufficient" | "uninitialised";
@@ -122,6 +135,26 @@ export async function claimBonus(
     nextClaimAt: Number(res[1]),
     balance: toChips(Number(res[2])),
   };
+}
+
+/**
+ * Atomically grant a bankruptcy bailout, but ONLY when the balance is below
+ * `floorChips` (the player is broke and cannot place a meaningful bet). This is
+ * the server-authoritative replacement for the old client-side top-up: a
+ * logged-in user can never mint chips while solvent, and even when broke is only
+ * ever lifted by `grantChips` — never beyond it — so the leaderboard stays
+ * honest. Returns granted=false (no balance change) when the player is solvent.
+ */
+export async function rescueGrant(
+  username: string,
+  floorChips: number,
+  grantChips: number,
+): Promise<{ granted: boolean; balance: number }> {
+  const [status, balCents] = await evalNum2(RESCUE, BAL_KEY(username), [
+    toCents(floorChips),
+    toCents(grantChips),
+  ]);
+  return { granted: status === 1, balance: toChips(balCents) };
 }
 
 /** Read the last-claim timestamp (ms); 0 if never claimed. */

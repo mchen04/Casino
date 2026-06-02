@@ -12,7 +12,7 @@ import {
   type GameCategory,
   type GameMeta,
 } from "@/lib/games";
-import { useWallet, STARTING_BALANCE } from "@/lib/wallet";
+import { useWallet } from "@/lib/wallet";
 import { formatChips } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { ClaimBonus } from "@/components/ClaimBonus";
@@ -188,7 +188,9 @@ function ProfileModal({ onClose }: { onClose: () => void }) {
   const [loading, setLoading] = useState(false);
 
   async function handleReset() {
-    wallet.reset();
+    // Server-authoritative bailout (broke accounts only). Replaces the old local
+    // reset that the server ignored, so the credit actually persists.
+    await wallet.rescue();
     sfx.jackpot();
     setConfirm(null);
     onClose();
@@ -274,9 +276,9 @@ function ProfileModal({ onClose }: { onClose: () => void }) {
                 exit={{ opacity: 0, y: -4 }}
                 className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-4"
               >
-                <p className="text-sm font-semibold text-yellow-300">Reset your balance?</p>
+                <p className="text-sm font-semibold text-yellow-300">Claim a bailout?</p>
                 <p className="mt-1 text-xs text-white/50">
-                  Your balance will be set back to {formatChips(STARTING_BALANCE)} chips. Your stats will be kept. This cannot be undone.
+                  When you&apos;re broke you can claim {formatChips(5000)} chips to keep playing. Your stats are kept. Available only when your balance runs out.
                 </p>
                 <div className="mt-3 flex gap-2">
                   <Button variant="ghost" size="sm" onClick={() => setConfirm(null)}>
@@ -325,7 +327,7 @@ function ProfileModal({ onClose }: { onClose: () => void }) {
                   onClick={() => setConfirm("reset")}
                   className="flex w-full items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-left text-sm text-white/80 transition hover:bg-white/10 hover:text-white"
                 >
-                  <span>Reset balance to {formatChips(STARTING_BALANCE)} chips</span>
+                  <span>Claim {formatChips(5000)}-chip bailout (when broke)</span>
                   <span className="text-white/30">→</span>
                 </button>
                 <button
@@ -455,15 +457,15 @@ export function Dashboard() {
                 </div>
               </div>
               <ClaimBonus />
-              {wallet.ready && wallet.balance < STARTING_BALANCE / 2 && (
+              {wallet.ready && wallet.balance < 100 && (
                 <Button
                   variant="gold"
                   onClick={() => {
-                    wallet.topUp(STARTING_BALANCE);
+                    void wallet.rescue();
                     sfx.jackpot();
                   }}
                 >
-                  Claim {formatChips(STARTING_BALANCE)} chips
+                  Claim {formatChips(5000)} chips
                 </Button>
               )}
             </div>

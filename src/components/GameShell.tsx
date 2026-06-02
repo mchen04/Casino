@@ -104,7 +104,7 @@ export function GameShell({
             {wallet.ready && wallet.balance < 100 && (
               <button
                 onClick={() => {
-                  wallet.topUp(5000);
+                  void wallet.rescue();
                   sfx.chip();
                 }}
                 className="rounded-lg bg-gradient-to-b from-gold-light to-gold-dark px-3 py-1.5 text-xs font-bold text-ink shadow-gold"

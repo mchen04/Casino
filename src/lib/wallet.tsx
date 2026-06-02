@@ -13,6 +13,7 @@ import {
   apiMe,
   apiSync,
   apiPlay,
+  apiRescue,
   apiLogin,
   apiRegister,
   apiDeleteAccount,
@@ -22,6 +23,8 @@ import {
 } from "./auth-client";
 
 const STARTING_BALANCE = 10_000;
+/** Guest-wallet bailout grant. Logged-in grants are decided server-side (/api/rescue). */
+const RESCUE_GRANT = 5_000;
 const storageKey = (username: string | null) =>
   username ? `neon-royale-wallet-${username}` : "neon-royale-wallet-guest";
 
@@ -64,6 +67,13 @@ export interface Wallet extends WalletState {
   /** True when a server-authoritative wallet is active (i.e. logged in). */
   serverAuthoritative: boolean;
   topUp: (amount?: number) => void;
+  /**
+   * Bankruptcy bailout. For logged-in users this is server-authoritative — the
+   * server grants chips only when the account is broke and returns the real
+   * balance. For guests it tops up the local (localStorage) wallet. Replaces the
+   * old client-only top-up that the server-authoritative wallet silently ignored.
+   */
+  rescue: () => Promise<void>;
   reset: () => void;
   ready: boolean;
   username: string | null;
@@ -229,6 +239,22 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     setState((s) => ({ ...s, balance: round2(s.balance + Math.max(0, Math.floor(amount))) }));
   }, []);
 
+  const rescue = useCallback(async () => {
+    if (usernameRef.current) {
+      // Logged-in: the SERVER grants the bailout (broke accounts only) and returns
+      // the authoritative balance + reset count. We mirror it — never mint chips
+      // client-side, since /api/sync deliberately ignores client balance writes.
+      const result = await apiRescue();
+      if (result) {
+        setState((s) => ({ ...s, balance: result.balance, resets: result.resets }));
+      }
+      return;
+    }
+    // Guest wallet is client-authoritative (localStorage), so a local top-up is
+    // itself the source of truth.
+    setState((s) => ({ ...s, balance: round2(s.balance + RESCUE_GRANT), resets: s.resets + 1 }));
+  }, []);
+
   const reset = useCallback(() => {
     setState((s) => ({ ...s, balance: STARTING_BALANCE, resets: s.resets + 1 }));
   }, []);
@@ -299,6 +325,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       applyServerBalance,
       serverAuthoritative: username !== null,
       topUp,
+      rescue,
       reset,
       ready,
       username,
@@ -307,7 +334,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       logout,
       deleteAccount,
     }),
-    [state, bet, win, play, applyServerBalance, topUp, reset, ready, username, login, register, logout, deleteAccount],
+    [state, bet, win, play, applyServerBalance, topUp, rescue, reset, ready, username, login, register, logout, deleteAccount],
   );
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
