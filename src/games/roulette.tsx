@@ -9,7 +9,7 @@ import React, {
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useWallet } from "@/lib/wallet";
-import { randInt } from "@/lib/rng";
+import { usePlayStateless } from "@/lib/playStateless";
 import { sfx } from "@/lib/sound";
 import { formatChips, formatDelta } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
@@ -415,6 +415,8 @@ function Stack({ amount }: { amount: number }) {
 
 export default function Roulette() {
   const wallet = useWallet();
+  const playRound = usePlayStateless();
+  const spinningRef = useRef(false);
 
   const [wheelKind, setWheelKind] = useState<WheelKind>("european");
   const order = wheelKind === "european" ? EUROPEAN_ORDER : AMERICAN_ORDER;
@@ -509,17 +511,14 @@ export default function Roulette() {
     setWinningSpots(new Set());
   }, [phase]);
 
-  const spin = useCallback(() => {
-    if (phase === "spinning") return;
+  const spin = useCallback(async () => {
+    if (phase === "spinning" || spinningRef.current) return;
     const stake = totalStake;
     if (stake <= 0) {
       sfx.lose();
       return;
     }
-    if (!wallet.bet(stake)) {
-      sfx.lose();
-      return;
-    }
+    spinningRef.current = true;
 
     setPhase("spinning");
     setWinningSpots(new Set());
@@ -531,12 +530,27 @@ export default function Roulette() {
     timers.current = [];
     sfx.thud();
 
-    // Determine result.
+    // Server (logged-in) or local guest demo decides the landed pocket + payout.
+    const placedBets = Object.values(bets).map((b) => ({
+      kind: b.kind,
+      ref: b.ref,
+      amount: b.amount,
+    }));
+    let round;
+    try {
+      round = await playRound("roulette", stake, { mode: wheelKind, bets: placedBets });
+    } catch {
+      spinningRef.current = false;
+      setPhase("betting");
+      sfx.lose();
+      return;
+    }
+
+    // Determine result from the server.
     const N = order.length;
-    const idx = randInt(0, N - 1);
-    // Guard: idx is always in [0, N-1] so this assertion is safe; the fallback
-    // is belt-and-suspenders in case N is somehow 0.
-    const landed: Pocket = order[idx] ?? 0;
+    const landed = round.outcome.pocket as Pocket;
+    let idx = order.indexOf(landed);
+    if (idx < 0) idx = 0;
     const landedColor = pocketColor(landed);
 
     // Compute final rotations so the ball settles on `idx` under the top pointer.
@@ -582,20 +596,18 @@ export default function Roulette() {
         landedColor === "green" ? GREEN : landedColor === "red" ? RED : BLACK,
       );
 
-      // Pay out winners.
-      let gross = 0;
+      // Money already settled server-side; recompute winners for the highlight.
+      const gross = round.payout;
       let straightHit = false;
       const winners = new Set<string>();
       Object.values(bets).forEach((b) => {
         if (betWins(b.kind, b.ref, landed)) {
-          gross += b.amount * b.payX;
           winners.add(b.id);
           if (b.kind === "straight") straightHit = true;
         }
       });
 
       const net = gross - stake;
-      if (gross > 0) wallet.win(gross);
 
       setWinningSpots(winners);
       setLastNet(net);
@@ -635,9 +647,10 @@ export default function Roulette() {
       }
 
       setPhase("resolved");
+      spinningRef.current = false;
       // Ball stays nestled in the pocket (radius 86) until the next spin.
     });
-  }, [phase, totalStake, wallet, order, rotation, ballRotation, bets]);
+  }, [phase, totalStake, bets, wheelKind, order, rotation, ballRotation, playRound]);
 
   // Helper to read a spot's current stake.
   const stakeOf = (id: string): number => bets[id]?.amount ?? 0;

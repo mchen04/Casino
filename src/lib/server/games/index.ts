@@ -12,6 +12,8 @@ import { coinFlipSpec } from "./coin-flip";
 import { plinkoSpec } from "./plinko";
 import { kenoSpec } from "./keno";
 import { scratchSpec } from "./scratch";
+import { rouletteSpec } from "./roulette";
+import { sicBoSpec } from "./sic-bo";
 
 let done = false;
 export function registerAll(): void {
@@ -27,6 +29,8 @@ export function registerAll(): void {
   register(plinkoSpec);
   register(kenoSpec);
   register(scratchSpec);
+  register(rouletteSpec);
+  register(sicBoSpec);
 }
 
 registerAll();

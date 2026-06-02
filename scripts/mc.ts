@@ -76,6 +76,17 @@ const SCENARIOS: Scenario[] = [
   { label: "scratch gold", game: "scratch", bet: 100, params: { theme: "gold" }, targetEdge: null },
   { label: "scratch sevens", game: "scratch", bet: 100, params: { theme: "sevens" }, targetEdge: null },
   { label: "scratch neon", game: "scratch", bet: 100, params: { theme: "neon" }, targetEdge: null },
+
+  // Roulette — European 2.70% (single zero), American 5.26% (double zero).
+  { label: "roulette EU red", game: "roulette", bet: 100, params: { mode: "european", bets: [{ kind: "red", ref: 0, amount: 100 }] }, targetEdge: 2.7, tol: 0.3 },
+  { label: "roulette EU straight", game: "roulette", bet: 100, params: { mode: "european", bets: [{ kind: "straight", ref: 17, amount: 100 }] }, targetEdge: 2.7, tol: 0.6 },
+  { label: "roulette US red", game: "roulette", bet: 100, params: { mode: "american", bets: [{ kind: "red", ref: 0, amount: 100 }] }, targetEdge: 5.26, tol: 0.3 },
+
+  // Sic Bo — Small/Big 2.78%; others vary (props higher).
+  { label: "sic-bo small", game: "sic-bo", bet: 100, params: { bets: { small: 100 } }, targetEdge: 2.78, tol: 0.3 },
+  { label: "sic-bo total:9", game: "sic-bo", bet: 100, params: { bets: { "total:9": 100 } }, targetEdge: null },
+  { label: "sic-bo anyTriple", game: "sic-bo", bet: 100, params: { bets: { anyTriple: 100 } }, targetEdge: null },
+  { label: "sic-bo single:3", game: "sic-bo", bet: 100, params: { bets: { "single:3": 100 } }, targetEdge: null },
 ];
 
 function runScenario(s: Scenario, rounds: number) {
