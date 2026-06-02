@@ -3,7 +3,7 @@ import { resolveSession } from "@/lib/auth";
 import { rng } from "@/lib/server/rng";
 import { getRoundGame, GameError } from "@/lib/server/round/engine";
 import { newRoundId, saveRound, loadRound, settleRound, type StoredRound } from "@/lib/server/round/store";
-import { settleBet, debit, getBalance, recordStats, toCents } from "@/lib/server/wallet";
+import { settleBet, debit, credit, getBalance, recordStats, toCents } from "@/lib/server/wallet";
 import "@/lib/server/round/games"; // side-effect: register stateful games
 
 export const runtime = "nodejs";
@@ -119,8 +119,10 @@ async function handleAct(username: string, body: Record<string, unknown>) {
   }
 
   let wageredCents = round.wageredCents ?? round.betCents;
+  let returnedCents = round.returnedCents ?? 0;
 
-  // A raise (double / war / ante raise) debits extra before the round advances.
+  // A raise (double / war / ante raise / a craps bet placement) debits extra
+  // before the round advances.
   const extraDebit = Math.max(0, step.debit ?? 0);
   if (extraDebit > 0) {
     const d = await debit(username, toCents(extraDebit));
@@ -132,14 +134,23 @@ async function handleAct(username: string, body: Record<string, unknown>) {
     const { settled, balance } = await settleRound(roundId, username, toCents(step.payout));
     if (!settled) return NextResponse.json({ error: "Round already settled" }, { status: 409 });
     await recordStats(username, balance, {
+      // Include any chips already credited mid-round (e.g. craps per-roll wins).
       wagered: wageredCents / 100,
-      returned: step.payout,
+      returned: (returnedCents + toCents(step.payout)) / 100,
       biggestWin: step.payout,
     });
     return NextResponse.json({ done: true, publicView: step.publicView, balance, payout: step.payout });
   }
 
-  await saveRound(roundId, { ...round, state: step.state, wageredCents });
+  // A mid-round CREDIT (craps roll win / place-bet take-down) pays the
+  // authoritative balance atomically without ending the round.
+  const midCredit = Math.max(0, step.credit ?? 0);
+  if (midCredit > 0) {
+    await credit(username, toCents(midCredit));
+    returnedCents += toCents(midCredit);
+  }
+
+  await saveRound(roundId, { ...round, state: step.state, wageredCents, returnedCents });
   const balance = await getBalance(username);
   return NextResponse.json({ roundId, done: false, publicView: step.publicView, actions: step.actions, balance });
 }

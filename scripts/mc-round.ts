@@ -641,6 +641,72 @@ function simPaiGow(rounds: number): Sim {
 }
 
 /**
+ * Craps — drive the real round machine per bet type and check each documented
+ * house edge. Exercises the actual server resolveRoll + mid-round credits.
+ */
+const craps = () => getRoundGame("craps") as any;
+const crapsRoll = (st: any) => {
+  const step = craps().act(st, 0, "roll", null, rng);
+  return { st: step.state, gross: step.publicView.gross as number, total: step.publicView.dice.total as number };
+};
+const crapsPlace = (st: any, spot: string, amount: number) =>
+  craps().act(st, 0, "place", { spot, amount }, rng).state;
+const crapsWorking = (st: any) => craps().act(st, 0, "working", { on: true }, rng).state;
+
+/** Pass / Don't-pass line: place at the come-out, roll until it resolves. */
+function simCrapsLine(rounds: number, spot: "pass" | "dontPass"): Sim {
+  let st = craps().start(0, {}, rng).state;
+  let wagered = 0, returned = 0;
+  for (let i = 0; i < rounds; i++) {
+    st = crapsPlace(st, spot, BET);
+    wagered += BET;
+    let guard = 0;
+    while (!(st.point === null && st.bets[spot] === 0) && guard++ < 200) {
+      const r = crapsRoll(st); st = r.st; returned += r.gross;
+    }
+  }
+  return { initialWagered: wagered, totalWagered: wagered, returned };
+}
+/** Field: a one-roll bet (2 pays 2:1, 12 pays 3:1, 3/4/9/10/11 even). ~2.78%. */
+function simCrapsField(rounds: number): Sim {
+  let st = craps().start(0, {}, rng).state;
+  let wagered = 0, returned = 0;
+  for (let i = 0; i < rounds; i++) {
+    st = crapsPlace(st, "field", BET);
+    wagered += BET;
+    const r = crapsRoll(st); st = r.st; returned += r.gross;
+  }
+  return { initialWagered: wagered, totalWagered: wagered, returned };
+}
+/** Hardway — taken down on resolution (its number, hard or easy, or a 7). hard6 ~9.09%. */
+function simCrapsHard(rounds: number, spot: string): Sim {
+  let st = crapsWorking(craps().start(0, {}, rng).state);
+  const num = Number(spot.slice(4));
+  let wagered = 0, returned = 0;
+  for (let i = 0; i < rounds; i++) {
+    st = crapsPlace(st, spot, BET);
+    wagered += BET;
+    let guard = 0;
+    while (st.hard[spot] > 0 && guard++ < 200) {
+      const r = crapsRoll(st); st = r.st;
+      if (r.total === num || r.total === 7) { returned += r.gross; break; }
+    }
+  }
+  return { initialWagered: wagered, totalWagered: wagered, returned };
+}
+/** Place 6 — STAYS up on a win, so count each 6-or-7 as one resolution. ~1.52%. */
+function simCrapsPlace6(rounds: number): Sim {
+  let st = crapsPlace(crapsWorking(craps().start(0, {}, rng).state), "place6", BET);
+  let wagered = 0, returned = 0, resolved = 0, guard = 0;
+  while (resolved < rounds && guard++ < rounds * 40) {
+    const r = crapsRoll(st); st = r.st;
+    if (r.total === 6) { wagered += BET; returned += BET + r.gross; resolved++; } // stake stays + 7:6
+    else if (r.total === 7) { wagered += BET; resolved++; st = crapsPlace(st, "place6", BET); } // lost → re-up
+  }
+  return { initialWagered: wagered, totalWagered: wagered, returned };
+}
+
+/**
  * Crash — cash out at a spread of blind targets. The server resolves by its own
  * clock, so we mock Date.now to advance exactly to when the climb reaches the
  * target, exercising the real act() path (incl. the elapsed-time clamp). The
@@ -724,6 +790,13 @@ function main() {
   // Spanish 21 (S17, correct bonuses): ~0.4% optimal; a hair higher under this
   // blackjack-style strategy. Wide band — confirms a small POSITIVE edge.
   run("spanish-21", () => simS21(rounds), 0.7, 0.7);
+  // Craps — each bet's documented house edge, via the real round machine.
+  run("craps pass-line", () => simCrapsLine(rounds, "pass"), 1.41, 0.25);
+  run("craps dont-pass", () => simCrapsLine(rounds, "dontPass"), 1.36, 0.25);
+  run("craps field", () => simCrapsField(rounds), 2.78, 0.3);
+  run("craps place-6", () => simCrapsPlace6(rounds), 1.52, 0.35);
+  run("craps hard-6", () => simCrapsHard(rounds, "hard6"), 9.09, 1.2);
+  run("craps hard-4", () => simCrapsHard(rounds, "hard4"), 11.11, 1.5);
   // Pai Gow Poker (improved near-optimal house way BOTH sides, 5% commission,
   // copies to dealer): ~2.45% (a touch below the 2.84% simple-house-way figure
   // because both sides now play optimally — fairer to the player, still +EV).

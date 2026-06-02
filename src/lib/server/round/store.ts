@@ -17,6 +17,8 @@ export interface StoredRound {
   betCents: number;
   /** Total wagered so far in cents (base + raises) — for display stats only. */
   wageredCents?: number;
+  /** Total credited mid-round so far in cents (e.g. craps per-roll wins) — stats only. */
+  returnedCents?: number;
   /** Game-specific hidden state (dealer hole cards, deck, raises…). */
   state: unknown;
   createdAt: number;

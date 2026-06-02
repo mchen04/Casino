@@ -26,6 +26,14 @@ export interface RoundStep<S> {
    * debits this from the authoritative balance before persisting the step.
    */
   debit?: number;
+  /**
+   * Chips to CREDIT atomically mid-round, WITHOUT ending the round (e.g. a craps
+   * roll that pays winning bets while the hand keeps going, or taking a place bet
+   * down). Applied to the authoritative balance before the step is persisted and
+   * accumulated into the round's returned-stat. Ignored when `done` (use
+   * `payout`, which settles atomically and consumes the round).
+   */
+  credit?: number;
 }
 
 export interface RoundGame<S = unknown, P = unknown> {
