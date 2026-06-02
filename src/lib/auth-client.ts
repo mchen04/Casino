@@ -102,6 +102,30 @@ export async function apiMe(): Promise<PublicUser | null> {
   }
 }
 
+export interface PlayResult {
+  ok: true;
+  outcome: Record<string, unknown>;
+  bet: number;
+  payout: number;
+  balance: number;
+}
+
+/** Server-authoritative one-shot wager. Server decides outcome + payout. */
+export async function apiPlay(
+  game: string,
+  bet: number,
+  params: unknown,
+): Promise<PlayResult> {
+  const res = await fetch("/api/play", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ game, bet, params }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { error?: string })?.error ?? "Play failed");
+  return data as PlayResult;
+}
+
 export async function apiSync(payload: SyncPayload): Promise<boolean> {
   try {
     const res = await fetch("/api/sync", {

@@ -1,5 +1,5 @@
 import { type GameSpec, intIn, oneOf, assert } from "../engine";
-import { payoutForChance } from "@/lib/cryptoGames";
+import { payoutForChance } from "../../cryptoGames";
 
 // Server-authoritative Dice — mirrors src/games/dice.tsx exactly.
 //   roll ∈ [0, 100), target ∈ [2, 98], mode over/under.

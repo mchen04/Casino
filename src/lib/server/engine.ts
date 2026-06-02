@@ -1,4 +1,4 @@
-import type { Rng } from "./rng";
+import type { Rng } from "./rngCore";
 
 /**
  * Contract for a STATELESS one-shot game (bet → single random resolution →
