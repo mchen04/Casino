@@ -7,6 +7,7 @@
  */
 import { makeRng } from "../src/lib/server/rngCore";
 import { getRoundGame } from "../src/lib/server/round/engine";
+import { evaluate3, ThreeCardCategory, rankValue, type Card } from "../src/lib/cards";
 import "../src/lib/server/round/games";
 
 const rng = makeRng(Math.random);
@@ -103,6 +104,33 @@ function simMines(rounds: number): Sim {
   return { initialWagered, totalWagered, returned };
 }
 
+/** Three Card Poker — optimal: PLAY on Q-6-4 or better, else FOLD. */
+function shouldPlayTCP(cards: Card[]): boolean {
+  if (evaluate3(cards).category > ThreeCardCategory.HighCard) return true; // pair+
+  const vals = cards.map((c) => rankValue(c.rank)).sort((a, b) => b - a);
+  const q64 = [12, 6, 4];
+  for (let i = 0; i < 3; i++) {
+    if (vals[i] > q64[i]) return true;
+    if (vals[i] < q64[i]) return false;
+  }
+  return true; // exactly Q-6-4
+}
+function simTCP(rounds: number): Sim {
+  const game = getRoundGame("three-card-poker")!;
+  let initialWagered = 0; // ante only (the published edge is on the ante)
+  let totalWagered = 0; // ante + reserved play (always debited at start)
+  let returned = 0;
+  for (let i = 0; i < rounds; i++) {
+    const start = game.start(BET, { pairPlus: 0 }, rng);
+    initialWagered += BET;
+    totalWagered += BET * 2; // ante + play reserve
+    const play = shouldPlayTCP(start.publicView.playerCards as Card[]);
+    const act = game.act(start.state, BET, play ? "play" : "fold", null, rng);
+    returned += act.payout;
+  }
+  return { initialWagered, totalWagered, returned };
+}
+
 function report(label: string, s: Sim, target: number, tol: number, measure: "initial" | "action" = "initial") {
   const net = s.returned - s.totalWagered;
   const edgeInitial = (-net / s.initialWagered) * 100; // house edge on the ante
@@ -130,6 +158,8 @@ function main() {
   report("hi-lo", simHiLo(rounds), 3.0, 0.2) ? pass++ : fail++;
   // Mines: exactly 1% edge for any cash-out point.
   report("mines", simMines(rounds), 1.0, 0.2) ? pass++ : fail++;
+  // Three Card Poker (Q-6-4 strategy): documented ~3.46% on the ante.
+  report("three-card-poker", simTCP(rounds), 3.46, 0.35) ? pass++ : fail++;
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail > 0) process.exitCode = 1;
 }

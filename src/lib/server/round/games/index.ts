@@ -5,6 +5,7 @@ import { casinoWarGame } from "./casino-war";
 import { redDogGame } from "./red-dog";
 import { hiLoGame } from "./hi-lo";
 import { minesGame } from "./mines";
+import { threeCardPokerGame } from "./three-card-poker";
 
 let done = false;
 export function registerAllRoundGames(): void {
@@ -14,6 +15,7 @@ export function registerAllRoundGames(): void {
   registerRound(redDogGame);
   registerRound(hiLoGame);
   registerRound(minesGame);
+  registerRound(threeCardPokerGame);
 }
 
 registerAllRoundGames();
