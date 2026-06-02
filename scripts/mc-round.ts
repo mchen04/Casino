@@ -7,7 +7,7 @@
  */
 import { makeRng } from "../src/lib/server/rngCore";
 import { getRoundGame } from "../src/lib/server/round/engine";
-import { evaluate3, evaluate5, evaluateBest, makeDeck, ThreeCardCategory, HandCategory, rankValue, blackjackTotal, type Card } from "../src/lib/cards";
+import { evaluate3, evaluate5, evaluateBest, makeDeck, ThreeCardCategory, HandCategory, rankValue, blackjackTotal, blackjackValue, type Card } from "../src/lib/cards";
 import { CRASH_GROWTH } from "../src/lib/server/round/games/crash";
 import "../src/lib/server/round/games";
 
@@ -562,6 +562,67 @@ function simBJ(rounds: number): Sim {
 }
 
 /**
+ * Spanish 21 — a blackjack-style basic strategy adapted for the no-tens shoe
+ * (not perfectly optimal, so the measured edge sits a touch above the ~0.4%
+ * theoretical optimum; the point is to confirm the payouts/bonuses are correct
+ * — i.e. a small POSITIVE edge, never player-favorable from an overpay bug).
+ */
+function s21Decide(cards: Card[], up: Card, actions: string[]): string {
+  const { total, soft } = blackjackTotal(cards);
+  const dUp = blackjackValue(up.rank); // A→11, J/Q/K→10
+  const canSplit = actions.includes("split");
+  const canDouble = actions.includes("double");
+
+  if (canSplit) {
+    const r = cards[0].rank;
+    if (r === "A" || r === "8") return "split";
+    if (r === "9" && dUp !== 7 && dUp <= 9) return "split";
+    if (r === "7" && dUp <= 7) return "split";
+    if (r === "6" && dUp <= 6) return "split";
+    if ((r === "2" || r === "3") && dUp <= 7) return "split";
+  }
+  if (canDouble && !soft) {
+    if (total === 11 && dUp <= 8) return "double";
+    if (total === 10 && dUp <= 7) return "double";
+    if (total === 9 && dUp >= 3 && dUp <= 6) return "double";
+  }
+  if (soft) {
+    if (total >= 19) return "stand";
+    if (total === 18) return dUp <= 8 ? "stand" : "hit";
+    return "hit";
+  }
+  if (total >= 17) return "stand";
+  if (total >= 13) return dUp <= 6 ? "stand" : "hit";
+  if (total === 12) return dUp >= 4 && dUp <= 6 ? "stand" : "hit";
+  return "hit";
+}
+function simS21(rounds: number): Sim {
+  const game = getRoundGame("spanish-21")!;
+  let initialWagered = 0;
+  let totalWagered = 0;
+  let returned = 0;
+  for (let i = 0; i < rounds; i++) {
+    let step = game.start(BET, {}, rng);
+    initialWagered += BET;
+    totalWagered += BET;
+    let guard = 0;
+    while (!step.done && guard++ < 60) {
+      const pv = step.publicView as {
+        playerHands: Array<{ cards: Card[] }>;
+        dealerUp: Card;
+        active: number;
+      };
+      const h = pv.playerHands[pv.active];
+      const action = s21Decide(h.cards, pv.dealerUp, step.actions);
+      step = game.act(step.state, BET, action, null, rng);
+      totalWagered += Math.max(0, step.debit ?? 0); // doubles/splits add stake
+    }
+    returned += step.payout;
+  }
+  return { initialWagered, totalWagered, returned };
+}
+
+/**
  * Crash — cash out at a spread of blind targets. The server resolves by its own
  * clock, so we mock Date.now to advance exactly to when the climb reaches the
  * target, exercising the real act() path (incl. the elapsed-time clamp). The
@@ -642,6 +703,9 @@ function main() {
   run("ultimate-texas", () => simUTH(rounds), 2.2, 0.7);
   // Crash: exactly the 1% baked-in house edge for any blind cash-out target.
   run("crash", () => simCrash(rounds), 1.0, 0.2);
+  // Spanish 21 (S17, correct bonuses): ~0.4% optimal; a hair higher under this
+  // blackjack-style strategy. Wide band — confirms a small POSITIVE edge.
+  run("spanish-21", () => simS21(rounds), 0.7, 0.7);
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail > 0) process.exitCode = 1;
 }

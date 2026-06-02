@@ -13,6 +13,7 @@ import { blackjackGame } from "./blackjack";
 import { videoPokerGame } from "./video-poker";
 import { ultimateTexasGame } from "./ultimate-texas";
 import { crashGame } from "./crash";
+import { spanish21Game } from "./spanish-21";
 
 let done = false;
 export function registerAllRoundGames(): void {
@@ -30,6 +31,7 @@ export function registerAllRoundGames(): void {
   registerRound(videoPokerGame);
   registerRound(ultimateTexasGame);
   registerRound(crashGame);
+  registerRound(spanish21Game);
 }
 
 registerAllRoundGames();
