@@ -120,6 +120,7 @@ async function handleAct(username: string, body: Record<string, unknown>) {
 
   let wageredCents = round.wageredCents ?? round.betCents;
   let returnedCents = round.returnedCents ?? 0;
+  let latestBalance: number | null = null; // reuse a mutation's return — no extra GET
 
   // A raise (double / war / ante raise / a craps bet placement) debits extra
   // before the round advances.
@@ -128,6 +129,7 @@ async function handleAct(username: string, body: Record<string, unknown>) {
     const d = await debit(username, toCents(extraDebit));
     if (!d.ok) return NextResponse.json({ error: "Insufficient balance" }, { status: 400 });
     wageredCents += toCents(extraDebit);
+    latestBalance = d.balance;
   }
 
   if (step.done) {
@@ -146,11 +148,13 @@ async function handleAct(username: string, body: Record<string, unknown>) {
   // authoritative balance atomically without ending the round.
   const midCredit = Math.max(0, step.credit ?? 0);
   if (midCredit > 0) {
-    await credit(username, toCents(midCredit));
+    latestBalance = await credit(username, toCents(midCredit));
     returnedCents += toCents(midCredit);
   }
 
   await saveRound(roundId, { ...round, state: step.state, wageredCents, returnedCents });
-  const balance = await getBalance(username);
+  // Reuse the balance returned by the debit/credit above; only read it when the
+  // step moved no money (e.g. a poker check or a craps "working" toggle).
+  const balance = latestBalance ?? (await getBalance(username));
   return NextResponse.json({ roundId, done: false, publicView: step.publicView, actions: step.actions, balance });
 }

@@ -162,10 +162,12 @@ export async function recordStats(
     rounds: existing.rounds + 1,
     biggestWin: Math.max(existing.biggestWin, deltas.biggestWin),
   };
-  await kv.set(USER_KEY(username), updated);
-  if (isOnLeaderboard(updated)) {
-    await kv.zadd(LEADERBOARD_KEY, { score: balanceChips, member: username.toLowerCase() });
-  } else {
-    await kv.zrem(LEADERBOARD_KEY, username.toLowerCase());
-  }
+  // Persist the display record + sync the leaderboard in ONE pipelined round-trip
+  // (the two writes are independent, so they need not be separate REST calls).
+  const member = username.toLowerCase();
+  const pipe = kv.pipeline();
+  pipe.set(USER_KEY(username), updated);
+  if (isOnLeaderboard(updated)) pipe.zadd(LEADERBOARD_KEY, { score: balanceChips, member });
+  else pipe.zrem(LEADERBOARD_KEY, member);
+  await pipe.exec();
 }

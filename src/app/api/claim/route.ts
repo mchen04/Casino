@@ -54,12 +54,12 @@ export async function POST(req: NextRequest) {
     const user = await kv.get<UserRecord>(USER_KEY(username));
     if (user) {
       const updated: UserRecord = { ...user, balance, lastClaim: Date.now() };
-      await kv.set(USER_KEY(username), updated);
-      if (isOnLeaderboard(updated)) {
-        await kv.zadd(LEADERBOARD_KEY, { score: balance, member: username.toLowerCase() });
-      } else {
-        await kv.zrem(LEADERBOARD_KEY, username.toLowerCase());
-      }
+      const member = username.toLowerCase();
+      const pipe = kv.pipeline(); // one round-trip for the record + leaderboard sync
+      pipe.set(USER_KEY(username), updated);
+      if (isOnLeaderboard(updated)) pipe.zadd(LEADERBOARD_KEY, { score: balance, member });
+      else pipe.zrem(LEADERBOARD_KEY, member);
+      await pipe.exec();
     }
 
     return NextResponse.json({ balance, claimed: CLAIM_AMOUNT, nextClaimAt });
