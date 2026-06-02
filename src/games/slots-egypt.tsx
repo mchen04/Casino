@@ -15,6 +15,7 @@ import {
   useTransform,
 } from "framer-motion";
 import { useWallet } from "@/lib/wallet";
+import { usePlayStateless } from "@/lib/playStateless";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
@@ -639,6 +640,8 @@ const BUY_MULT = 8;
 
 export default function PharaohsFortune() {
   const wallet = useWallet();
+  const playRound = usePlayStateless();
+  const serverAuthoritative = wallet.serverAuthoritative;
 
   const [bet, setBet] = useState(50);
   const [grid, setGrid] = useState<Grid>(() => randomGrid());
@@ -707,9 +710,11 @@ export default function PharaohsFortune() {
   /* ---- core spin sequence (returns the resolved SpinResult) ------------- */
 
   const runSpin = useCallback(
-    (totalBet: number, freeSpin: boolean, expandSym: SymbolId | null) =>
+    (totalBet: number, freeSpin: boolean, expandSym: SymbolId | null, presetRes?: SpinResult) =>
       new Promise<SpinResult>((resolve) => {
-        const res = spinOnce(totalBet, freeSpin, expandSym);
+        // Server path passes a pre-computed result to animate; the guest buy-bonus
+        // path leaves it undefined and resolves locally (spinOnce).
+        const res = presetRes ?? spinOnce(totalBet, freeSpin, expandSym);
         setResult(null);
         setSpinning(true);
         setStoppedCount(0); // all reels start spinning
@@ -752,13 +757,14 @@ export default function PharaohsFortune() {
   /* ---- resolve payouts + sound/visual ----------------------------------- */
 
   const settleResult = useCallback(
-    (res: SpinResult, freeSpin: boolean, totalBet: number) => {
+    (res: SpinResult, freeSpin: boolean, totalBet: number, serverSettled = false) => {
       setResult(res);
       if (res.total > 0) {
         setSpinWin(res.total);
-        // Paytable multipliers already include the stake (gross), so credit
-        // res.total directly — same convention as slots-classic / slots-fruit.
-        if (!freeSpin) wallet.win(res.total);
+        // Paytable multipliers already include the stake (gross). On the server
+        // path the balance is already authoritative (settled at playRound), so we
+        // only credit locally for the guest buy-bonus path.
+        if (!freeSpin && !serverSettled) wallet.win(res.total);
         if (res.expand) {
           sfx.jackpot();
           setMessage(
@@ -834,27 +840,35 @@ export default function PharaohsFortune() {
   const handleSpin = useCallback(async () => {
     if (busy || spinning || !affordable) return;
     const totalBet = bet;
-    if (!wallet.bet(totalBet)) {
-      setMessage("Not enough chips for that bet");
-      return;
-    }
     setBusy(true);
     setFreeTotal(0);
     setResult(null);
 
-    const res = await runSpin(totalBet, false, null);
-    if (!mounted.current) return;
-    settleResult(res, false, totalBet);
+    // Server (logged-in) or guest local demo resolves base + ALL free spins in
+    // one call; we only animate the returned sequence. Money is server-settled.
+    let round;
+    try {
+      round = await playRound("slots-egypt", totalBet, {});
+    } catch {
+      setBusy(false);
+      setMessage("Not enough chips for that bet");
+      return;
+    }
+    const o = round.outcome as unknown as {
+      base: SpinResult;
+      freeSpins: SpinResult[];
+      expanding: SymbolId | null;
+    };
 
-    if (res.triggeredFree) {
-      // Choose the expanding symbol (weighted toward higher symbols a bit).
-      const pool = EXPANDING_POOL;
-      const weights = pool.map((id) => SYMBOLS[id].weight);
-      const chosen = weightedPick(pool, weights);
+    await runSpin(totalBet, false, null, o.base);
+    if (!mounted.current) return;
+    settleResult(o.base, false, totalBet, true);
+
+    if (o.base.triggeredFree && o.expanding) {
+      const chosen = o.expanding;
       sfx.jackpot();
       setMessage(`${SCATTER_TRIGGER}+ Books! ${FREE_SPINS} FREE SPINS unlocked`);
 
-      // Dramatic reveal of the expanding symbol, then run the free spins.
       await new Promise<void>((r) => {
         const id = window.setTimeout(r, 700);
         stopTimers.current.push(id);
@@ -869,11 +883,40 @@ export default function PharaohsFortune() {
       if (!mounted.current) return;
       setShowExpandReveal(null);
       setExpanding(chosen);
-      await playFreeSpins(FREE_SPINS, chosen, totalBet);
-    } else {
-      setBusy(false);
+
+      // Animate the server's free-spin sequence (already settled — no credit).
+      let accumulated = 0;
+      for (let i = 0; i < o.freeSpins.length; i++) {
+        if (!mounted.current) return;
+        setFreeLeft(o.freeSpins.length - i);
+        const fs = o.freeSpins[i];
+        await runSpin(totalBet, true, chosen, fs);
+        if (!mounted.current) return;
+        settleResult(fs, true, totalBet, true);
+        if (fs.total > 0) {
+          accumulated += fs.total;
+          setFreeTotal(accumulated);
+        }
+        if (fs.retrigger) {
+          setMessage(`Retrigger! +${FREE_SPINS} free spins`);
+          sfx.jackpot();
+        }
+        await new Promise<void>((r) => {
+          const id = window.setTimeout(r, fs.total > 0 ? 1100 : 650);
+          stopTimers.current.push(id);
+        });
+      }
+      if (!mounted.current) return;
+      setFreeLeft(0);
+      setExpanding(null);
+      setMessage(
+        accumulated > 0
+          ? `Free spins complete — won ${formatChips(accumulated)} total!`
+          : "Free spins complete",
+      );
     }
-  }, [busy, spinning, affordable, bet, wallet, runSpin, settleResult, playFreeSpins]);
+    setBusy(false);
+  }, [busy, spinning, affordable, bet, playRound, runSpin, settleResult]);
 
   /* ---- buy the bonus: launch the free-spins round directly (×BUY_MULT) --- */
   const buyCost = bet * BUY_COST_MULT;
@@ -1342,9 +1385,13 @@ export default function PharaohsFortune() {
                 variant="ghost"
                 data-testid="buy-bonus-btn"
                 className="min-w-[150px] border border-[#f1c40f]/50 text-[#f1c40f]"
-                disabled={lockBet || buyCost > wallet.balance}
+                disabled={lockBet || buyCost > wallet.balance || serverAuthoritative}
                 onClick={handleBuyBonus}
-                title={`Buy ${FREE_SPINS} free spins at ${BUY_MULT}× for ${BUY_COST_MULT}× your bet`}
+                title={
+                  serverAuthoritative
+                    ? "Buy Bonus is available in the guest demo"
+                    : `Buy ${FREE_SPINS} free spins at ${BUY_MULT}× for ${BUY_COST_MULT}× your bet`
+                }
               >
                 🪙 Buy Bonus · {formatChips(buyCost)}
               </Button>
