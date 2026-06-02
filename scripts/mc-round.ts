@@ -641,6 +641,62 @@ function simPaiGow(rounds: number): Sim {
 }
 
 /**
+ * Texas Hold'em (heads-up vs the bot) — drive the real round machine with a
+ * reasonable player strategy. Verifies (a) CHIP CONSERVATION every hand
+ * (payout + botFinal === 2×buyIn — no chips created/destroyed) and (b) that the
+ * player edge is small (a no-rake heads-up game vs a comparable bot ≈ 0).
+ */
+let thConservationFails = 0;
+function thStrength(hole: Card[], board: Card[]): number {
+  if (board.length < 3) {
+    const v = hole.map((c) => rankValue(c.rank));
+    const hi = Math.max(v[0], v[1]), lo = Math.min(v[0], v[1]);
+    if (hole[0].rank === hole[1].rank) return Math.min(0.5 + (hi - 2) / 24, 0.97);
+    let s = (hi + lo) / 28;
+    if (hole[0].suit === hole[1].suit) s += 0.08;
+    if (hi - lo === 1) s += 0.06;
+    if (hi >= 13) s += 0.05;
+    return Math.max(0.05, Math.min(0.92, s));
+  }
+  const ev = evaluateBest([...hole, ...board]);
+  const band = [0.16, 0.42, 0.63, 0.75, 0.84, 0.9, 0.95, 0.99, 0.997, 1][ev.category] ?? 0.16;
+  return Math.min(1, band + ((ev.tiebreak[0] ?? 2) / 14) * 0.04);
+}
+function simTexas(rounds: number): Sim {
+  const game = getRoundGame("texas-holdem")!;
+  const BUYIN = 2000;
+  let wagered = 0, returned = 0;
+  for (let i = 0; i < rounds; i++) {
+    let step = game.start(BUYIN, { buyIn: BUYIN }, rng);
+    wagered += BUYIN;
+    let guard = 0;
+    while (!step.done && guard++ < 100) {
+      const pv = step.publicView as any;
+      const strength = thStrength(pv.playerHole as Card[], pv.board as Card[]);
+      const toCall = pv.toCall as number;
+      const acts = step.actions;
+      let action = "check", payload: any = null;
+      if (toCall <= 0) {
+        if (strength > 0.62 && acts.includes("raise")) {
+          action = "raise"; payload = { to: pv.botStreetBet + Math.max(50, Math.round(pv.pot * 0.6)) };
+        } else action = acts.includes("check") ? "check" : "call";
+      } else {
+        if (strength < 0.34) action = "fold";
+        else if (strength > 0.82 && acts.includes("raise")) {
+          action = "raise"; payload = { to: pv.botStreetBet + Math.max(50, Math.round(pv.pot * 0.7)) };
+        } else action = "call";
+      }
+      if (!acts.includes(action)) action = acts.includes("check") ? "check" : acts.includes("call") ? "call" : "fold";
+      step = game.act(step.state, 0, action, payload, rng);
+    }
+    const pv = step.publicView as any;
+    returned += step.payout;
+    if (Math.round(step.payout + (pv.botFinal ?? 0)) !== 2 * BUYIN) thConservationFails++;
+  }
+  return { initialWagered: wagered, totalWagered: wagered, returned };
+}
+
+/**
  * Craps — drive the real round machine per bet type and check each documented
  * house edge. Exercises the actual server resolveRoll + mid-round credits.
  */
@@ -787,6 +843,13 @@ function main() {
   run("ultimate-texas", () => simUTH(rounds), 2.2, 0.7);
   // Crash: exactly the 1% baked-in house edge for any blind cash-out target.
   run("crash", () => simCrash(rounds), 1.0, 0.2);
+  // Texas Hold'em (heads-up vs bot, no rake): edge ≈ 0 (skill game). The hard
+  // requirement is CHIP CONSERVATION — checked per hand below.
+  run("texas-holdem", () => simTexas(rounds), 0, 4);
+  if (!filter || "texas-holdem".includes(filter)) {
+    console.log(`  ↳ chip-conservation failures: ${thConservationFails} (must be 0)`);
+    if (thConservationFails > 0) fail++;
+  }
   // Spanish 21 (S17, correct bonuses): ~0.4% optimal; a hair higher under this
   // blackjack-style strategy. Wide band — confirms a small POSITIVE edge.
   run("spanish-21", () => simS21(rounds), 0.7, 0.7);
