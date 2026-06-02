@@ -7,7 +7,7 @@
  */
 import { makeRng } from "../src/lib/server/rngCore";
 import { getRoundGame } from "../src/lib/server/round/engine";
-import { evaluate3, ThreeCardCategory, rankValue, type Card } from "../src/lib/cards";
+import { evaluate3, evaluate5, ThreeCardCategory, HandCategory, rankValue, type Card } from "../src/lib/cards";
 import "../src/lib/server/round/games";
 
 const rng = makeRng(Math.random);
@@ -131,6 +131,29 @@ function simTCP(rounds: number): Sim {
   return { initialWagered, totalWagered, returned };
 }
 
+/** Caribbean Stud — strategy: RAISE with a pair+ or with Ace-King high, else FOLD. */
+function simCS(rounds: number): Sim {
+  const game = getRoundGame("caribbean-stud")!;
+  let initialWagered = 0;
+  let totalWagered = 0;
+  let returned = 0;
+  for (let i = 0; i < rounds; i++) {
+    const start = game.start(BET, {}, rng);
+    initialWagered += BET;
+    const pc = start.publicView.playerCards as Card[];
+    const vals = new Set(pc.map((c) => rankValue(c.rank)));
+    const raise = evaluate5(pc).category > HandCategory.HighCard || (vals.has(14) && vals.has(13));
+    if (raise) {
+      totalWagered += BET * 3; // ante + 2× raise
+      returned += game.act(start.state, BET, "raise", null, rng).payout;
+    } else {
+      totalWagered += BET; // ante only
+      returned += game.act(start.state, BET, "fold", null, rng).payout;
+    }
+  }
+  return { initialWagered, totalWagered, returned };
+}
+
 function report(label: string, s: Sim, target: number, tol: number, measure: "initial" | "action" = "initial") {
   const net = s.returned - s.totalWagered;
   const edgeInitial = (-net / s.initialWagered) * 100; // house edge on the ante
@@ -160,6 +183,8 @@ function main() {
   report("mines", simMines(rounds), 1.0, 0.2) ? pass++ : fail++;
   // Three Card Poker (Q-6-4 strategy): documented ~3.46% on the ante.
   report("three-card-poker", simTCP(rounds), 3.46, 0.35) ? pass++ : fail++;
+  // Caribbean Stud (raise pair+/AK): documented ~5.22% on the ante.
+  report("caribbean-stud", simCS(rounds), 5.22, 0.5) ? pass++ : fail++;
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail > 0) process.exitCode = 1;
 }
