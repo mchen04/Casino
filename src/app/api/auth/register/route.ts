@@ -38,6 +38,7 @@ export async function POST(req: NextRequest) {
       biggestWin: 0,
       resets: 0,
       createdAt: Date.now(),
+      showOnLeaderboard: true,
     };
 
     await kv.set(USER_KEY(username), user);

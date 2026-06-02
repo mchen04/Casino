@@ -16,7 +16,18 @@ export interface UserRecord {
   resets: number;
   createdAt: number; // unix ms
   lastClaim?: number; // unix ms of last bonus claim
+  /**
+   * Whether this account appears on the public leaderboard. Defaults to true
+   * (undefined is treated as visible for legacy records). The leaderboard
+   * sorted set is kept in sync with this flag: visible users are zadd'd, hidden
+   * users are zrem'd, so a hidden account never resurfaces on a balance update.
+   */
+  showOnLeaderboard?: boolean;
 }
+
+/** A user is shown on the leaderboard unless explicitly hidden. */
+export const isOnLeaderboard = (u: Pick<UserRecord, "showOnLeaderboard">): boolean =>
+  u.showOnLeaderboard !== false;
 
 export interface LeaderboardEntry {
   rank: number;

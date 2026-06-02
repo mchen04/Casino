@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { kv, USER_KEY, LEADERBOARD_KEY, type UserRecord } from "@/lib/kv";
+import { kv, USER_KEY, LEADERBOARD_KEY, isOnLeaderboard, type UserRecord } from "@/lib/kv";
 import { resolveSession } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
@@ -33,7 +33,11 @@ export async function POST(req: NextRequest) {
 
     const user: UserRecord = { ...existing, balance, totalWagered, totalReturned, rounds, biggestWin, resets };
     await kv.set(USER_KEY(username), user);
-    await kv.zadd(LEADERBOARD_KEY, { score: balance, member: username.toLowerCase() });
+    if (isOnLeaderboard(user)) {
+      await kv.zadd(LEADERBOARD_KEY, { score: balance, member: username.toLowerCase() });
+    } else {
+      await kv.zrem(LEADERBOARD_KEY, username.toLowerCase());
+    }
 
     return NextResponse.json({ ok: true });
   } catch {

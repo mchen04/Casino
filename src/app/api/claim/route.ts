@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { kv, USER_KEY, LEADERBOARD_KEY, type UserRecord } from "@/lib/kv";
+import { kv, USER_KEY, LEADERBOARD_KEY, isOnLeaderboard, type UserRecord } from "@/lib/kv";
 import { resolveSession } from "@/lib/auth";
 
 const CLAIM_AMOUNT = 1_000;
@@ -60,7 +60,11 @@ export async function POST(req: NextRequest) {
     const updated: UserRecord = { ...user, balance: newBalance, lastClaim: now };
 
     await kv.set(USER_KEY(username), updated);
-    await kv.zadd(LEADERBOARD_KEY, { score: newBalance, member: username.toLowerCase() });
+    if (isOnLeaderboard(updated)) {
+      await kv.zadd(LEADERBOARD_KEY, { score: newBalance, member: username.toLowerCase() });
+    } else {
+      await kv.zrem(LEADERBOARD_KEY, username.toLowerCase());
+    }
 
     return NextResponse.json({
       balance: newBalance,
