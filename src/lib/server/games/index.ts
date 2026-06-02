@@ -5,6 +5,9 @@ import { register } from "../engine";
 import { diceSpec } from "./dice";
 import { limboSpec } from "./limbo";
 import { dragonTigerSpec } from "./dragon-tiger";
+import { moneyWheelSpec } from "./money-wheel";
+import { andarBaharSpec } from "./andar-bahar";
+import { baccaratSpec } from "./baccarat";
 
 let done = false;
 export function registerAll(): void {
@@ -13,6 +16,9 @@ export function registerAll(): void {
   register(diceSpec);
   register(limboSpec);
   register(dragonTigerSpec);
+  register(moneyWheelSpec);
+  register(andarBaharSpec);
+  register(baccaratSpec);
 }
 
 registerAll();

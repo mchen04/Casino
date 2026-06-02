@@ -9,9 +9,9 @@ import React, {
 } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useWallet } from "@/lib/wallet";
-import { makeShoe, type Card } from "@/lib/cards";
+import { usePlayStateless } from "@/lib/playStateless";
+import { type Card } from "@/lib/cards";
 import {
-  dealCoup,
   type Outcome,
   type Resolution,
 } from "@/lib/baccarat";
@@ -94,6 +94,7 @@ function grossFor(spot: SpotId, stake: number, res: Resolution): number {
 
 export default function Baccarat() {
   const wallet = useWallet();
+  const playRound = usePlayStateless();
 
   const [phase, setPhase] = useState<Phase>("betting");
   const [chip, setChip] = useState<number>(25);
@@ -121,9 +122,8 @@ export default function Baccarat() {
     timers.current.push(id);
   }, []);
 
-  // resolve() is defined below; deal() reaches it through this ref so there is
-  // no forward-reference / stale-closure coupling between the two callbacks.
-  const resolveRef = useRef<(res: Resolution) => void>(() => {});
+  // Synchronous re-entrancy guard so one click = one server coup.
+  const dealingRef = useRef(false);
 
   useEffect(() => () => clearTimers(), [clearTimers]);
 
@@ -178,19 +178,66 @@ export default function Baccarat() {
     setBets({ ...lastBets });
   }, [phase, lastBets, wallet.balance]);
 
-  // --- Deal --------------------------------------------------------------
-  const deal = useCallback(() => {
-    if (phase !== "betting") return;
-    if (totalStaked <= 0) return;
+  // Display the server-decided coup (money already settled by /api/play).
+  const applyResult = useCallback(
+    (res: Resolution, gross: number, staked: number, placed: Bets) => {
+      const winners = new Set<SpotId>();
+      for (const sp of SPOTS) {
+        const stake = placed[sp.id];
+        if (stake <= 0) continue;
+        const g = grossFor(sp.id, stake, res);
+        if (
+          g > 0 &&
+          ((sp.id === "player" && res.outcome === "player") ||
+            (sp.id === "banker" && res.outcome === "banker") ||
+            (sp.id === "tie" && res.outcome === "tie") ||
+            (sp.id === "ppair" && res.playerPair) ||
+            (sp.id === "bpair" && res.bankerPair))
+        ) {
+          winners.add(sp.id);
+        }
+      }
 
-    // Deduct the whole stake up front.
-    if (!wallet.bet(totalStaked)) {
-      sfx.lose();
-      return;
-    }
+      const net = gross - staked;
+      setDelta(net);
+      setWinningSpots(winners);
+      setRoad((r) =>
+        [
+          {
+            outcome: res.outcome,
+            playerPair: res.playerPair,
+            bankerPair: res.bankerPair,
+            natural: res.natural,
+          },
+          ...r,
+        ].slice(0, 60),
+      );
+      setCoupNo((n) => n + 1);
+      setPhase("resolved");
+      dealingRef.current = false;
+
+      if (net > 0) {
+        if (net >= staked * 4) sfx.jackpot();
+        else sfx.win();
+      } else if (net < 0) {
+        sfx.lose();
+      } else {
+        sfx.thud(); // full push
+      }
+    },
+    [],
+  );
+
+  // --- Deal --------------------------------------------------------------
+  const deal = useCallback(async () => {
+    if (phase !== "betting" || dealingRef.current) return;
+    if (totalStaked <= 0) return;
+    dealingRef.current = true;
 
     clearTimers();
-    setLastBets({ ...bets });
+    const placed = { ...bets };
+    const staked = totalStaked;
+    setLastBets(placed);
     setResult(null);
     setDelta(null);
     setWinningSpots(new Set());
@@ -199,8 +246,28 @@ export default function Baccarat() {
     setReveal(false);
     setPhase("dealing");
 
-    const shoe = makeShoe(8);
-    const res = dealCoup(shoe);
+    // Server (logged-in) or local guest demo deals the coup + computes payout.
+    let round;
+    try {
+      round = await playRound("baccarat", staked, placed);
+    } catch {
+      dealingRef.current = false;
+      setPhase("betting");
+      sfx.lose();
+      return;
+    }
+
+    const o = round.outcome;
+    const res: Resolution = {
+      playerCards: o.playerCards as Card[],
+      bankerCards: o.bankerCards as Card[],
+      playerTotal: Number(o.playerTotal),
+      bankerTotal: Number(o.bankerTotal),
+      outcome: o.result as Outcome,
+      playerPair: Boolean(o.playerPair),
+      bankerPair: Boolean(o.bankerPair),
+      natural: Boolean(o.natural),
+    };
     setResult(res);
 
     const { playerCards, bankerCards } = res;
@@ -235,70 +302,11 @@ export default function Baccarat() {
       setReveal(true);
     }, afterDeal);
 
-    // Resolve & pay.
+    // Show the settled result.
     later(() => {
-      resolveRef.current(res);
+      applyResult(res, round.payout, staked, placed);
     }, afterDeal + 700);
-  }, [phase, totalStaked, bets, wallet, clearTimers, later]);
-
-  const resolve = useCallback(
-    (res: Resolution) => {
-      let gross = 0;
-      const winners = new Set<SpotId>();
-      for (const sp of SPOTS) {
-        const stake = bets[sp.id];
-        if (stake <= 0) continue;
-        const g = grossFor(sp.id, stake, res);
-        if (g > 0) {
-          gross += g;
-          // mark as a "winning"/returned spot (push counts as returned, not a true win)
-          if (
-            (sp.id === "player" && res.outcome === "player") ||
-            (sp.id === "banker" && res.outcome === "banker") ||
-            (sp.id === "tie" && res.outcome === "tie") ||
-            (sp.id === "ppair" && res.playerPair) ||
-            (sp.id === "bpair" && res.bankerPair)
-          ) {
-            winners.add(sp.id);
-          }
-        }
-      }
-
-      if (gross > 0) wallet.win(gross);
-
-      const net = gross - totalStaked;
-      setDelta(net);
-      setWinningSpots(winners);
-      setRoad((r) =>
-        [
-          {
-            outcome: res.outcome,
-            playerPair: res.playerPair,
-            bankerPair: res.bankerPair,
-            natural: res.natural,
-          },
-          ...r,
-        ].slice(0, 60),
-      );
-      setCoupNo((n) => n + 1);
-      setPhase("resolved");
-
-      if (net > 0) {
-        if (net >= totalStaked * 4) sfx.jackpot();
-        else sfx.win();
-      } else if (net < 0) {
-        sfx.lose();
-      } else {
-        sfx.thud(); // full push
-      }
-    },
-    [bets, totalStaked, wallet],
-  );
-
-  // Keep the ref pointed at the latest resolve closure.
-  useEffect(() => {
-    resolveRef.current = resolve;
-  }, [resolve]);
+  }, [phase, totalStaked, bets, playRound, clearTimers, later, applyResult]);
 
   const nextCoup = useCallback(() => {
     clearTimers();

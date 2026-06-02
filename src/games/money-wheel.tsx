@@ -3,9 +3,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useWallet } from "@/lib/wallet";
+import { usePlayStateless } from "@/lib/playStateless";
 import { sfx } from "@/lib/sound";
 import { formatDelta } from "@/lib/format";
-import { weightedPick, randFloat } from "@/lib/rng";
+import { randFloat } from "@/lib/rng";
 import { Button } from "@/components/ui/Button";
 import { BetControls } from "@/components/BetControls";
 import { CountingNumber } from "@/components/CountingNumber";
@@ -127,6 +128,8 @@ interface RoundResult {
 
 export default function MoneyWheel() {
   const wallet = useWallet();
+  const playRound = usePlayStateless();
+  const spinningRef = useRef(false);
 
   const ring = useMemo(() => buildRing(), []);
 
@@ -177,26 +180,37 @@ export default function MoneyWheel() {
     [],
   );
 
-  const spin = useCallback(() => {
-    if (phase !== "betting") return;
+  const spin = useCallback(async () => {
+    if (phase !== "betting" || spinningRef.current) return;
     const stake = Math.floor(bet);
     if (stake < MIN_BET) return;
-    if (!wallet.bet(stake)) return; // unaffordable -> abort
+    spinningRef.current = true;
 
     sfx.chip();
-
-    // Choose the winning segment weighted purely by physical segment count
-    // (each of the 54 segments equally likely). Pick a segment index uniformly.
-    const winningIndex = weightedPick(
-      ring.map((s) => s.index),
-      ring.map(() => 1),
-    );
-    const landed = ring[winningIndex];
-
     setPhase("spinning");
     setResult(null);
     setResultText("");
     setBurst(0);
+
+    // Server (logged-in) or local guest demo decides the landed segment + payout.
+    let round;
+    try {
+      round = await playRound("money-wheel", stake, { pick: selectedSpot.key });
+    } catch {
+      spinningRef.current = false;
+      setPhase("betting");
+      sfx.lose();
+      return;
+    }
+
+    // Pick any physical segment carrying the server-decided key to animate to
+    // (which specific same-value segment lands is cosmetic; the key is what pays).
+    const landedKey = String(round.outcome.landedKey);
+    const candidates = ring.filter((s) => s.spot.key === landedKey);
+    const landed = candidates.length
+      ? candidates[Math.floor(Math.random() * candidates.length)]
+      : ring[0];
+    const winningIndex = landed.index;
 
     const finalRotation = landSegmentUnderPointer(winningIndex, rotation);
     const spinDuration = 4.6; // seconds, must match transition below
@@ -217,9 +231,8 @@ export default function MoneyWheel() {
     // Resolve after the spin completes.
     resolveTimer.current = window.setTimeout(() => {
       sfx.thud();
-      const matched = landed.spot.key === selectedSpot.key;
-      const gross = matched ? stake * (landed.spot.mult + 1) : 0;
-      if (matched) wallet.win(gross);
+      const matched = Boolean(round.outcome.matched);
+      const gross = round.payout;
 
       const res: RoundResult = {
         segment: landed,
@@ -255,8 +268,9 @@ export default function MoneyWheel() {
         );
       }
       setPhase("resolved");
+      spinningRef.current = false;
     }, spinDuration * 1000 + 120);
-  }, [phase, bet, wallet, ring, rotation, selectedSpot, landSegmentUnderPointer]);
+  }, [phase, bet, ring, rotation, selectedSpot, landSegmentUnderPointer, playRound]);
 
   const newRound = useCallback(() => {
     if (phase !== "resolved") return;

@@ -43,6 +43,21 @@ const SCENARIOS: Scenario[] = [
   { label: "dragon-tiger: tiger", game: "dragon-tiger", bet: 100, params: { dragon: 0, tiger: 100, tie: 0, suitTie: 0 }, targetEdge: 3.73, tol: 0.4 },
   { label: "dragon-tiger: tie 8:1", game: "dragon-tiger", bet: 100, params: { dragon: 0, tiger: 0, tie: 100, suitTie: 0 }, targetEdge: null },
   { label: "dragon-tiger: suitTie 50:1", game: "dragon-tiger", bet: 100, params: { dragon: 0, tiger: 0, tie: 0, suitTie: 100 }, targetEdge: null },
+
+  // Money Wheel — published best-bet edge 11.11% on the "1" segment.
+  { label: "money-wheel: 1 (best)", game: "money-wheel", bet: 100, params: { pick: "1" }, targetEdge: 11.11, tol: 0.3 },
+  { label: "money-wheel: 20", game: "money-wheel", bet: 100, params: { pick: "20" }, targetEdge: null },
+  { label: "money-wheel: joker 40:1", game: "money-wheel", bet: 100, params: { pick: "joker" }, targetEdge: null },
+
+  // Andar Bahar — published ~2.58% (1.9× on the first-deal edge side).
+  { label: "andar-bahar: andar", game: "andar-bahar", bet: 100, params: { side: "andar" }, targetEdge: 2.58, tol: 0.4 },
+  { label: "andar-bahar: bahar", game: "andar-bahar", bet: 100, params: { side: "bahar" }, targetEdge: 2.58, tol: 0.4 },
+
+  // Baccarat — published Banker 1.06%, Player 1.24%, Tie ~14.4% (8-deck).
+  { label: "baccarat: banker", game: "baccarat", bet: 100, params: { player: 0, banker: 100, tie: 0, ppair: 0, bpair: 0 }, targetEdge: 1.06, tol: 0.3 },
+  { label: "baccarat: player", game: "baccarat", bet: 100, params: { player: 100, banker: 0, tie: 0, ppair: 0, bpair: 0 }, targetEdge: 1.24, tol: 0.3 },
+  { label: "baccarat: tie 8:1", game: "baccarat", bet: 100, params: { player: 0, banker: 0, tie: 100, ppair: 0, bpair: 0 }, targetEdge: 14.4, tol: 0.6 },
+  { label: "baccarat: ppair 11:1", game: "baccarat", bet: 100, params: { player: 0, banker: 0, tie: 0, ppair: 100, bpair: 0 }, targetEdge: null },
 ];
 
 function runScenario(s: Scenario, rounds: number) {
