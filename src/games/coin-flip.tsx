@@ -322,7 +322,10 @@ export default function CoinFlip() {
   // Tracks mount status so async continuations after an await can bail out if
   // the component unmounted mid-animation (avoids state updates on unmounted).
   const mountedRef = useRef(true);
-  useEffect(() => () => { mountedRef.current = false; }, []);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   const busy = phase === "flipping";
 

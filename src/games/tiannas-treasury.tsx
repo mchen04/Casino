@@ -147,7 +147,10 @@ export default function TiannasTreasury() {
 
   const spinGuard = useRef(false);
   const mounted = useRef(true);
-  useEffect(() => () => { mounted.current = false; }, []);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   const canAfford = ready && bet >= MIN_BET && bet <= balance;
 
