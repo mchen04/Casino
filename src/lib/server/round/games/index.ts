@@ -9,6 +9,7 @@ import { threeCardPokerGame } from "./three-card-poker";
 import { caribbeanStudGame } from "./caribbean-stud";
 import { teenPattiGame } from "./teen-patti";
 import { letItRideGame } from "./let-it-ride";
+import { blackjackGame } from "./blackjack";
 
 let done = false;
 export function registerAllRoundGames(): void {
@@ -22,6 +23,7 @@ export function registerAllRoundGames(): void {
   registerRound(caribbeanStudGame);
   registerRound(teenPattiGame);
   registerRound(letItRideGame);
+  registerRound(blackjackGame);
 }
 
 registerAllRoundGames();

@@ -7,7 +7,7 @@
  */
 import { makeRng } from "../src/lib/server/rngCore";
 import { getRoundGame } from "../src/lib/server/round/engine";
-import { evaluate3, evaluate5, ThreeCardCategory, HandCategory, rankValue, type Card } from "../src/lib/cards";
+import { evaluate3, evaluate5, ThreeCardCategory, HandCategory, rankValue, blackjackTotal, type Card } from "../src/lib/cards";
 import "../src/lib/server/round/games";
 
 const rng = makeRng(Math.random);
@@ -272,6 +272,89 @@ function simTPAlways(rounds: number): Sim {
   return { initialWagered, totalWagered, returned };
 }
 
+/** Blackjack value of a single card (Ace = 11). */
+function cardVal(c: Card): number {
+  if (c.rank === "A") return 11;
+  if (c.rank === "10" || c.rank === "J" || c.rank === "Q" || c.rank === "K") return 10;
+  return parseInt(c.rank, 10);
+}
+/** Basic strategy (6-deck, S17, DAS): returns hit/stand/double/split. */
+function bjAction(cards: Card[], dealerUp: Card, canDouble: boolean, canSplit: boolean): string {
+  const up = cardVal(dealerUp); // 2..11
+  const { total, soft } = blackjackTotal(cards);
+
+  if (canSplit && cards.length === 2 && cardVal(cards[0]) === cardVal(cards[1])) {
+    const p = cardVal(cards[0]);
+    let split = false;
+    if (p === 11) split = true; // A,A
+    else if (p === 10) split = false; // T,T → stand 20
+    else if (p === 9) split = up <= 9 && up !== 7; // not 7,10,A
+    else if (p === 8) split = true;
+    else if (p === 7) split = up <= 7;
+    else if (p === 6) split = up >= 2 && up <= 6; // DAS
+    else if (p === 5) split = false; // play as hard 10
+    else if (p === 4) split = up === 5 || up === 6; // DAS
+    else if (p === 3 || p === 2) split = up <= 7;
+    if (split) return "split";
+  }
+
+  if (soft) {
+    if (total >= 19) return "stand";
+    if (total === 18) {
+      if (up >= 3 && up <= 6) return canDouble ? "double" : "stand";
+      if (up === 9 || up === 10 || up === 11) return "hit";
+      return "stand"; // vs 2,7,8
+    }
+    if (total === 17) return up >= 3 && up <= 6 && canDouble ? "double" : "hit";
+    if (total === 15 || total === 16) return up >= 4 && up <= 6 && canDouble ? "double" : "hit";
+    if (total === 13 || total === 14) return up >= 5 && up <= 6 && canDouble ? "double" : "hit";
+    return "hit";
+  }
+
+  if (total >= 17) return "stand";
+  if (total >= 13 && total <= 16) return up <= 6 ? "stand" : "hit";
+  if (total === 12) return up >= 4 && up <= 6 ? "stand" : "hit";
+  if (total === 11) return canDouble ? "double" : "hit";
+  if (total === 10) return up <= 9 && canDouble ? "double" : "hit";
+  if (total === 9) return up >= 3 && up <= 6 && canDouble ? "double" : "hit";
+  return "hit";
+}
+function simBJ(rounds: number): Sim {
+  const game = getRoundGame("blackjack")!;
+  let initialWagered = 0;
+  let totalWagered = 0;
+  let returned = 0;
+  for (let i = 0; i < rounds; i++) {
+    let step = game.start(BET, {}, rng);
+    let state = step.state;
+    initialWagered += BET;
+    let staked = BET;
+    let guard = 0;
+    while (!step.done && guard++ < 60) {
+      const pv = step.publicView as Record<string, unknown>;
+      let action: string;
+      if (pv.awaitingInsurance) {
+        action = "decline"; // basic strategy never insures
+      } else {
+        const hands = pv.playerHands as { cards: Card[] }[];
+        const active = pv.active as number;
+        const cards = hands[active].cards;
+        const dealerUp = pv.dealerUp as Card;
+        const canDouble = step.actions.includes("double");
+        const canSplit = step.actions.includes("split");
+        action = bjAction(cards, dealerUp, canDouble, canSplit);
+        if (!step.actions.includes(action)) action = "hit";
+      }
+      step = game.act(state, BET, action, null, rng);
+      staked += step.debit ?? 0;
+      state = step.state;
+    }
+    totalWagered += staked;
+    returned += step.payout;
+  }
+  return { initialWagered, totalWagered, returned };
+}
+
 function report(label: string, s: Sim, target: number, tol: number, measure: "initial" | "action" = "initial") {
   const net = s.returned - s.totalWagered;
   const edgeInitial = (-net / s.initialWagered) * 100; // house edge on the ante
@@ -310,6 +393,8 @@ function main() {
   report("teen-patti (fold-weak, info)", simTP(rounds), 0, 99) ? pass++ : fail++;
   // Let It Ride (basic strategy): documented ~3.51% on the base unit.
   report("let-it-ride", simLIR(rounds), 3.51, 0.6) ? pass++ : fail++;
+  // Blackjack (6-deck, S17, DAS, basic strategy): documented ~0.5% on the base bet.
+  report("blackjack", simBJ(rounds), 0.5, 0.4) ? pass++ : fail++;
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail > 0) process.exitCode = 1;
 }
