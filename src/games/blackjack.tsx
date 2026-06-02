@@ -2,7 +2,6 @@
 
 import React, {
   useCallback,
-  useEffect,
   useMemo,
   useRef,
   useState,
@@ -11,9 +10,9 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   type Card,
   blackjackTotal,
-  makeShoe,
 } from "@/lib/cards";
 import { useWallet } from "@/lib/wallet";
+import { usePlayRound } from "@/lib/playRound";
 import { formatChips, formatDelta } from "@/lib/format";
 import { sleep } from "@/lib/async";
 import { sfx } from "@/lib/sound";
@@ -60,35 +59,46 @@ function isBlackjack(cards: Card[]): boolean {
   return cards.length === 2 && blackjackTotal(cards).total === 21;
 }
 
+/** Server hand view → the client's PlayerHand shape (display only). */
+interface ServerHand {
+  cards: Card[];
+  bet: number;
+  done?: boolean;
+  doubled?: boolean;
+}
+function serverHandsToLocal(serverHands: ServerHand[], outcomes?: HandOutcome[]): PlayerHand[] {
+  return serverHands.map((h, i) => ({
+    id: i + 1,
+    cards: h.cards,
+    bet: h.bet,
+    done: !!h.done,
+    doubled: !!h.doubled,
+    isSplitAces: false,
+    outcome: outcomes ? outcomes[i] : null,
+    payout: 0,
+  }));
+}
+
 export default function Blackjack() {
   const wallet = useWallet();
+  // The server owns the real 6-deck shoe (one per round). The client only routes
+  // decisions through /api/round and animates the cards the server deals back.
+  const { start: roundStart, act: roundAct } = usePlayRound();
+  const roundIdRef = useRef<string | null>(null);
 
-  // --- shoe ------------------------------------------------------------------
-  const shoeRef = useRef<Card[]>([]);
+  // --- cosmetic shoe (visual depth/shuffle indicator only) -------------------
   const [shoeCount, setShoeCount] = useState(DECKS * 52);
   const [shuffling, setShuffling] = useState(false);
-
-  const ensureShoe = useCallback(() => {
-    if (shoeRef.current.length < RESHUFFLE_AT) {
-      shoeRef.current = makeShoe(DECKS);
-      setShuffling(true);
-      setTimeout(() => setShuffling(false), 650);
-    }
-    if (shoeRef.current.length === 0) {
-      shoeRef.current = makeShoe(DECKS);
-    }
-  }, []);
-
-  const draw = useCallback((): Card => {
-    if (shoeRef.current.length === 0) shoeRef.current = makeShoe(DECKS);
-    const c = shoeRef.current.shift()!;
-    setShoeCount(shoeRef.current.length);
-    return c;
-  }, []);
-
-  useEffect(() => {
-    shoeRef.current = makeShoe(DECKS);
-    setShoeCount(shoeRef.current.length);
+  const burnShoe = useCallback((n: number) => {
+    setShoeCount((c) => {
+      const next = c - n;
+      if (next < RESHUFFLE_AT) {
+        setShuffling(true);
+        setTimeout(() => setShuffling(false), 650);
+        return DECKS * 52 - n;
+      }
+      return Math.max(0, next);
+    });
   }, []);
 
   // --- round state -----------------------------------------------------------
@@ -110,440 +120,34 @@ export default function Blackjack() {
 
   // generation token to abort async sequences if the player resets / re-deals.
   const genRef = useRef(0);
-  // freshly-dealt state stashed for the insurance branch (avoids stale closures).
-  const pendingHandsRef = useRef<PlayerHand[]>([]);
-  const pendingDealerRef = useRef<Card[]>([]);
-
-  // Stable refs to the latest settle/dealerPlay/revealAndSettle so inner
-  // callbacks always call the current version without stale-closure bugs.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const settleRef = useRef<(...args: any[]) => void>(() => {});
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const dealerPlayRef = useRef<(...args: any[]) => Promise<void>>(async () => {});
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const revealAndSettleRef = useRef<(...args: any[]) => Promise<void>>(async () => {});
 
   const canAfford = bet >= 5 && bet <= wallet.balance;
 
   // ---------------------------------------------------------------------------
-  // Deal a fresh round.
+  // Settlement display — the server already credited the balance; this only
+  // renders the resolved hands, dealer, banner and celebration.
   // ---------------------------------------------------------------------------
-  const startRound = useCallback(async () => {
-    if (phase !== "betting") return;
-    if (bet < 5 || bet > wallet.balance) return;
-    // place the main bet
-    if (!wallet.bet(bet)) return;
-
-    const gen = ++genRef.current;
-    ensureShoe();
-
-    // reset visuals
-    setRoundResult("");
-    setRoundNet(null);
-    setShowBurst(null);
-    setCelebration(null);
-    setInsuranceBet(0);
-    setMessage("");
-    setHoleHidden(true);
-    setActiveIdx(0);
-    setDealer([]);
-    const hand: PlayerHand = {
-      id: HAND_ID++,
-      cards: [],
-      bet,
-      done: false,
-      doubled: false,
-      isSplitAces: false,
-      outcome: null,
-      payout: 0,
-    };
-    setHands([hand]);
-    setPhase("dealing");
-
-    // deal sequence: player, dealer(up), player, dealer(hole)
-    const p1 = draw();
-    sfx.card();
-    setHands((prev) => prev.map((h, i) => (i === 0 ? { ...h, cards: [p1] } : h)));
-    await sleep(DEAL_GAP);
-    if (gen !== genRef.current) return;
-
-    const d1 = draw();
-    sfx.card();
-    setDealer([d1]);
-    await sleep(DEAL_GAP);
-    if (gen !== genRef.current) return;
-
-    const p2 = draw();
-    sfx.card();
-    setHands((prev) => prev.map((h, i) => (i === 0 ? { ...h, cards: [p1, p2] } : h)));
-    await sleep(DEAL_GAP);
-    if (gen !== genRef.current) return;
-
-    const d2 = draw();
-    sfx.card();
-    setDealer([d1, d2]);
-    await sleep(DEAL_GAP);
-    if (gen !== genRef.current) return;
-
-    const playerCards = [p1, p2];
-    const dealerCards = [d1, d2];
-    const freshHand: PlayerHand = { ...hand, cards: playerCards };
-
-    // Insurance offer when dealer upcard is an Ace.
-    if (d1.rank === "A") {
-      // stash the dealt hand on the round so insurance resolution has it
-      pendingHandsRef.current = [freshHand];
-      pendingDealerRef.current = dealerCards;
-      setPhase("insurance");
-      setMessage("Insurance? Dealer shows an Ace.");
-      return;
-    }
-
-    // Naturals: if either has blackjack, resolve immediately.
-    const playerBJ = isBlackjack(playerCards);
-    const dealerBJ = isBlackjack(dealerCards);
-    if (playerBJ || dealerBJ) {
-      // Use ref to guarantee the latest version (not a stale closure).
-      void revealAndSettleRef.current(gen, dealerCards, { handsOverride: [freshHand] });
-      return;
-    }
-
-    setPhase("player");
-    setMessage("Your move.");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, bet, wallet, ensureShoe, draw]);
-
-  // ---------------------------------------------------------------------------
-  // Insurance choices.
-  // ---------------------------------------------------------------------------
-  const finishInsurance = useCallback(
-    (took: boolean) => {
-      const gen = genRef.current;
-      const dealerCards = pendingDealerRef.current;
-      const pendingHands = pendingHandsRef.current;
-      let insBet = 0;
-      if (took) {
-        const cost = Math.floor(bet / 2);
-        if (cost > 0 && wallet.bet(cost)) {
-          insBet = cost;
-          setInsuranceBet(cost);
-          sfx.chip();
-        }
-      }
-
-      const dealerBJ = isBlackjack(dealerCards);
-      const playerBJ = pendingHands[0] ? isBlackjack(pendingHands[0].cards) : false;
-
-      if (dealerBJ) {
-        // Insurance pays 2:1 (gross = stake*3 = insBet + 2*insBet).
-        // win() is called inside settle for the main hands; pay insurance here.
-        if (insBet > 0) {
-          wallet.win(insBet * 3);
-          sfx.win();
-        }
-        // Use ref to guarantee the latest version (not a stale closure).
-        void revealAndSettleRef.current(gen, dealerCards, {
-          handsOverride: pendingHands,
-          insuranceOverride: insBet,
-        });
-        return;
-      }
-
-      // Dealer has no blackjack: insurance lost (already deducted).
-      if (playerBJ) {
-        void revealAndSettleRef.current(gen, dealerCards, { handsOverride: pendingHands });
-        return;
-      }
-
-      setPhase("player");
-      setMessage(insBet > 0 ? "Insurance taken. Your move." : "Your move.");
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [bet, wallet],
-  );
-
-  // ---------------------------------------------------------------------------
-  // Player actions.
-  // ---------------------------------------------------------------------------
-  const advanceAfterAction = useCallback(
-    (updatedHands: PlayerHand[], idx: number, dealerCards: Card[]) => {
-      // Move to next not-done hand; if none remain, go to dealer.
-      let next = idx;
-      while (next < updatedHands.length && updatedHands[next].done) next++;
-      if (next < updatedHands.length) {
-        setActiveIdx(next);
-        setPhase("player");
-        setMessage(updatedHands.length > 1 ? `Playing hand ${next + 1}.` : "Your move.");
-        return;
-      }
-      // all hands done -> dealer turn (only if at least one hand is live)
-      const anyLive = updatedHands.some((h) => blackjackTotal(h.cards).total <= 21);
-      if (anyLive) {
-        // Use ref so we always call the latest version (avoids stale closure).
-        void dealerPlayRef.current(genRef.current, updatedHands, dealerCards);
-      } else {
-        void revealAndSettleRef.current(genRef.current, dealerCards, { handsOverride: updatedHands });
-      }
-    },
-    // dealerPlayRef / revealAndSettleRef are stable refs — no extra deps needed.
-    [],
-  );
-
-  const hit = useCallback(() => {
-    if (phase !== "player") return;
-    const idx = activeIdx;
-    const c = draw();
-    sfx.card();
-    // Compute updated hands outside the setter so we can schedule side-effects
-    // (sfx, setTimeout) without re-triggering them in StrictMode double-invoke.
-    setHands((prev) => {
-      const next = prev.map((h, i) =>
-        i === idx ? { ...h, cards: [...h.cards, c] } : h,
-      );
-      const total = blackjackTotal(next[idx].cards).total;
-      if (total > 21) {
-        next[idx] = { ...next[idx], done: true, outcome: "bust" };
-      } else if (total === 21) {
-        next[idx] = { ...next[idx], done: true };
-      }
-      return next;
-    });
-    // Schedule side-effects after the state update (not inside the setter).
-    const previewCards = [...(hands[idx]?.cards ?? []), c];
-    const total = blackjackTotal(previewCards).total;
-    if (total > 21) {
-      sfx.thud();
-      const snapshot = hands.map((h, i) =>
-        i === idx ? { ...h, cards: previewCards, done: true, outcome: "bust" as const } : h,
-      );
-      setTimeout(() => advanceAfterAction(snapshot, idx, dealer), 420);
-    } else if (total === 21) {
-      const snapshot = hands.map((h, i) =>
-        i === idx ? { ...h, cards: previewCards, done: true } : h,
-      );
-      setTimeout(() => advanceAfterAction(snapshot, idx, dealer), 420);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, activeIdx, draw, hands, dealer, advanceAfterAction]);
-
-  const stand = useCallback(() => {
-    if (phase !== "player") return;
-    const idx = activeIdx;
-    sfx.click();
-    // Build snapshot with hand marked done, then update state and advance.
-    const snapshot = hands.map((h, i) => (i === idx ? { ...h, done: true } : h));
-    setHands(snapshot);
-    advanceAfterAction(snapshot, idx, dealer);
-  }, [phase, activeIdx, hands, dealer, advanceAfterAction]);
-
-  const double = useCallback(() => {
-    if (phase !== "player") return;
-    const idx = activeIdx;
-    const hand = hands[idx];
-    if (!hand || hand.cards.length !== 2) return;
-    if (!wallet.bet(hand.bet)) {
-      setMessage("Not enough chips to double.");
-      return;
-    }
-    sfx.chip();
-    const c = draw();
-    sfx.card();
-    const newCards = [...hand.cards, c];
-    const busted = blackjackTotal(newCards).total > 21;
-    const snapshot = hands.map((h, i) =>
-      i === idx
-        ? {
-            ...h,
-            bet: h.bet * 2,
-            doubled: true,
-            cards: newCards,
-            done: true,
-            outcome: busted ? ("bust" as const) : h.outcome,
-          }
-        : h,
-    );
-    setHands(snapshot);
-    if (busted) sfx.thud();
-    setTimeout(() => advanceAfterAction(snapshot, idx, dealer), 480);
-  }, [phase, activeIdx, hands, wallet, draw, dealer, advanceAfterAction]);
-
-  const split = useCallback(() => {
-    if (phase !== "player") return;
-    const idx = activeIdx;
-    const hand = hands[idx];
-    if (!hand || hand.cards.length !== 2) return;
-    if (hand.cards[0].rank !== hand.cards[1].rank) return;
-    if (!wallet.bet(hand.bet)) {
-      setMessage("Not enough chips to split.");
-      return;
-    }
-    sfx.chip();
-    const splittingAces = hand.cards[0].rank === "A";
-    const left = draw();
-    sfx.card();
-    const right = draw();
-    sfx.card();
-
-    const handA: PlayerHand = {
-      ...hands[idx],
-      cards: [hands[idx].cards[0], left],
-      isSplitAces: splittingAces,
-      // split aces get exactly one card each and auto-stand.
-      done: splittingAces,
-    };
-    const handB: PlayerHand = {
-      id: HAND_ID++,
-      cards: [hands[idx].cards[1], right],
-      bet: hands[idx].bet,
-      done: splittingAces,
-      doubled: false,
-      isSplitAces: splittingAces,
-      outcome: null,
-      payout: 0,
-    };
-    const snapshot = [...hands.slice(0, idx), handA, handB, ...hands.slice(idx + 1)];
-    setHands(snapshot);
-
-    if (splittingAces) {
-      // both hands are done; advance after paint
-      setTimeout(() => advanceAfterAction(snapshot, idx, dealer), 480);
-    }
-  }, [phase, activeIdx, hands, wallet, draw, dealer, advanceAfterAction]);
-
-  // ---------------------------------------------------------------------------
-  // Dealer turn: reveal hole, then draw to 17 (stands on all 17).
-  // ---------------------------------------------------------------------------
-  const dealerPlay = useCallback(
-    async (gen: number, finalHands: PlayerHand[], startDealer: Card[]) => {
-      setPhase("dealer");
-      setActiveIdx(-1);
-      setMessage("Dealer plays…");
-      setHoleHidden(false);
-      sfx.card();
-      await sleep(560);
-      if (gen !== genRef.current) return;
-
-      let current = [...startDealer];
-      // dealer draws until total >= 17 (stands on all 17 incl. soft 17)
-      // safety cap to avoid any infinite loop
-      let guard = 0;
-      while (guard++ < 20) {
-        const { total } = blackjackTotal(current);
-        if (total >= 17) break;
-        const c = draw();
-        sfx.card();
-        current = [...current, c];
-        setDealer(current);
-        await sleep(DEALER_GAP);
-        if (gen !== genRef.current) return;
-      }
-      if (blackjackTotal(current).total > 21) sfx.thud();
-      await sleep(300);
-      if (gen !== genRef.current) return;
-      // Use ref so we always call the latest settle (avoids stale-closure bug).
-      settleRef.current(gen, finalHands, current, false, insuranceBet);
-    },
-    [draw, insuranceBet],
-  );
-
-  // Reveal hole card and settle immediately (used for naturals / dealer BJ).
-  const revealAndSettle = useCallback(
-    async (
-      gen: number,
-      dealerCards: Card[],
-      opts?: { handsOverride?: PlayerHand[]; insuranceOverride?: number },
-    ) => {
-      setPhase("dealer");
-      setActiveIdx(-1);
-      setHoleHidden(false);
-      sfx.card();
-      await sleep(620);
-      if (gen !== genRef.current) return;
-      // Use ref so we always call the latest settle (avoids stale-closure bug).
-      settleRef.current(
-        gen,
-        opts?.handsOverride ?? hands,
-        dealerCards,
-        true,
-        opts?.insuranceOverride ?? insuranceBet,
-      );
-    },
-    [hands, insuranceBet],
-  );
-
-  // ---------------------------------------------------------------------------
-  // Settlement: compute outcome per hand, pay via wallet.win, show banners.
-  // ---------------------------------------------------------------------------
-  const settle = useCallback(
-    (
-      gen: number,
-      finalHands: PlayerHand[],
-      dealerCards: Card[],
-      naturalsCheck: boolean,
-      insBet: number,
-    ) => {
-      if (gen !== genRef.current) return;
-      const dealerTotal = blackjackTotal(dealerCards).total;
-      const dealerBJ = isBlackjack(dealerCards);
-      const dealerBust = dealerTotal > 21;
-
-      let net = 0; // net change vs. the chips wagered this round (excluding insurance handled separately)
-      const wageredThisRound = finalHands.reduce((s, h) => s + h.bet, 0);
-
-      const resolved: PlayerHand[] = finalHands.map((h) => {
-        const pTotal = blackjackTotal(h.cards).total;
-        const pBJ = naturalsCheck && isBlackjack(h.cards) && finalHands.length === 1 && !h.doubled;
-        let outcome: HandOutcome;
-        let payout = 0;
-
-        if (pTotal > 21) {
-          outcome = "bust";
-          payout = 0;
-        } else if (pBJ && dealerBJ) {
-          outcome = "push";
-          payout = h.bet; // refund stake
-        } else if (pBJ) {
-          outcome = "blackjack";
-          payout = h.bet * 2.5; // 3:2 incl. stake (exact — wallet rounds to the cent)
-        } else if (dealerBJ) {
-          outcome = "lose";
-          payout = 0;
-        } else if (dealerBust) {
-          outcome = "win";
-          payout = h.bet * 2;
-        } else if (pTotal > dealerTotal) {
-          outcome = "win";
-          payout = h.bet * 2;
-        } else if (pTotal < dealerTotal) {
-          outcome = "lose";
-          payout = 0;
-        } else {
-          outcome = "push";
-          payout = h.bet; // refund stake
-        }
-
-        if (payout > 0) wallet.win(payout);
-        net += payout;
-        return { ...h, done: true, outcome, payout };
-      });
-
-      net -= wageredThisRound; // subtract what we staked on the hands
-
-      // include insurance in the net display (insBet already deducted; win credited above)
-      if (insBet > 0) {
-        if (dealerBJ) net += insBet * 3 - insBet; // profit of 2x
-        else net -= insBet;
-      }
+  const settleDisplay = useCallback(
+    (pv: Record<string, unknown>, payout: number) => {
+      const serverHands = (pv.playerHands ?? []) as ServerHand[];
+      const outcomes = (pv.outcomes ?? []) as HandOutcome[];
+      const dealerCards = (pv.dealer ?? []) as Card[];
+      const insBet = (pv.insurance as number) ?? 0;
+      const resolved = serverHandsToLocal(serverHands, outcomes);
+      const wageredThisRound = serverHands.reduce((s, h) => s + h.bet, 0) + insBet;
+      const net = payout - wageredThisRound;
 
       setHands(resolved);
+      setDealer(dealerCards);
+      setHoleHidden(false);
       setActiveIdx(-1);
       setPhase("settle");
       setRoundNet(net);
 
-      // headline banner
       const wins = resolved.filter((h) => h.outcome === "win" || h.outcome === "blackjack").length;
       const losses = resolved.filter((h) => h.outcome === "lose" || h.outcome === "bust").length;
       const pushes = resolved.filter((h) => h.outcome === "push").length;
+      const dealerBJ = isBlackjack(dealerCards);
 
       let banner: string;
       let burst: "win" | "lose" | "push";
@@ -577,18 +181,11 @@ export default function Blackjack() {
       setRoundResult(net > 0 ? `${banner}  ${formatDelta(net)}` : banner);
       setShowBurst(burst);
 
-      // Premium win only — natural blackjack (3:2) or a big multi-hand return.
-      // Gross return on the hands this round (excludes separate insurance).
-      const grossReturn = resolved.reduce((s, h) => s + h.payout, 0);
-      const isNatural =
-        resolved.length === 1 && resolved[0].outcome === "blackjack";
+      const isNatural = resolved.length === 1 && resolved[0].outcome === "blackjack";
       if (isNatural) {
-        setCelebration({ payout: grossReturn, tier: "big" });
+        setCelebration({ payout, tier: "big" });
       } else if (net >= wageredThisRound * 1.5) {
-        setCelebration({
-          payout: grossReturn,
-          tier: net >= wageredThisRound * 3 ? "jackpot" : "big",
-        });
+        setCelebration({ payout, tier: net >= wageredThisRound * 3 ? "jackpot" : "big" });
       } else {
         setCelebration(null);
       }
@@ -603,14 +200,209 @@ export default function Blackjack() {
       }
       setMessage("");
     },
-    [wallet],
+    [],
   );
 
-  // Keep refs up to date so stale-closure consumers (advanceAfterAction,
-  // dealerPlay, revealAndSettle) always invoke the current version.
-  useEffect(() => { settleRef.current = settle; }, [settle]);
-  useEffect(() => { dealerPlayRef.current = dealerPlay; }, [dealerPlay]);
-  useEffect(() => { revealAndSettleRef.current = revealAndSettle; }, [revealAndSettle]);
+  // ---------------------------------------------------------------------------
+  // Animate the dealer drawing out, then settle. (Dealer cards come from the
+  // server, which has already played the hand to S17.)
+  // ---------------------------------------------------------------------------
+  const revealDealerAndSettle = useCallback(
+    async (gen: number, pv: Record<string, unknown>, payout: number) => {
+      const dealerCards = (pv.dealer ?? []) as Card[];
+      setActiveIdx(-1);
+      setPhase("dealer");
+      setHoleHidden(false);
+      setHands(serverHandsToLocal((pv.playerHands ?? []) as ServerHand[]));
+      // reveal the hole, then draw the rest one at a time
+      setDealer(dealerCards.slice(0, 2));
+      sfx.card();
+      await sleep(560);
+      if (gen !== genRef.current) return;
+      for (let k = 2; k < dealerCards.length; k++) {
+        setDealer(dealerCards.slice(0, k + 1));
+        sfx.card();
+        await sleep(DEALER_GAP);
+        if (gen !== genRef.current) return;
+      }
+      if (blackjackTotal(dealerCards).total > 21) sfx.thud();
+      await sleep(300);
+      if (gen !== genRef.current) return;
+      settleDisplay(pv, payout);
+    },
+    [settleDisplay],
+  );
+
+  // ---------------------------------------------------------------------------
+  // Apply a non-terminal server step (next hand / insurance) or settle.
+  // ---------------------------------------------------------------------------
+  const applyStep = useCallback(
+    async (gen: number, res: { done?: boolean; publicView: Record<string, unknown>; payout?: number }) => {
+      const pv = res.publicView;
+      if (res.done) {
+        await revealDealerAndSettle(gen, pv, res.payout ?? 0);
+        return;
+      }
+      const serverHands = (pv.playerHands ?? []) as ServerHand[];
+      setHands(serverHandsToLocal(serverHands));
+      setActiveIdx((pv.active as number) ?? 0);
+      setPhase("player");
+      setMessage(serverHands.length > 1 ? `Playing hand ${((pv.active as number) ?? 0) + 1}.` : "Your move.");
+    },
+    [revealDealerAndSettle],
+  );
+
+  // ---------------------------------------------------------------------------
+  // Deal a fresh round (server-authoritative).
+  // ---------------------------------------------------------------------------
+  const startRound = useCallback(async () => {
+    if (phase !== "betting") return;
+    if (bet < 5 || bet > wallet.balance) return;
+
+    const gen = ++genRef.current;
+    let res;
+    try {
+      res = await roundStart("blackjack", bet, {}); // server debits the main bet
+    } catch {
+      return;
+    }
+    if (gen !== genRef.current) return;
+    roundIdRef.current = res.roundId ?? null;
+
+    // reset visuals
+    setRoundResult("");
+    setRoundNet(null);
+    setShowBurst(null);
+    setCelebration(null);
+    setInsuranceBet(0);
+    setMessage("");
+    setHoleHidden(true);
+    setActiveIdx(0);
+
+    const pv = res.publicView;
+    const playerCards = ((pv.playerHands ?? []) as ServerHand[])[0].cards;
+    const dealerUp = (pv.dealerUp as Card) ?? ((pv.dealer as Card[]) ?? [])[0];
+    burnShoe(4);
+
+    setHands([
+      { id: HAND_ID++, cards: [], bet, done: false, doubled: false, isSplitAces: false, outcome: null, payout: 0 },
+    ]);
+    setDealer([]);
+    setPhase("dealing");
+
+    // staged deal: player, dealer-up, player, dealer-hole(face-down)
+    await sleep(DEAL_GAP * 0.6);
+    if (gen !== genRef.current) return;
+    sfx.card();
+    setHands((prev) => prev.map((h, i) => (i === 0 ? { ...h, cards: [playerCards[0]] } : h)));
+    await sleep(DEAL_GAP);
+    if (gen !== genRef.current) return;
+    sfx.card();
+    setDealer([dealerUp]);
+    await sleep(DEAL_GAP);
+    if (gen !== genRef.current) return;
+    sfx.card();
+    setHands((prev) => prev.map((h, i) => (i === 0 ? { ...h, cards: playerCards } : h)));
+    await sleep(DEAL_GAP);
+    if (gen !== genRef.current) return;
+    sfx.card();
+    setDealer([dealerUp, playerCards[0]]); // face-down placeholder hole
+    await sleep(DEAL_GAP);
+    if (gen !== genRef.current) return;
+
+    if (res.done) {
+      // Natural (player and/or dealer) — settled at the deal.
+      setPhase("dealer");
+      setHoleHidden(false);
+      setDealer((pv.dealer as Card[]) ?? [dealerUp, playerCards[0]]);
+      await sleep(520);
+      if (gen !== genRef.current) return;
+      settleDisplay(pv, res.payout ?? 0);
+      return;
+    }
+
+    if (pv.awaitingInsurance) {
+      setHands(serverHandsToLocal((pv.playerHands ?? []) as ServerHand[]));
+      setPhase("insurance");
+      setMessage("Insurance? Dealer shows an Ace.");
+      return;
+    }
+
+    setHands(serverHandsToLocal((pv.playerHands ?? []) as ServerHand[]));
+    setActiveIdx((pv.active as number) ?? 0);
+    setPhase("player");
+    setMessage("Your move.");
+  }, [phase, bet, wallet.balance, roundStart, burnShoe, settleDisplay]);
+
+  // ---------------------------------------------------------------------------
+  // Player actions — each routes a decision through the server.
+  // ---------------------------------------------------------------------------
+  const acting = useRef(false);
+  const sendAction = useCallback(
+    async (action: string) => {
+      const rid = roundIdRef.current;
+      if (!rid || acting.current) return;
+      acting.current = true;
+      const gen = genRef.current;
+      try {
+        if (action === "double" || action === "split" || action === "insurance") sfx.chip();
+        else sfx.click();
+        let res;
+        try {
+          res = await roundAct(rid, action);
+        } catch {
+          return;
+        }
+        if (gen !== genRef.current) return;
+        if (action === "split") burnShoe(2);
+        else if (action === "hit" || action === "double") burnShoe(1);
+        if (action === "insurance") setInsuranceBet(Math.floor(bet / 2));
+        await applyStep(gen, res);
+      } finally {
+        acting.current = false;
+      }
+    },
+    [roundAct, applyStep, burnShoe, bet],
+  );
+
+  const hit = useCallback(() => {
+    if (phase !== "player") return;
+    void sendAction("hit");
+  }, [phase, sendAction]);
+
+  const stand = useCallback(() => {
+    if (phase !== "player") return;
+    void sendAction("stand");
+  }, [phase, sendAction]);
+
+  const double = useCallback(() => {
+    if (phase !== "player") return;
+    const hand = hands[activeIdx];
+    if (!hand || hand.cards.length !== 2 || wallet.balance < hand.bet) {
+      setMessage("Not enough chips to double.");
+      return;
+    }
+    void sendAction("double");
+  }, [phase, hands, activeIdx, wallet.balance, sendAction]);
+
+  const split = useCallback(() => {
+    if (phase !== "player") return;
+    const hand = hands[activeIdx];
+    if (!hand || hand.cards.length !== 2 || hand.cards[0].rank !== hand.cards[1].rank) return;
+    if (wallet.balance < hand.bet) {
+      setMessage("Not enough chips to split.");
+      return;
+    }
+    void sendAction("split");
+  }, [phase, hands, activeIdx, wallet.balance, sendAction]);
+
+  const finishInsurance = useCallback(
+    (took: boolean) => {
+      if (phase !== "insurance") return;
+      void sendAction(took ? "insurance" : "decline");
+    },
+    [phase, sendAction],
+  );
 
   const newRound = useCallback(() => {
     genRef.current++;
