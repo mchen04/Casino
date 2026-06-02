@@ -10,6 +10,7 @@ import {
   rankValue,
 } from "@/lib/cards";
 import { useWallet } from "@/lib/wallet";
+import { usePlayRound } from "@/lib/playRound";
 import { formatChips, formatDelta } from "@/lib/format";
 import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
@@ -146,7 +147,9 @@ function DealtCard({
 
 export default function CaribbeanStud() {
   const wallet = useWallet();
-  const { balance, bet: placeBet, win, ready } = wallet;
+  const { balance, ready } = wallet;
+  const { start: roundStart, act: roundAct } = usePlayRound();
+  const roundIdRef = useRef<string | null>(null);
 
   const [ante, setAnte] = useState(25);
   const [phase, setPhase] = useState<Phase>("betting");
@@ -197,18 +200,26 @@ export default function CaribbeanStud() {
   // -------------------------------------------------------------------------
   // Deal a fresh hand.
   // -------------------------------------------------------------------------
-  const deal = useCallback(() => {
+  const deal = useCallback(async () => {
     if (phase !== "betting" && phase !== "result") return;
     const a = Math.floor(ante);
     if (a < MIN_BET) return;
     // Must be able to cover ante now AND a possible 2x raise later.
     if (a * 3 > balance) return;
-    if (!placeBet(a)) return; // deduct ante up front
 
     clearTimers();
-    const shoe = makeShoe(1);
-    const player = shoe.slice(0, 5);
-    const dealer = shoe.slice(5, 10);
+    // Server (logged-in) or guest demo deals; only the dealer's up-card is shown.
+    let handle;
+    try {
+      handle = await roundStart("caribbean-stud", a, {});
+    } catch {
+      return;
+    }
+    roundIdRef.current = handle.roundId ?? null;
+    const player = handle.publicView.playerCards as Card[];
+    const up = handle.publicView.dealerUp as Card;
+    const placeholder = makeShoe(1).slice(0, 4) as Card[];
+    const dealer = [up, ...placeholder]; // real up-card + 4 hidden placeholders
 
     setStaked({ ante: a, raise: 0 });
     setPlayerCards(player);
@@ -232,16 +243,17 @@ export default function CaribbeanStud() {
       });
     }
     after(10 * 130 + 250, () => setPhase("decision"));
-  }, [phase, ante, balance, placeBet, clearTimers, after]);
+  }, [phase, ante, balance, clearTimers, after, roundStart]);
 
   // -------------------------------------------------------------------------
   // Resolve the showdown once dealer cards are all flipped.
   // -------------------------------------------------------------------------
   const resolve = useCallback(
-    (raiseAmt: number) => {
+    (raiseAmt: number, serverDealer: Card[]) => {
       const pEval = evaluate5(playerCards);
-      const dEval = evaluate5(dealerCards);
-      const dQual = dealerQualifies(dealerCards);
+      const dEval = evaluate5(serverDealer);
+      const dQual = dealerQualifies(serverDealer);
+      setDealerCards(serverDealer); // swap placeholders for the real (face-down) cards
       setQualifies(dQual);
 
       const a = staked.ante;
@@ -285,8 +297,7 @@ export default function CaribbeanStud() {
       const totalStaked = a + raiseAmt;
       const net = payout - totalStaked;
 
-      if (payout > 0) win(payout);
-
+      // Money settled server-side (via /api/round) — display only here.
       setOutcome(result);
       setResultText(text);
       setResultDetail(detail);
@@ -306,16 +317,16 @@ export default function CaribbeanStud() {
         sfx.thud();
       }
     },
-    [playerCards, dealerCards, staked.ante, win, after],
+    [playerCards, staked.ante, after],
   );
 
   // -------------------------------------------------------------------------
   // Flip the dealer's hidden cards one by one, then resolve.
   // -------------------------------------------------------------------------
   const revealDealer = useCallback(
-    (raiseAmt: number) => {
+    (raiseAmt: number, serverDealer: Card[]) => {
       setPhase("revealing");
-      // Flip cards 1..4 (index 0 already up) one at a time.
+      setDealerCards(serverDealer); // real cards in place (still face-down)
       const flipGap = 420;
       for (let i = 1; i <= 4; i++) {
         after(i * flipGap, () => {
@@ -327,25 +338,43 @@ export default function CaribbeanStud() {
           sfx.card();
         });
       }
-      after(4 * flipGap + 520, () => resolve(raiseAmt));
+      after(4 * flipGap + 520, () => resolve(raiseAmt, serverDealer));
     },
     [after, resolve],
   );
 
-  const onRaise = useCallback(() => {
+  const onRaise = useCallback(async () => {
     if (phase !== "decision") return;
+    const rid = roundIdRef.current;
+    if (!rid) return;
     const raiseAmt = staked.ante * 2;
-    if (!placeBet(raiseAmt)) return; // shouldn't happen — we reserved room
     sfx.chip();
     setStaked((s) => ({ ...s, raise: raiseAmt }));
-    revealDealer(raiseAmt);
-  }, [phase, staked.ante, placeBet, revealDealer]);
+    let handle;
+    try {
+      handle = await roundAct(rid, "raise");
+    } catch {
+      setStaked((s) => ({ ...s, raise: 0 }));
+      return;
+    }
+    revealDealer(raiseAmt, handle.publicView.dealerCards as Card[]);
+  }, [phase, staked.ante, roundAct, revealDealer]);
 
-  const onFold = useCallback(() => {
+  const onFold = useCallback(async () => {
     if (phase !== "decision") return;
+    const rid = roundIdRef.current;
+    if (!rid) return;
     sfx.thud();
-    // Forfeit the ante. Still reveal the dealer for drama.
     setPhase("revealing");
+    let handle;
+    try {
+      handle = await roundAct(rid, "fold");
+    } catch {
+      setPhase("decision");
+      return;
+    }
+    const serverDealer = handle.publicView.dealerCards as Card[];
+    setDealerCards(serverDealer);
     const flipGap = 380;
     for (let i = 1; i <= 4; i++) {
       after(i * flipGap, () => {
@@ -358,7 +387,7 @@ export default function CaribbeanStud() {
       });
     }
     after(4 * flipGap + 420, () => {
-      setQualifies(dealerQualifies(dealerCards));
+      setQualifies(dealerQualifies(serverDealer));
       setOutcome("lose");
       setResultText("Folded");
       setResultDetail(`Ante forfeited (${formatChips(staked.ante)})`);
@@ -366,7 +395,7 @@ export default function CaribbeanStud() {
       setPhase("result");
       sfx.lose();
     });
-  }, [phase, dealerCards, staked.ante, after]);
+  }, [phase, staked.ante, after, roundAct]);
 
   const newRound = useCallback(() => {
     clearTimers();
