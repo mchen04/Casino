@@ -87,6 +87,9 @@ const SCENARIOS: Scenario[] = [
   { label: "sic-bo total:9", game: "sic-bo", bet: 100, params: { bets: { "total:9": 100 } }, targetEdge: null },
   { label: "sic-bo anyTriple", game: "sic-bo", bet: 100, params: { bets: { anyTriple: 100 } }, targetEdge: null },
   { label: "sic-bo single:3", game: "sic-bo", bet: 100, params: { bets: { "single:3": 100 } }, targetEdge: null },
+
+  // Slots — Lucky Sevens RTP ~95.2% (published 4.8% edge).
+  { label: "slots-classic", game: "slots-classic", bet: 100, params: {}, targetEdge: 4.8, tol: 0.5 },
 ];
 
 function runScenario(s: Scenario, rounds: number) {

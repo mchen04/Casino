@@ -14,6 +14,7 @@ import { kenoSpec } from "./keno";
 import { scratchSpec } from "./scratch";
 import { rouletteSpec } from "./roulette";
 import { sicBoSpec } from "./sic-bo";
+import { slotsClassicSpec } from "./slots-classic";
 
 let done = false;
 export function registerAll(): void {
@@ -31,6 +32,7 @@ export function registerAll(): void {
   register(scratchSpec);
   register(rouletteSpec);
   register(sicBoSpec);
+  register(slotsClassicSpec);
 }
 
 registerAll();
