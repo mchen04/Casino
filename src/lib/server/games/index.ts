@@ -19,6 +19,7 @@ import { tiannasTreasurySpec } from "./tiannas-treasury";
 import { slotsMegawaysSpec } from "./slots-megaways";
 import { bingoSpec } from "./bingo";
 import { slotsFruitSpec } from "./slots-fruit";
+import { slotsEgyptSpec } from "./slots-egypt";
 
 let done = false;
 export function registerAll(): void {
@@ -41,6 +42,7 @@ export function registerAll(): void {
   register(slotsMegawaysSpec);
   register(bingoSpec);
   register(slotsFruitSpec);
+  register(slotsEgyptSpec);
 }
 
 registerAll();

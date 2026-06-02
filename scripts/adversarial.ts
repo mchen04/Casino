@@ -131,6 +131,7 @@ const BEST_BETS: Record<string, unknown> = {
   "slots-classic": {},
   "slots-megaways": {},
   "slots-fruit": {},
+  "slots-egypt": {},
   "tiannas-treasury": {},
   bingo: { cards: [[[1, 2, 3, 4, 5], [16, 17, 18, 19, 20], [31, 32, 0, 34, 35], [46, 47, 48, 49, 50], [61, 62, 63, 64, 65]]] },
 };
