@@ -8,6 +8,7 @@
 import { makeRng } from "../src/lib/server/rngCore";
 import { getRoundGame } from "../src/lib/server/round/engine";
 import { evaluate3, evaluate5, evaluateBest, makeDeck, ThreeCardCategory, HandCategory, rankValue, blackjackTotal, type Card } from "../src/lib/cards";
+import { CRASH_GROWTH } from "../src/lib/server/round/games/crash";
 import "../src/lib/server/round/games";
 
 const rng = makeRng(Math.random);
@@ -560,6 +561,33 @@ function simBJ(rounds: number): Sim {
   return { initialWagered, totalWagered, returned };
 }
 
+/**
+ * Crash — cash out at a spread of blind targets. The server resolves by its own
+ * clock, so we mock Date.now to advance exactly to when the climb reaches the
+ * target, exercising the real act() path (incl. the elapsed-time clamp). The
+ * edge is 1% for ANY blind target: P(crash > T) = (1−edge)/T ⇒ T·(1−edge)/T.
+ */
+function simCrash(rounds: number): Sim {
+  const game = getRoundGame("crash")!;
+  const realNow = Date.now;
+  let wagered = 0;
+  let returned = 0;
+  for (let i = 0; i < rounds; i++) {
+    const start = game.start(BET, {}, rng);
+    wagered += BET;
+    const st = start.state as { crashPoint: number; startMs: number };
+    const target = Math.round((1.2 + (i % 60) / 10) * 100) / 100; // 1.20 .. 7.10
+    const elapsedMs = (Math.log(target) / Math.log(CRASH_GROWTH)) * 1000;
+    Date.now = () => st.startMs + elapsedMs + 5; // advance the clock to the cash-out
+    try {
+      returned += game.act(start.state, BET, "cashout", { multiplier: target }, rng).payout;
+    } finally {
+      Date.now = realNow;
+    }
+  }
+  return { initialWagered: wagered, totalWagered: wagered, returned };
+}
+
 function report(label: string, s: Sim, target: number, tol: number, measure: "initial" | "action" = "initial") {
   const net = s.returned - s.totalWagered;
   const edgeInitial = (-net / s.initialWagered) * 100; // house edge on the ante
@@ -612,6 +640,8 @@ function main() {
   run("video-poker", () => simVP(rounds), 0.6, 0.8);
   // Ultimate Texas Hold'em (no Trips, exact-river): documented ~2.2% on the ante.
   run("ultimate-texas", () => simUTH(rounds), 2.2, 0.7);
+  // Crash: exactly the 1% baked-in house edge for any blind cash-out target.
+  run("crash", () => simCrash(rounds), 1.0, 0.2);
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail > 0) process.exitCode = 1;
 }
