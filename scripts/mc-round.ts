@@ -189,6 +189,74 @@ function simTP(rounds: number): Sim {
   return { initialWagered, totalWagered, returned };
 }
 
+/** Let It Ride basic strategy. First decision (3 cards): ride a paying hand
+ *  (trips / pair 10+), 3 to a royal, or 3 to a straight flush (consecutive >=3-4-5,
+ *  1-gap w/ >=1 high, 2-gap w/ >=2 high). */
+function rankCounts(vals: number[]): Map<number, number> {
+  const m = new Map<number, number>();
+  for (const v of vals) m.set(v, (m.get(v) ?? 0) + 1);
+  return m;
+}
+function lirRide1(three: Card[]): boolean {
+  const vals = three.map((c) => rankValue(c.rank));
+  const counts = rankCounts(vals);
+  const maxCount = Math.max(...counts.values());
+  if (maxCount === 3) return true; // three of a kind
+  if (maxCount === 2) {
+    const pairVal = [...counts.entries()].find(([, n]) => n === 2)![0];
+    return pairVal >= 10; // pay only on a high pair; low pair → pull
+  }
+  const suited = three.every((c) => c.suit === three[0].suit);
+  if (!suited) return false;
+  if (vals.every((v) => v >= 10)) return true; // 3 to a royal flush
+  const sorted = [...vals].sort((a, b) => a - b);
+  const spread = sorted[2] - sorted[0];
+  const highs = vals.filter((v) => v >= 10).length;
+  if (spread === 2 && sorted[0] >= 3) return true; // consecutive (exclude 2-3-4)
+  if (spread === 3 && highs >= 1) return true; // one gap, ≥1 high
+  if (spread === 4 && highs >= 2) return true; // two gaps, ≥2 high
+  return false;
+}
+/** Second decision (4 cards): ride a paying hand, 4 to a flush, 4 to an outside
+ *  straight, or 4 high cards (10-A). */
+function lirRide2(four: Card[]): boolean {
+  const vals = four.map((c) => rankValue(c.rank));
+  const counts = rankCounts(vals);
+  const maxCount = Math.max(...counts.values());
+  if (maxCount >= 3) return true; // trips / quads
+  const pairVals = [...counts.entries()].filter(([, n]) => n === 2).map(([v]) => v);
+  if (pairVals.length === 2) return true; // two pair
+  if (pairVals.length === 1) return pairVals[0] >= 10; // high pair only
+  const suited = four.every((c) => c.suit === four[0].suit);
+  if (suited) return true; // 4 to a flush
+  const sorted = [...vals].sort((a, b) => a - b);
+  if (sorted[3] - sorted[0] === 3 && new Set(sorted).size === 4 && sorted[0] >= 2 && sorted[3] <= 13)
+    return true; // four to an outside straight
+  if (vals.every((v) => v >= 10)) return true; // four high cards
+  return false;
+}
+function simLIR(rounds: number): Sim {
+  const game = getRoundGame("let-it-ride")!;
+  let baseUnit = 0;
+  let atRisk = 0;
+  let returned = 0;
+  for (let i = 0; i < rounds; i++) {
+    const start = game.start(BET, {}, rng);
+    const player = start.publicView.playerCards as Card[];
+    baseUnit += BET;
+    const ride1 = lirRide1(player);
+    const a1 = game.act(start.state, BET, ride1 ? "ride1" : "pull1", null, rng);
+    const four = [...player, ...(a1.publicView.community as Card[])];
+    const ride2 = lirRide2(four);
+    const a2 = game.act(a1.state, BET, ride2 ? "ride2" : "pull2", null, rng);
+    const remaining = (ride1 ? 1 : 0) + (ride2 ? 1 : 0) + 1;
+    const pulledBack = (3 - remaining) * BET;
+    atRisk += remaining * BET; // chips that could actually be lost
+    returned += a2.payout - pulledBack; // return on the riding chips only
+  }
+  return { initialWagered: baseUnit, totalWagered: atRisk, returned };
+}
+
 /** Teen Patti — naive always-play (the strategy the documented ~3.3% assumes). */
 function simTPAlways(rounds: number): Sim {
   const game = getRoundGame("teen-patti")!;
@@ -240,6 +308,8 @@ function main() {
   // limitation of the original commission tuning, carried over faithfully.
   report("teen-patti (always-play)", simTPAlways(rounds), 3.3, 1.0, "action") ? pass++ : fail++;
   report("teen-patti (fold-weak, info)", simTP(rounds), 0, 99) ? pass++ : fail++;
+  // Let It Ride (basic strategy): documented ~3.51% on the base unit.
+  report("let-it-ride", simLIR(rounds), 3.51, 0.6) ? pass++ : fail++;
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail > 0) process.exitCode = 1;
 }
