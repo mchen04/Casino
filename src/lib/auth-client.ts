@@ -207,6 +207,33 @@ export async function apiDeleteAccount(): Promise<boolean> {
   }
 }
 
+export interface RescueResult {
+  /** Authoritative balance after the bailout (chips). */
+  balance: number;
+  /** Chips granted by the bailout. */
+  granted: number;
+  /** Authoritative reset counter after the bailout. */
+  resets: number;
+}
+
+/**
+ * Server-authoritative bankruptcy bailout. The server grants chips ONLY when the
+ * account is broke and returns the authoritative balance. Returns null when not
+ * eligible (solvent) or on error — the caller should fall back to a re-sync.
+ */
+export async function apiRescue(): Promise<RescueResult | null> {
+  try {
+    const res = await fetch("/api/rescue", {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    if (!res.ok) return null;
+    return res.json() as Promise<RescueResult>;
+  } catch {
+    return null;
+  }
+}
+
 export async function apiLeaderboard(limit = 50): Promise<LeaderboardEntry[]> {
   try {
     const res = await fetch(`/api/leaderboard?limit=${limit}`);
