@@ -16,6 +16,7 @@ import {
   rankValue,
 } from "@/lib/cards";
 import { useWallet } from "@/lib/wallet";
+import { usePlayRound } from "@/lib/playRound";
 import { formatChips, formatDelta } from "@/lib/format";
 import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
@@ -267,6 +268,8 @@ const CHIP_DENOMS = [5, 25, 100, 500];
 
 export default function ThreeCardPoker() {
   const wallet = useWallet();
+  const { start: roundStart, act: roundAct } = usePlayRound();
+  const roundIdRef = useRef<string | null>(null);
 
   const [ante, setAnte] = useState(25);
   const [pairPlus, setPairPlus] = useState(0);
@@ -343,32 +346,36 @@ export default function ThreeCardPoker() {
   // Deal
   // -------------------------------------------------------------------------
 
-  const deal = () => {
+  const deal = async () => {
     if (phase !== "betting") return;
     if (resolving.current) return;
     if (ante <= 0) return;
-    // Pre-deduct the full round cost (Ante + PairPlus + Play) in a single
-    // wallet.bet() call so rounds is incremented exactly once per hand.
-    // On fold the reserved Play stake is refunded via wallet.win().
-    if (!wallet.bet(fullRoundCost)) return;
     resolving.current = true;
 
-    const shoe = makeShoe(1);
-    const p: Card[] = [shoe[0], shoe[1], shoe[2]];
-    const d: Card[] = [shoe[3], shoe[4], shoe[5]];
+    // Server (logged-in) or guest demo deals + commits the round. The dealer's
+    // cards stay hidden in publicView until the play/fold decision.
+    let handle;
+    try {
+      handle = await roundStart("three-card-poker", ante, { pairPlus });
+    } catch {
+      resolving.current = false;
+      return;
+    }
+    roundIdRef.current = handle.roundId ?? null;
+    const p = handle.publicView.playerCards as Card[];
+    // Face-down placeholders for the dealer until the decision reveals them.
+    const placeholder = makeShoe(1).slice(0, 3) as Card[];
 
     setResolution(null);
     setBurst({ show: false, big: false });
     setPlayBetPlaced(0);
     setPlayer(p);
-    setDealer(d);
+    setDealer(placeholder);
     setDealerFaceDown([true, true, true]);
     setRevealedPlayer([false, false, false]);
     setPhase("decision");
     setChipFlight((n) => n + 1);
 
-    // Animate dealing the player's three cards face-up.
-    // Release the resolving guard once all cards are revealed so Play/Fold can fire.
     [0, 1, 2].forEach((i) => {
       after(220 + i * 230, () => {
         sfx.card();
@@ -387,10 +394,11 @@ export default function ThreeCardPoker() {
   // -------------------------------------------------------------------------
 
   const resolveRound = useCallback(
-    (folded: boolean) => {
+    (folded: boolean, serverDealer: Card[]) => {
       const pCards = player.filter((c): c is Card => c !== null);
-      const dCards = dealer.filter((c): c is Card => c !== null);
+      const dCards = serverDealer;
       if (pCards.length !== 3 || dCards.length !== 3) return;
+      setDealer(serverDealer); // swap placeholders for the real (still face-down) cards
 
       const pRank = evaluate3(pCards);
       const dRank = evaluate3(dCards);
@@ -469,9 +477,7 @@ export default function ThreeCardPoker() {
         }
       }
 
-      // Credit the gross return.
-      if (totalReturn > 0) wallet.win(totalReturn);
-
+      // Money is settled server-side (via /api/round) — display only here.
       // Net change for the round = what came back minus the full amount pre-deducted.
       // Full pre-deduction was: ante + pairPlus + ante (play reserved at deal time).
       const staked = ante * 2 + pairPlus;
@@ -517,28 +523,47 @@ export default function ThreeCardPoker() {
         }
       });
     },
-    [player, dealer, ante, pairPlus, wallet, after],
+    [player, ante, pairPlus, after],
   );
 
-  const onPlay = () => {
+  const onPlay = async () => {
     if (phase !== "decision") return;
     if (resolving.current) return;
+    const rid = roundIdRef.current;
+    if (!rid) return;
     resolving.current = true;
-    // Play stake was already deducted at deal time — no extra wallet.bet() needed.
     sfx.chip();
     setPlayBetPlaced(ante);
     setChipFlight((n) => n + 1);
     setPhase("revealing");
-    resolveRound(false);
+    let handle;
+    try {
+      handle = await roundAct(rid, "play");
+    } catch {
+      resolving.current = false;
+      setPhase("decision");
+      return;
+    }
+    resolveRound(false, handle.publicView.dealerCards as Card[]);
   };
 
-  const onFold = () => {
+  const onFold = async () => {
     if (phase !== "decision") return;
     if (resolving.current) return;
+    const rid = roundIdRef.current;
+    if (!rid) return;
     resolving.current = true;
     sfx.click();
     setPhase("revealing");
-    resolveRound(true);
+    let handle;
+    try {
+      handle = await roundAct(rid, "fold");
+    } catch {
+      resolving.current = false;
+      setPhase("decision");
+      return;
+    }
+    resolveRound(true, handle.publicView.dealerCards as Card[]);
   };
 
   const nextRound = () => {

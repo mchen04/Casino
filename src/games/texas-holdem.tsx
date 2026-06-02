@@ -4,22 +4,21 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
-  useReducer,
   useRef,
   useState,
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   type Card,
-  makeShoe,
   evaluateBest,
   HandCategory,
 } from "@/lib/cards";
-import { chance, clamp, randInt } from "@/lib/rng";
+import { clamp } from "@/lib/rng";
 import { formatChips, formatDelta } from "@/lib/format";
 import { sleep } from "@/lib/async";
 import { sfx } from "@/lib/sound";
 import { useWallet } from "@/lib/wallet";
+import { usePlayRound } from "@/lib/playRound";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { PlayingCard } from "@/components/PlayingCard";
@@ -33,7 +32,6 @@ import { Celebration } from "@/components/Celebration";
 const ACCENT = "#2ecc71";
 const SB = 25; // small blind
 const BB = 50; // big blind
-const START_STACK = 2000; // display stack each player starts a hand with
 
 type Street = "preflop" | "flop" | "turn" | "river";
 type Actor = "player" | "bot";
@@ -41,8 +39,7 @@ type Phase =
   | "idle" // between hands, can change buy-in
   | "dealing" // animating the deal
   | "player" // waiting on player action
-  | "bot" // bot is thinking / acting
-  | "advance" // animating board card(s) to next street
+  | "bot" // server is resolving the bot / a street is animating
   | "showdown" // both hands revealed, resolving
   | "done"; // hand resolved, banner up
 
@@ -52,392 +49,32 @@ interface LogEntry {
   text: string;
 }
 
-// ---------------------------------------------------------------------------
-// Engine state — kept in a reducer so the async betting loop reads fresh data.
-// Real money: only the human's wallet moves. `committed` tracks chips each
-// side has pushed into the pot THIS HAND. In heads-up, reaching showdown means
-// both committed equal amounts; uncalled excess on a fold is refunded so the
-// pot always balances.
-// ---------------------------------------------------------------------------
+let LOG_ID = 1;
 
-interface EngineState {
-  phase: Phase;
-  street: Street;
-  buyIn: number; // chips the player risks per hand (their starting stack)
-  deck: Card[];
-  drawIdx: number;
+// ---------------------------------------------------------------------------
+// Server publicView shapes (the server is the single source of truth). The bot's
+// hole cards are absent until the hand ends.
+// ---------------------------------------------------------------------------
+interface TexasView {
   playerHole: Card[];
-  botHole: Card[];
-  board: Card[]; // up to 5
-  revealBoard: number; // how many board cards are face-up
-  botRevealed: boolean;
-  // stacks are DISPLAY-only; real money is the wallet.
+  board: Card[]; // 0/3/4/5 cards
+  street: Street;
+  pot: number;
   playerStack: number;
   botStack: number;
-  pot: number;
-  playerCommitted: number; // this hand, total into pot
-  botCommitted: number;
-  playerStreetBet: number; // amount in front of player THIS street
+  playerStreetBet: number;
   botStreetBet: number;
+  toCall: number; // chips the PLAYER must call
+  buttonIsPlayer: boolean;
   toAct: Actor;
-  buttonIsPlayer: boolean; // who has the dealer button (acts first preflop)
-  lastAggressor: Actor | null;
-  // a betting round ends when both have acted and bets match
-  playerActedThisRound: boolean;
-  botActedThisRound: boolean;
-  minRaiseTo: number; // the smallest legal "raise to" value
-  log: LogEntry[];
-  // result
-  resultText: string;
-  resultKind: "win" | "lose" | "push" | null;
-  netDelta: number; // wallet net for this hand
-  bestPlayerCat: HandCategory | null;
-  bestBotCat: HandCategory | null;
-  winningIds: string[]; // card ids to highlight
-  handNo: number;
-}
-
-type Action =
-  | { type: "SET_BUYIN"; value: number }
-  | { type: "START_HAND"; deck: Card[]; buttonIsPlayer: boolean; stack: number }
-  | { type: "REVEAL_HOLE" }
-  | { type: "SET_PHASE"; phase: Phase }
-  | {
-      type: "POST_BLINDS";
-    }
-  | {
-      type: "APPLY_ACTION";
-      actor: Actor;
-      kind: "fold" | "check" | "call" | "bet";
-      // for bet: `to` is the total street bet this actor moves to
-      to?: number;
-      logText: string;
-    }
-  | { type: "OPEN_STREET"; street: Street; revealCount: number; logText: string }
-  | { type: "BOT_REVEAL" }
-  | {
-      type: "RESOLVE";
-      resultText: string;
-      resultKind: "win" | "lose" | "push";
-      netDelta: number;
-      bestPlayerCat: HandCategory | null;
-      bestBotCat: HandCategory | null;
-      winningIds: string[];
-      logText: string;
-    }
-  | { type: "LOG"; who: Actor | "system"; text: string };
-
-let LOG_ID = 1;
-function log(state: EngineState, who: Actor | "system", text: string): LogEntry[] {
-  const next = [...state.log, { id: LOG_ID++, who, text }];
-  return next.slice(-7);
-}
-
-function initialState(): EngineState {
-  return {
-    phase: "idle",
-    street: "preflop",
-    buyIn: 1000,
-    deck: [],
-    drawIdx: 0,
-    playerHole: [],
-    botHole: [],
-    board: [],
-    revealBoard: 0,
-    botRevealed: false,
-    playerStack: START_STACK,
-    botStack: START_STACK,
-    pot: 0,
-    playerCommitted: 0,
-    botCommitted: 0,
-    playerStreetBet: 0,
-    botStreetBet: 0,
-    toAct: "player",
-    buttonIsPlayer: true,
-    lastAggressor: null,
-    playerActedThisRound: false,
-    botActedThisRound: false,
-    minRaiseTo: BB,
-    log: [],
-    resultText: "",
-    resultKind: null,
-    netDelta: 0,
-    bestPlayerCat: null,
-    bestBotCat: null,
-    winningIds: [],
-    handNo: 0,
-  };
-}
-
-function reducer(state: EngineState, action: Action): EngineState {
-  switch (action.type) {
-    case "SET_BUYIN":
-      return { ...state, buyIn: action.value };
-
-    case "START_HAND": {
-      const deck = action.deck;
-      // deal 2 + 2; community cards follow at indices 4-8 (no explicit burns).
-      const playerHole = [deck[0], deck[2]];
-      const botHole = [deck[1], deck[3]];
-      // Pre-populate all 5 board cards so evaluateBest always has 7 cards at
-      // showdown. revealBoard controls how many are *visible* at each street.
-      const board = [deck[4], deck[5], deck[6], deck[7], deck[8]] as Card[];
-      return {
-        ...initialState(),
-        buyIn: state.buyIn,
-        handNo: state.handNo + 1,
-        phase: "dealing",
-        deck,
-        drawIdx: 9,
-        playerHole,
-        botHole,
-        board,
-        playerStack: action.stack,
-        botStack: action.stack,
-        buttonIsPlayer: action.buttonIsPlayer,
-        log: [
-          {
-            id: LOG_ID++,
-            who: "system",
-            text: `Hand #${state.handNo + 1} — ${
-              action.buttonIsPlayer ? "you are" : "bot is"
-            } on the button`,
-          },
-        ],
-      };
-    }
-
-    case "POST_BLINDS": {
-      // Heads-up: the BUTTON posts the small blind and acts first preflop.
-      const btnPlayer = state.buttonIsPlayer;
-      const sbActor: Actor = btnPlayer ? "player" : "bot";
-      const playerSB = sbActor === "player";
-      const playerPost = playerSB ? SB : BB;
-      const botPost = playerSB ? BB : SB;
-      return {
-        ...state,
-        playerStack: state.playerStack - playerPost,
-        botStack: state.botStack - botPost,
-        playerCommitted: playerPost,
-        botCommitted: botPost,
-        playerStreetBet: playerPost,
-        botStreetBet: botPost,
-        pot: playerPost + botPost,
-        toAct: sbActor, // button (SB) acts first preflop heads-up
-        minRaiseTo: BB * 2, // min raise-to over the big blind preflop
-        playerActedThisRound: false,
-        botActedThisRound: false,
-        lastAggressor: null,
-        log: log(state, "system", `Blinds posted: SB ${SB} / BB ${BB}`),
-      };
-    }
-
-    case "APPLY_ACTION": {
-      const { actor, kind } = action;
-      const isPlayer = actor === "player";
-      let {
-        playerStack,
-        botStack,
-        playerCommitted,
-        botCommitted,
-        playerStreetBet,
-        botStreetBet,
-        pot,
-        minRaiseTo,
-        lastAggressor,
-        playerActedThisRound,
-        botActedThisRound,
-      } = state;
-
-      if (kind === "fold") {
-        if (isPlayer) playerActedThisRound = true;
-        else botActedThisRound = true;
-        return {
-          ...state,
-          playerActedThisRound,
-          botActedThisRound,
-          log: log(state, actor, action.logText),
-        };
-      }
-
-      if (kind === "check") {
-        if (isPlayer) playerActedThisRound = true;
-        else botActedThisRound = true;
-        return {
-          ...state,
-          playerActedThisRound,
-          botActedThisRound,
-          toAct: isPlayer ? "bot" : "player",
-          log: log(state, actor, action.logText),
-        };
-      }
-
-      if (kind === "call") {
-        const target = isPlayer ? botStreetBet : playerStreetBet;
-        const own = isPlayer ? playerStreetBet : botStreetBet;
-        const stack = isPlayer ? playerStack : botStack;
-        const add = Math.min(target - own, stack); // cap by stack (all-in call)
-        if (isPlayer) {
-          playerStack -= add;
-          playerCommitted += add;
-          playerStreetBet += add;
-          playerActedThisRound = true;
-        } else {
-          botStack -= add;
-          botCommitted += add;
-          botStreetBet += add;
-          botActedThisRound = true;
-        }
-        pot += add;
-        return {
-          ...state,
-          playerStack,
-          botStack,
-          playerCommitted,
-          botCommitted,
-          playerStreetBet,
-          botStreetBet,
-          pot,
-          toAct: isPlayer ? "bot" : "player",
-          log: log(state, actor, action.logText),
-        };
-      }
-
-      // kind === "bet" (bet or raise): `to` is the total street bet for this actor.
-      const to = action.to ?? 0;
-      const own = isPlayer ? playerStreetBet : botStreetBet;
-      const stack = isPlayer ? playerStack : botStack;
-      const add = Math.min(to - own, stack);
-      const opp = isPlayer ? botStreetBet : playerStreetBet;
-      // raise increment for next legal min-raise
-      const raiseInc = Math.max(BB, own + add - opp);
-      if (isPlayer) {
-        playerStack -= add;
-        playerCommitted += add;
-        playerStreetBet += add;
-        playerActedThisRound = true;
-        botActedThisRound = false; // opponent must respond
-      } else {
-        botStack -= add;
-        botCommitted += add;
-        botStreetBet += add;
-        botActedThisRound = true;
-        playerActedThisRound = false;
-      }
-      pot += add;
-      lastAggressor = actor;
-      minRaiseTo = (isPlayer ? playerStreetBet : botStreetBet) + raiseInc;
-      return {
-        ...state,
-        playerStack,
-        botStack,
-        playerCommitted,
-        botCommitted,
-        playerStreetBet,
-        botStreetBet,
-        pot,
-        minRaiseTo,
-        lastAggressor,
-        playerActedThisRound,
-        botActedThisRound,
-        toAct: isPlayer ? "bot" : "player",
-        log: log(state, actor, action.logText),
-      };
-    }
-
-    case "OPEN_STREET": {
-      // Post-flop, the player NOT on the button (BB) acts first heads-up.
-      const firstActor: Actor = state.buttonIsPlayer ? "bot" : "player";
-      return {
-        ...state,
-        street: action.street,
-        revealBoard: action.revealCount,
-        playerStreetBet: 0,
-        botStreetBet: 0,
-        playerActedThisRound: false,
-        botActedThisRound: false,
-        lastAggressor: null,
-        minRaiseTo: BB,
-        toAct: firstActor,
-        log: log(state, "system", action.logText),
-      };
-    }
-
-    case "REVEAL_HOLE":
-      return { ...state, phase: "player" };
-
-    case "BOT_REVEAL":
-      return { ...state, botRevealed: true };
-
-    case "SET_PHASE":
-      return { ...state, phase: action.phase };
-
-    case "RESOLVE":
-      return {
-        ...state,
-        phase: "done",
-        botRevealed: true,
-        resultText: action.resultText,
-        resultKind: action.resultKind,
-        netDelta: action.netDelta,
-        bestPlayerCat: action.bestPlayerCat,
-        bestBotCat: action.bestBotCat,
-        winningIds: action.winningIds,
-        log: log(state, "system", action.logText),
-      };
-
-    case "LOG":
-      return { ...state, log: log(state, action.who, action.text) };
-
-    default:
-      return state;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Bot AI helpers
-// ---------------------------------------------------------------------------
-
-/** Rough 0..1 hand-strength estimate from hole (+ board). */
-function botStrength(hole: Card[], board: Card[]): number {
-  const cards = [...hole, ...board];
-  if (cards.length < 5) {
-    // Preflop heuristic from the two hole cards.
-    const a = hole[0];
-    const b = hole[1];
-    const rv = (r: Card["rank"]) =>
-      r === "A" ? 14 : r === "K" ? 13 : r === "Q" ? 12 : r === "J" ? 11 : r === "10" ? 10 : parseInt(r, 10);
-    const hi = Math.max(rv(a.rank), rv(b.rank));
-    const lo = Math.min(rv(a.rank), rv(b.rank));
-    const pair = a.rank === b.rank;
-    const suited = a.suit === b.suit;
-    const gap = hi - lo;
-    let s = (hi + lo) / 28; // 0..1 from card ranks
-    if (pair) s = clamp(0.5 + (hi - 2) / 24, 0.5, 0.97);
-    else {
-      if (suited) s += 0.08;
-      if (gap === 1) s += 0.06;
-      else if (gap <= 3) s += 0.02;
-      if (hi >= 13) s += 0.05;
-    }
-    return clamp(s, 0.05, 0.95);
-  }
-  const ev = evaluateBest(cards);
-  // Map hand category to a strength band, refined slightly by top tiebreak.
-  const base: Record<HandCategory, number> = {
-    [HandCategory.HighCard]: 0.16,
-    [HandCategory.Pair]: 0.4,
-    [HandCategory.TwoPair]: 0.62,
-    [HandCategory.ThreeOfAKind]: 0.74,
-    [HandCategory.Straight]: 0.82,
-    [HandCategory.Flush]: 0.88,
-    [HandCategory.FullHouse]: 0.93,
-    [HandCategory.FourOfAKind]: 0.98,
-    [HandCategory.StraightFlush]: 0.995,
-    [HandCategory.RoyalFlush]: 1,
-  };
-  const top = (ev.tiebreak[0] ?? 2) / 14;
-  return clamp(base[ev.category] + top * 0.05, 0.05, 1);
+  actions?: string[];
+  botMoves?: string[];
+  // present only on done:
+  outcome?: "win" | "lose" | "push";
+  reason?: string;
+  botHole?: Card[];
+  revealCount?: number;
+  botFinal?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -446,538 +83,388 @@ function botStrength(hole: Card[], board: Card[]): number {
 
 export default function TexasHoldem() {
   const wallet = useWallet();
-  const [state, dispatch] = useReducer(reducer, undefined, initialState);
-  const stateRef = useRef(state);
-  stateRef.current = state;
+  // The server owns the deck, the bot, the pot, all stacks, whose turn it is and
+  // the result. The client only routes decisions through /api/round and animates
+  // the cards / chips the server deals back. No wallet.bet/win here — the
+  // playRound hook applies the authoritative balance itself.
+  const { start: roundStart, act: roundAct } = usePlayRound();
+  const roundIdRef = useRef<string | null>(null);
+  // Generation token: bumped on every new hand / unmount so stale async (a slow
+  // reveal animation, an in-flight act) can't write to a hand that moved on.
+  const genRef = useRef(0);
+  // Serialize server calls so a double-tap can't fire two overlapping actions.
+  const acting = useRef(false);
 
-  // Guards the async drive loop / deal sequence against running after unmount.
-  const mountedRef = useRef(true);
-  useEffect(() => () => {
-    mountedRef.current = false;
-  }, []);
+  // Drop stale async on unmount.
+  useEffect(
+    () => () => {
+      genRef.current++;
+    },
+    [],
+  );
 
-  // Track who had the button last so we can alternate.
-  const lastButtonPlayer = useRef<boolean | null>(null);
+  // ---- view state (all fed from publicView) -------------------------------
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [buyIn, setBuyIn] = useState(1000);
+  const [street, setStreet] = useState<Street>("preflop");
+  const [playerHole, setPlayerHole] = useState<Card[]>([]);
+  const [botHole, setBotHole] = useState<Card[]>([]);
+  const [board, setBoard] = useState<Card[]>([]); // up to 5, only the revealed ones
+  const [revealBoard, setRevealBoard] = useState(0);
+  const [botRevealed, setBotRevealed] = useState(false);
+  const [playerStack, setPlayerStack] = useState(0);
+  const [botStack, setBotStack] = useState(0);
+  const [pot, setPot] = useState(0);
+  const [playerStreetBet, setPlayerStreetBet] = useState(0);
+  const [botStreetBet, setBotStreetBet] = useState(0);
+  const [toCall, setToCall] = useState(0);
+  const [buttonIsPlayer, setButtonIsPlayer] = useState(true);
+  const [legalActions, setLegalActions] = useState<string[]>([]);
+  const [log, setLog] = useState<LogEntry[]>([]);
 
-  // Track real chips already pulled from the wallet THIS HAND, so we never
-  // double-charge and the net always balances.
-  const walletPaidRef = useRef(0);
+  // result
+  const [resultText, setResultText] = useState("");
+  const [resultKind, setResultKind] = useState<"win" | "lose" | "push" | null>(null);
+  const [netDelta, setNetDelta] = useState(0);
+  const [winningIds, setWinningIds] = useState<string[]>([]);
+  const [bestPlayerCat, setBestPlayerCat] = useState<HandCategory | null>(null);
+
+  const [errorMsg, setErrorMsg] = useState("");
+  const [handNo, setHandNo] = useState(0);
 
   const [raiseTo, setRaiseTo] = useState(BB * 2);
   const [chipBursts, setChipBursts] = useState<{ id: number; from: Actor }[]>([]);
   const burstId = useRef(0);
 
-  // ---- helpers tied to current ref state -------------------------------
-  const canAfford = (extra: number) => {
-    // Charge the player wallet for any NEW chips beyond what we've already pulled.
-    const target = stateRef.current.playerCommitted + extra;
-    const need = target - walletPaidRef.current;
-    if (need <= 0) return true;
-    return wallet.balance >= need;
-  };
+  const pushLog = useCallback((who: Actor | "system", text: string) => {
+    setLog((l) => [...l, { id: LOG_ID++, who, text }].slice(-7));
+  }, []);
 
-  /** Pull from the wallet to cover the player's committed total up to `committed`. */
-  const settleWallet = (committed: number): boolean => {
-    const need = committed - walletPaidRef.current;
-    if (need <= 0) return true;
-    const ok = wallet.bet(need);
-    if (ok) walletPaidRef.current += need;
-    return ok;
-  };
-
-  const flyChips = (from: Actor) => {
+  const flyChips = useCallback((from: Actor) => {
     const id = burstId.current++;
     setChipBursts((b) => [...b, { id, from }]);
     setTimeout(() => setChipBursts((b) => b.filter((x) => x.id !== id)), 700);
-  };
+  }, []);
+
+  // Mirror the live betting fields of a publicView into the local render state.
+  // Does NOT touch the revealed board count (the reveal animation owns that) or
+  // the player's hole (set once at the deal).
+  const syncBetting = useCallback((pv: TexasView) => {
+    setStreet(pv.street);
+    setPot(pv.pot);
+    setPlayerStack(pv.playerStack);
+    setBotStack(pv.botStack);
+    setPlayerStreetBet(pv.playerStreetBet);
+    setBotStreetBet(pv.botStreetBet);
+    setToCall(pv.toCall);
+    setButtonIsPlayer(pv.buttonIsPlayer);
+  }, []);
 
   // -----------------------------------------------------------------------
-  // Hand resolution (fold OR showdown). All real money settles here.
+  // Resolve a finished hand — reveal the bot + full board, show the result.
+  // The server already credited the authoritative balance via the hook; this is
+  // purely visual. `bet` is this hand's buy-in so we can show the net.
   // -----------------------------------------------------------------------
-  const finishHand = useCallback(
-    (opts: {
-      kind: "fold-player" | "fold-bot" | "showdown";
-    }) => {
-      const s = stateRef.current;
-      const playerIn = s.playerCommitted;
-      const botIn = s.botCommitted;
-      // The matched pot can't exceed twice the smaller contribution; any
-      // excess is uncalled and refunded to the over-committer (keeps it exact).
-      const matched = Math.min(playerIn, botIn);
-      const playerExcess = playerIn - matched; // refunded to player automatically
-      // (botExcess simply never costs the player anything.)
+  const resolveHand = useCallback(
+    async (gen: number, pv: TexasView, payout: number, bet: number) => {
+      const fullBoard = (pv.board ?? []) as Card[];
+      const bHole = (pv.botHole ?? []) as Card[];
+      const outcome = pv.outcome ?? "push";
+      const reason = pv.reason ?? "";
+      const net = payout - bet;
 
-      // Make sure the wallet has been charged for everything the player put in.
-      settleWallet(playerIn);
+      setPhase("showdown");
+      syncBetting(pv);
 
-      if (opts.kind === "fold-player") {
-        // Player folds: bot takes the matched pot. Player keeps any uncalled excess.
-        // Refund player's uncalled excess (if any) back to wallet.
-        if (playerExcess > 0) wallet.win(playerExcess);
-        const net = -matched; // player loses only the matched chips
-        sfx.lose();
-        dispatch({
-          type: "RESOLVE",
-          resultText: "You folded — bot takes the pot",
-          resultKind: "lose",
-          netDelta: net,
-          bestPlayerCat: null,
-          bestBotCat: null,
-          winningIds: [],
-          logText: `You folded. Net ${formatDelta(net)}.`,
-        });
-        return;
+      // Reveal any remaining board cards one at a time, then the bot's hole.
+      let shown = revealBoardRef.current;
+      while (shown < fullBoard.length) {
+        shown++;
+        setBoard(fullBoard.slice(0, shown));
+        setRevealBoard(shown);
+        sfx.card();
+        await sleep(320);
+        if (gen !== genRef.current) return;
       }
+      await sleep(160);
+      if (gen !== genRef.current) return;
 
-      if (opts.kind === "fold-bot") {
-        // Bot folds: player wins the matched pot. Player gets back own matched
-        // chips + bot's matched chips, plus any uncalled excess they posted.
-        const gross = matched * 2 + playerExcess; // own matched + bot matched + refund excess
-        wallet.win(gross);
-        const net = matched; // profit = bot's matched contribution
-        sfx.win();
-        dispatch({
-          type: "RESOLVE",
-          resultText: "Bot folds — you win the pot!",
-          resultKind: "win",
-          netDelta: net,
-          bestPlayerCat: null,
-          bestBotCat: null,
-          winningIds: [...s.playerHole.map((c) => c.id)],
-          logText: `Bot folds. You win ${formatChips(net)}. Net ${formatDelta(net)}.`,
-        });
-        return;
+      setBotHole(bHole);
+      setBotRevealed(true);
+      sfx.card();
+      await sleep(480);
+      if (gen !== genRef.current) return;
+
+      // Highlight the winning five-card hand (pure read of revealed public cards).
+      let ids: string[] = [];
+      let pCat: HandCategory | null = null;
+      if (outcome === "win" && bHole.length === 0) {
+        // bot folded — no showdown; highlight the player's hole.
+        ids = playerHoleRef.current.map((c) => c.id);
+      } else if (fullBoard.length === 5 && bHole.length === 2) {
+        const pEval = evaluateBest([...playerHoleRef.current, ...fullBoard]);
+        const bEval = evaluateBest([...bHole, ...fullBoard]);
+        pCat = pEval.category;
+        if (outcome === "win") ids = pEval.best.map((c) => c.id);
+        else if (outcome === "lose") ids = bEval.best.map((c) => c.id);
+        else ids = [...pEval.best.map((c) => c.id), ...bEval.best.map((c) => c.id)];
       }
+      setWinningIds(ids);
+      setBestPlayerCat(pCat);
 
-      // ---- Showdown ----
-      const pEval = evaluateBest([...s.playerHole, ...s.board]);
-      const bEval = evaluateBest([...s.botHole, ...s.board]);
-      const cmp = pEval.score - bEval.score;
-      // At showdown heads-up, contributions are matched, so playerExcess is 0,
-      // but we keep the refund logic for safety.
-      if (playerExcess > 0) wallet.win(playerExcess);
-      const potMatched = matched * 2;
-
-      if (cmp > 0) {
-        wallet.win(potMatched);
-        const net = matched;
-        if (pEval.category >= HandCategory.Flush) sfx.jackpot();
+      // Banner + sound.
+      let text: string;
+      if (outcome === "win") {
+        text = reason === "fold" ? "Bot folds — you win the pot!" : `You win with ${reason}!`;
+        if (pCat != null && pCat >= HandCategory.Flush) sfx.jackpot();
         else sfx.win();
-        dispatch({
-          type: "RESOLVE",
-          resultText: `You win with ${pEval.name}!`,
-          resultKind: "win",
-          netDelta: net,
-          bestPlayerCat: pEval.category,
-          bestBotCat: bEval.category,
-          winningIds: pEval.best.map((c) => c.id),
-          logText: `Showdown: ${pEval.name} beats ${bEval.name}. Net ${formatDelta(net)}.`,
-        });
-      } else if (cmp < 0) {
-        const net = -matched;
+      } else if (outcome === "lose") {
+        text = reason === "fold" ? "You folded — bot takes the pot" : `Bot wins with ${reason}`;
         sfx.lose();
-        dispatch({
-          type: "RESOLVE",
-          resultText: `Bot wins with ${bEval.name}`,
-          resultKind: "lose",
-          netDelta: net,
-          bestPlayerCat: pEval.category,
-          bestBotCat: bEval.category,
-          winningIds: bEval.best.map((c) => c.id),
-          logText: `Showdown: ${bEval.name} beats ${pEval.name}. Net ${formatDelta(net)}.`,
-        });
       } else {
-        // Tie — split the matched pot. Refund player's half (== their matched stake).
-        wallet.win(matched);
+        text = `Split pot — both have ${reason}`;
         sfx.thud();
-        dispatch({
-          type: "RESOLVE",
-          resultText: `Split pot — both have ${pEval.name}`,
-          resultKind: "push",
-          netDelta: 0,
-          bestPlayerCat: pEval.category,
-          bestBotCat: bEval.category,
-          winningIds: [...pEval.best.map((c) => c.id), ...bEval.best.map((c) => c.id)],
-          logText: `Showdown: tie on ${pEval.name}. Pot split.`,
-        });
       }
+      setResultKind(outcome);
+      setResultText(text);
+      setNetDelta(net);
+      setLegalActions([]);
+      pushLog("system", `${text} Net ${formatDelta(net)}.`);
+      setPhase("done");
     },
-    [wallet],
+    [syncBetting, pushLog],
   );
 
-  // -----------------------------------------------------------------------
-  // Bot decision: returns the action it wants to take.
-  // -----------------------------------------------------------------------
-  const botDecide = useCallback((): {
-    kind: "fold" | "check" | "call" | "bet";
-    to?: number;
-    text: string;
-  } => {
-    const s = stateRef.current;
-    const toCall = s.playerStreetBet - s.botStreetBet;
-    const strength = botStrength(s.botHole, s.board.slice(0, s.revealBoard));
-    const potOdds = toCall > 0 ? toCall / (s.pot + toCall) : 0;
-    const maxBet = s.botStack; // bot can't bet more than it has
-    const bluff = chance(0.12);
-
-    // No bet to call: option to check or bet.
-    if (toCall <= 0) {
-      const wantBet = strength > 0.55 || bluff;
-      if (wantBet && maxBet > 0) {
-        const potSize = Math.max(BB, s.pot);
-        let amt =
-          strength > 0.85
-            ? potSize
-            : strength > 0.65
-            ? Math.round(potSize * 0.6)
-            : Math.round(potSize * 0.4);
-        amt = clamp(amt, BB, maxBet);
-        const to = s.botStreetBet + amt;
-        return {
-          kind: "bet",
-          to,
-          text: `Bot bets ${formatChips(amt)}`,
-        };
-      }
-      return { kind: "check", text: "Bot checks" };
-    }
-
-    // Facing a bet.
-    const callable = Math.min(toCall, maxBet);
-    // Fold weak hands to meaningful bets.
-    if (strength < 0.32 && potOdds > 0.25 && !bluff) {
-      return { kind: "fold", text: "Bot folds" };
-    }
-    // Raise strong hands sometimes.
-    if ((strength > 0.78 || (bluff && strength > 0.4)) && maxBet > callable) {
-      const potSize = Math.max(BB, s.pot + toCall);
-      const raiseAmt =
-        strength > 0.9 ? potSize : Math.round(potSize * 0.65);
-      // total street bet the bot moves to
-      let to = s.playerStreetBet + Math.max(BB, raiseAmt);
-      const maxTo = s.botStreetBet + maxBet;
-      to = Math.min(to, maxTo);
-      if (to > s.playerStreetBet) {
-        return {
-          kind: "bet",
-          to,
-          text:
-            to >= maxTo
-              ? `Bot raises all-in to ${formatChips(to)}`
-              : `Bot raises to ${formatChips(to)}`,
-        };
-      }
-    }
-    // Otherwise call (medium strength or priced in).
-    return {
-      kind: "call",
-      text: callable >= toCall ? `Bot calls ${formatChips(toCall)}` : `Bot calls all-in`,
-    };
-  }, []);
+  // refs the async reveal reads without re-binding the callback every render.
+  const revealBoardRef = useRef(0);
+  revealBoardRef.current = revealBoard;
+  const playerHoleRef = useRef<Card[]>([]);
+  playerHoleRef.current = playerHole;
 
   // -----------------------------------------------------------------------
-  // Betting round driver. Loops until the round is settled, advancing the
-  // street or going to showdown. Heavily guarded against illegal/loop states.
+  // Apply a (possibly non-terminal) server step: animate any new board cards,
+  // surface the bot's moves, then either hand control to the player or resolve.
   // -----------------------------------------------------------------------
-  const runLoop = useRef(false);
+  const applyStep = useCallback(
+    async (
+      gen: number,
+      res: { done?: boolean; publicView: Record<string, unknown>; payout?: number },
+      bet: number,
+    ) => {
+      const pv = res.publicView as unknown as TexasView;
+      const botMoves = pv.botMoves ?? [];
 
-  const isRoundClosed = (s: EngineState): boolean => {
-    const betsMatch = s.playerStreetBet === s.botStreetBet;
-    const playerAllIn = s.playerStack === 0;
-    const botAllIn = s.botStack === 0;
-    // If a player is all-in for LESS than the opponent's bet, the opponent's
-    // excess is uncalled — the action is over (excess refunded at showdown).
-    if (playerAllIn && s.botStreetBet >= s.playerStreetBet && s.playerActedThisRound)
-      return true;
-    if (botAllIn && s.playerStreetBet >= s.botStreetBet && s.botActedThisRound)
-      return true;
-    // Both effectively all-in with matched bets.
-    if (betsMatch && (playerAllIn || botAllIn)) return true;
-    // Normal close: both acted this round and bets are level.
-    return betsMatch && s.playerActedThisRound && s.botActedThisRound;
-  };
-
-  const allInLockdown = (s: EngineState): boolean =>
-    (s.playerStack === 0 || s.botStack === 0) &&
-    s.playerStreetBet === s.botStreetBet;
-
-  const advanceStreet = useCallback(async () => {
-    const s = stateRef.current;
-    if (s.street === "preflop") {
-      sfx.card();
-      dispatch({
-        type: "OPEN_STREET",
-        street: "flop",
-        revealCount: 3,
-        logText: "Flop",
-      });
-    } else if (s.street === "flop") {
-      sfx.card();
-      dispatch({
-        type: "OPEN_STREET",
-        street: "turn",
-        revealCount: 4,
-        logText: "Turn",
-      });
-    } else if (s.street === "turn") {
-      sfx.card();
-      dispatch({
-        type: "OPEN_STREET",
-        street: "river",
-        revealCount: 5,
-        logText: "River",
-      });
-    }
-  }, []);
-
-  // The main async game loop. Runs after each state settle when it's the bot's
-  // turn or a street needs to advance. Player actions feed in via handlers.
-  const drive = useCallback(async () => {
-    if (runLoop.current) return;
-    runLoop.current = true;
-    try {
-      // Loop while it is NOT the player's decision point.
-      // We re-read stateRef each iteration (reducer dispatch is async, so we
-      // await a microtask + small delay to let React commit).
-      let guard = 0;
-      while (guard++ < 200) {
-        await sleep(20);
-        if (!mountedRef.current) return;
-        const s = stateRef.current;
-        if (s.phase === "done" || s.phase === "idle") break;
-
-        // If both effectively all-in & matched, run the board out to showdown.
-        if (
-          allInLockdown(s) &&
-          s.playerActedThisRound &&
-          s.botActedThisRound &&
-          s.street !== "river"
-        ) {
-          await sleep(450);
-          await advanceStreet();
-          continue;
+      // Animate any board cards the server opened since the last view.
+      const nextBoard = (pv.board ?? []) as Card[];
+      const prevCount = revealBoardRef.current;
+      if (nextBoard.length > prevCount && !res.done) {
+        setPhase("bot");
+        let shown = prevCount;
+        while (shown < nextBoard.length) {
+          shown++;
+          setBoard(nextBoard.slice(0, shown));
+          setRevealBoard(shown);
+          sfx.card();
+          await sleep(320);
+          if (gen !== genRef.current) return;
         }
-
-        // Round closed -> advance street or showdown.
-        if (isRoundClosed(s)) {
-          if (s.street === "river") {
-            dispatch({ type: "SET_PHASE", phase: "showdown" });
-            await sleep(550);
-            dispatch({ type: "BOT_REVEAL" });
-            await sleep(650);
-            finishHand({ kind: "showdown" });
-            break;
-          } else {
-            dispatch({ type: "SET_PHASE", phase: "advance" });
-            await sleep(420);
-            await advanceStreet();
-            await sleep(260);
-            // After opening a street, if either is all-in we keep auto-running.
-            const s2 = stateRef.current;
-            if (s2.playerStack === 0 || s2.botStack === 0) {
-              continue;
-            }
-            dispatch({
-              type: "SET_PHASE",
-              phase: stateRef.current.toAct === "player" ? "player" : "bot",
-            });
-            continue;
-          }
-        }
-
-        // Whose turn?
-        if (s.toAct === "bot") {
-          dispatch({ type: "SET_PHASE", phase: "bot" });
-          await sleep(randInt(450, 950)); // thinking
-          const decision = botDecide();
-          if (decision.kind === "fold") {
-            dispatch({
-              type: "APPLY_ACTION",
-              actor: "bot",
-              kind: "fold",
-              logText: decision.text,
-            });
-            await sleep(120);
-            finishHand({ kind: "fold-bot" });
-            break;
-          }
-          if (decision.kind === "bet" || decision.kind === "call") {
-            sfx.chip();
-            flyChips("bot");
-          } else {
-            sfx.click();
-          }
-          dispatch({
-            type: "APPLY_ACTION",
-            actor: "bot",
-            kind: decision.kind,
-            to: decision.to,
-            logText: decision.text,
-          });
-          await sleep(160);
-          continue;
-        }
-
-        // It's the player's turn — hand control back to the UI.
-        dispatch({ type: "SET_PHASE", phase: "player" });
-        break;
       }
-    } finally {
-      runLoop.current = false;
-    }
-  }, [advanceStreet, botDecide, finishHand]);
 
-  // Kick the driver whenever we enter a state where the bot/board should move.
-  useEffect(() => {
-    if (
-      state.phase === "bot" ||
-      state.phase === "advance" ||
-      (state.phase === "player" && state.toAct === "bot")
-    ) {
-      void drive();
-    }
-  }, [state.phase, state.toAct, drive]);
+      // Narrate the bot's moves into the feed, with a chip burst on bets/calls.
+      for (const m of botMoves) {
+        pushLog("bot", m);
+        if (/call|raise|all-in/i.test(m)) {
+          sfx.chip();
+          flyChips("bot");
+        } else {
+          sfx.click();
+        }
+      }
+      if (gen !== genRef.current) return;
+
+      if (res.done) {
+        await resolveHand(gen, pv, res.payout ?? 0, bet);
+        return;
+      }
+
+      // Player's turn with a live decision.
+      syncBetting(pv);
+      setLegalActions(pv.actions ?? []);
+      setPhase("player");
+    },
+    [pushLog, flyChips, resolveHand, syncBetting],
+  );
+
+  // keep the latest buy-in we dealt with so resolve/act can compute the net.
+  const handBuyInRef = useRef(0);
 
   // -----------------------------------------------------------------------
-  // Start a hand
+  // Deal a fresh hand (server-authoritative).
   // -----------------------------------------------------------------------
   const startHand = useCallback(async () => {
-    // Use the ref so rapid double-clicks can't start two concurrent hands.
-    const curPhase = stateRef.current.phase;
-    if (curPhase !== "idle" && curPhase !== "done") return;
-    const buyIn = stateRef.current.buyIn;
-    // Sanity: can the player afford the worst case (their full buy-in)?
-    if (wallet.balance < BB) {
-      return; // shell offers a top-up when low
-    }
-    // Alternate the button each hand.
-    const prev = lastButtonPlayer.current;
-    const buttonIsPlayer = prev === null ? true : !prev;
-    lastButtonPlayer.current = buttonIsPlayer;
-
-    // The player can never put more into the pot than their wallet holds, so
-    // cap the effective buy-in (display stack) to the live balance. The bot's
-    // stack mirrors it for visual symmetry. Round down to the small blind.
-    const effective = Math.max(BB, Math.floor(Math.min(buyIn, wallet.balance) / SB) * SB);
-
-    walletPaidRef.current = 0;
-    setChipBursts([]);
-    const deck = makeShoe(1);
-    dispatch({ type: "START_HAND", deck, buttonIsPlayer, stack: effective });
-    sfx.card();
-    await sleep(120);
-    if (!mountedRef.current) return;
-    sfx.card();
-    await sleep(260);
-    if (!mountedRef.current) return;
-
-    // Post blinds and pull the player's blind from the wallet.
-    dispatch({ type: "POST_BLINDS" });
-    await sleep(40);
-    if (!mountedRef.current) return;
-    const afterBlinds = stateRef.current;
-    // Charge the player's blind immediately.
-    if (!settleWallet(afterBlinds.playerCommitted)) {
-      // Shouldn't happen given the balance check, but guard anyway.
-      dispatch({ type: "SET_PHASE", phase: "idle" });
+    if (phase !== "idle" && phase !== "done") return;
+    if (acting.current) return;
+    // Gate the whole stack against the live balance; floor to the small blind.
+    const bet = Math.max(2 * BB, Math.floor(Math.min(buyIn, wallet.balance) / SB) * SB);
+    if (!wallet.ready || wallet.balance < bet) {
+      setErrorMsg("Not enough chips to buy in for this hand.");
       return;
     }
+
+    acting.current = true;
+    const gen = ++genRef.current;
+    let res;
+    try {
+      res = await roundStart("texas-holdem", bet, {}); // server debits the stack
+    } catch (err) {
+      acting.current = false;
+      if (gen !== genRef.current) return;
+      setErrorMsg(err instanceof Error ? err.message : "Couldn't deal the hand.");
+      return;
+    }
+    if (gen !== genRef.current) {
+      acting.current = false;
+      return;
+    }
+    roundIdRef.current = res.roundId ?? null;
+    handBuyInRef.current = bet;
+
+    const pv = res.publicView as unknown as TexasView;
+
+    // reset visuals
+    setErrorMsg("");
+    setHandNo((n) => n + 1);
+    setBotHole([]);
+    setBotRevealed(false);
+    setBoard([]);
+    setRevealBoard(0);
+    revealBoardRef.current = 0;
+    setWinningIds([]);
+    setBestPlayerCat(null);
+    setResultKind(null);
+    setResultText("");
+    setNetDelta(0);
+    setChipBursts([]);
+    setLog([
+      {
+        id: LOG_ID++,
+        who: "system",
+        text: `Hand #${handNo + 1} — ${pv.buttonIsPlayer ? "you are" : "bot is"} on the button`,
+      },
+    ]);
+    setPlayerHole(pv.playerHole ?? []);
+    playerHoleRef.current = pv.playerHole ?? [];
+    setPhase("dealing");
+    syncBetting(pv);
+    setLegalActions(pv.actions ?? []);
+
+    // staged deal: hole cards, then blinds chip-burst.
+    sfx.card();
+    await sleep(160);
+    if (gen !== genRef.current) {
+      acting.current = false;
+      return;
+    }
+    sfx.card();
+    await sleep(220);
+    if (gen !== genRef.current) {
+      acting.current = false;
+      return;
+    }
+    pushLog("system", `Blinds posted: SB ${SB} / BB ${BB}`);
     flyChips("player");
     flyChips("bot");
     sfx.chip();
+    await sleep(240);
+    acting.current = false;
+    if (gen !== genRef.current) return;
 
-    await sleep(260);
-    if (!mountedRef.current) return;
-    dispatch({ type: "REVEAL_HOLE" });
-    // If the bot is first to act preflop (player is BB / not on button), let it move.
-    const s = stateRef.current;
-    if (s.toAct === "bot") {
-      dispatch({ type: "SET_PHASE", phase: "bot" });
-    } else {
-      dispatch({ type: "SET_PHASE", phase: "player" });
-    }
-  }, [wallet]);
+    // The server already ran the bot until the player's turn (or hand end).
+    await applyStep(gen, res, bet);
+  }, [phase, buyIn, wallet.balance, wallet.ready, roundStart, applyStep, syncBetting, pushLog, flyChips, handNo]);
 
   // -----------------------------------------------------------------------
-  // Player actions
+  // Player actions — route a decision through the server.
   // -----------------------------------------------------------------------
-  const playerCanCheck = state.playerStreetBet >= state.botStreetBet;
-  const toCall = Math.max(0, state.botStreetBet - state.playerStreetBet);
-  const playerActive = state.phase === "player" && state.toAct === "player";
+  const playerActive = phase === "player";
 
-  const onFold = () => {
-    if (!playerActive) return;
-    sfx.click();
-    dispatch({
-      type: "APPLY_ACTION",
-      actor: "player",
-      kind: "fold",
-      logText: "You fold",
-    });
-    setTimeout(() => finishHand({ kind: "fold-player" }), 120);
-  };
+  const sendAction = useCallback(
+    async (action: "fold" | "check" | "call" | "raise", payload?: unknown) => {
+      const rid = roundIdRef.current;
+      if (!rid || acting.current) return;
+      if (!legalActions.includes(action)) return;
+      acting.current = true;
+      const gen = genRef.current;
+      const bet = handBuyInRef.current;
 
-  const onCheckCall = () => {
-    if (!playerActive) return;
-    if (playerCanCheck) {
-      sfx.click();
-      dispatch({
-        type: "APPLY_ACTION",
-        actor: "player",
-        kind: "check",
-        logText: "You check",
-      });
-      void drive();
-      return;
-    }
-    // Call — charge the wallet for the call amount.
-    const callAmt = Math.min(toCall, state.playerStack);
-    const newCommitted = state.playerCommitted + callAmt;
-    if (!settleWallet(newCommitted)) return; // can't afford -> abort
-    sfx.chip();
-    flyChips("player");
-    dispatch({
-      type: "APPLY_ACTION",
-      actor: "player",
-      kind: "call",
-      logText:
-        callAmt >= toCall
-          ? `You call ${formatChips(toCall)}`
-          : "You call all-in",
-    });
-    void drive();
-  };
+      // chip-burst + sound for chips going in.
+      if (action === "call" || action === "raise") {
+        sfx.chip();
+        flyChips("player");
+      } else {
+        sfx.click();
+      }
+      // Hand control to the server; lock the controls until it responds.
+      setPhase("bot");
+      setLegalActions([]);
+      setErrorMsg("");
 
-  const onRaise = () => {
+      let res;
+      try {
+        res = await roundAct(rid, action, payload);
+      } catch (err) {
+        acting.current = false;
+        if (gen !== genRef.current) return;
+        // surface the GameError and hand control back to the player.
+        setErrorMsg(err instanceof Error ? err.message : "That move isn't allowed.");
+        sfx.lose();
+        setPhase("player");
+        setLegalActions(legalActionsRef.current);
+        return;
+      }
+      acting.current = false;
+      if (gen !== genRef.current) return;
+      await applyStep(gen, res, bet);
+    },
+    [roundAct, applyStep, flyChips, legalActions],
+  );
+
+  // remember the last legal actions so a rejected move can restore the controls.
+  const legalActionsRef = useRef<string[]>([]);
+  legalActionsRef.current = legalActions;
+
+  const onFold = useCallback(() => {
     if (!playerActive) return;
-    const minTo = Math.max(state.minRaiseTo, state.botStreetBet + BB);
-    const maxTo = state.playerStreetBet + state.playerStack;
-    const target = clamp(raiseTo, minTo, maxTo);
-    const add = target - state.playerStreetBet;
-    if (add <= 0) return;
-    const newCommitted = state.playerCommitted + add;
-    if (!canAfford(add)) return;
-    if (!settleWallet(newCommitted)) return;
-    sfx.chip();
-    flyChips("player");
-    dispatch({
-      type: "APPLY_ACTION",
-      actor: "player",
-      kind: "bet",
-      to: target,
-      logText:
-        target >= maxTo
-          ? `You move all-in to ${formatChips(target)}`
-          : state.botStreetBet > 0
-          ? `You raise to ${formatChips(target)}`
-          : `You bet ${formatChips(target)}`,
-    });
-    void drive();
-  };
+    void sendAction("fold");
+  }, [playerActive, sendAction]);
+
+  const playerCanCheck = legalActions.includes("check");
+
+  const onCheckCall = useCallback(() => {
+    if (!playerActive) return;
+    void sendAction(playerCanCheck ? "check" : "call");
+  }, [playerActive, playerCanCheck, sendAction]);
+
+  // Raise bounds (the server validates min-raise / all-in; these keep the slider
+  // sending a legal `to`). Min legal "raise to": a full min-raise over the bet to
+  // call (BB increment), capped at the player's all-in.
+  const maxRaiseTo = playerStreetBet + playerStack; // all-in ceiling
+  const minRaiseTo = useMemo(() => {
+    // facing a bet: at least toCall + BB more; opening: BB.
+    const base = botStreetBet > 0 ? botStreetBet + Math.max(BB, botStreetBet - playerStreetBet) : Math.max(playerStreetBet, BB) + BB;
+    return Math.min(base, maxRaiseTo);
+  }, [botStreetBet, playerStreetBet, maxRaiseTo]);
+
+  const canRaise = legalActions.includes("raise");
+
+  const onRaise = useCallback(() => {
+    if (!playerActive || !canRaise) return;
+    const target = clamp(raiseTo, minRaiseTo, maxRaiseTo);
+    if (target <= playerStreetBet) return;
+    void sendAction("raise", { to: target });
+  }, [playerActive, canRaise, raiseTo, minRaiseTo, maxRaiseTo, playerStreetBet, sendAction]);
 
   // Keep the raise slider within legal bounds as the round changes.
-  const minRaiseTo = Math.max(state.minRaiseTo, state.botStreetBet + BB);
-  const maxRaiseTo = state.playerStreetBet + state.playerStack;
   useEffect(() => {
     if (!playerActive) return;
     setRaiseTo((r) => clamp(r, minRaiseTo, Math.max(minRaiseTo, maxRaiseTo)));
@@ -985,47 +472,41 @@ export default function TexasHoldem() {
   }, [playerActive, minRaiseTo, maxRaiseTo]);
 
   const potSizeRaise = clamp(
-    state.botStreetBet + Math.max(BB, state.pot),
+    botStreetBet + Math.max(BB, pot),
     minRaiseTo,
     maxRaiseTo,
   );
   const halfPotRaise = clamp(
-    state.botStreetBet + Math.max(BB, Math.round(state.pot / 2)),
+    botStreetBet + Math.max(BB, Math.round(pot / 2)),
     minRaiseTo,
     maxRaiseTo,
   );
 
-  const canRaise = maxRaiseTo > minRaiseTo - 1 && state.playerStack > 0 && toCall < state.playerStack;
-
-  // Display the current best made hand for the player as cards come out.
+  // Display the current best made hand for the player as cards come out (pure
+  // read of the visible public cards — no money, no engine logic).
   const playerHandLabel = useMemo(() => {
-    if (state.playerHole.length < 2) return "";
-    const known = [...state.playerHole, ...state.board.slice(0, state.revealBoard)];
+    if (playerHole.length < 2) return "";
+    const known = [...playerHole, ...board.slice(0, revealBoard)];
     if (known.length < 5) return "";
     return evaluateBest(known).name;
-  }, [state.playerHole, state.board, state.revealBoard]);
+  }, [playerHole, board, revealBoard]);
 
-  const buttonIsPlayer = state.buttonIsPlayer;
-  const idle = state.phase === "idle" || state.phase === "done";
-  const lowBalance = wallet.ready && wallet.balance < BB;
+  const idle = phase === "idle" || phase === "done";
+  const lowBalance = wallet.ready && wallet.balance < 2 * BB;
 
   // ---- Win celebration (visual only; pure reads of resolved state) --------
-  // Fire only when the PLAYER wins a meaningful pot: net winnings >= ~3 big
-  // blinds, OR a premium made hand at showdown (straight or better). This
-  // avoids confetti on tiny blind-steal folds. bestPlayerCat is null on a
-  // bot-fold win, so those qualify on pot size alone.
-  const playerWon = state.phase === "done" && state.resultKind === "win";
-  const cat = state.bestPlayerCat;
+  const playerWon = phase === "done" && resultKind === "win";
+  const cat = bestPlayerCat;
   const premiumHand = cat != null && cat >= HandCategory.Straight;
-  const celebrate = playerWon && (state.netDelta >= BB * 3 || premiumHand);
+  const celebrate = playerWon && (netDelta >= BB * 3 || premiumHand);
   const celebrateTier: "win" | "big" | "jackpot" =
     (cat != null && cat >= HandCategory.StraightFlush) ||
     cat === HandCategory.FourOfAKind ||
-    state.netDelta >= BB * 20
+    netDelta >= BB * 20
       ? "jackpot"
-      : (cat != null && cat >= HandCategory.Flush) || state.netDelta >= BB * 8
-      ? "big"
-      : "win";
+      : (cat != null && cat >= HandCategory.Flush) || netDelta >= BB * 8
+        ? "big"
+        : "win";
 
   // ---- Buy-in chip presets -------------------------------------------------
   const buyInPresets = [250, 500, 1000, 2000];
@@ -1048,31 +529,31 @@ export default function TexasHoldem() {
         {/* ===== Top: bot ===== */}
         <Seat
           name="House Bot"
-          active={state.phase === "bot"}
+          active={phase === "bot"}
           isButton={!buttonIsPlayer}
-          stack={state.botStack}
-          streetBet={state.botStreetBet}
+          stack={botStack}
+          streetBet={botStreetBet}
           accent="#e74c3c"
         >
           <div className="flex gap-2">
             <PlayingCard
-              card={state.botHole[0] ?? null}
-              faceDown={!state.botRevealed}
+              card={botHole[0] ?? null}
+              faceDown={!botRevealed}
               size="md"
               highlight={
-                state.botRevealed &&
-                state.botHole[0] != null &&
-                state.winningIds.includes(state.botHole[0].id)
+                botRevealed &&
+                botHole[0] != null &&
+                winningIds.includes(botHole[0].id)
               }
             />
             <PlayingCard
-              card={state.botHole[1] ?? null}
-              faceDown={!state.botRevealed}
+              card={botHole[1] ?? null}
+              faceDown={!botRevealed}
               size="md"
               highlight={
-                state.botRevealed &&
-                state.botHole[1] != null &&
-                state.winningIds.includes(state.botHole[1].id)
+                botRevealed &&
+                botHole[1] != null &&
+                winningIds.includes(botHole[1].id)
               }
             />
           </div>
@@ -1082,7 +563,7 @@ export default function TexasHoldem() {
         <div className="relative my-2 flex flex-col items-center gap-2 sm:my-3 sm:gap-3 [@media(max-height:600px)]:my-1.5 [@media(max-height:600px)]:gap-1.5">
           {/* Pot readout */}
           <motion.div
-            key={state.pot}
+            key={pot}
             initial={{ scale: 0.85, opacity: 0.6 }}
             animate={{ scale: 1, opacity: 1 }}
             className="flex items-center gap-2 rounded-full border border-gold/30 bg-black/45 px-4 py-1.5 backdrop-blur"
@@ -1091,7 +572,7 @@ export default function TexasHoldem() {
               Pot
             </span>
             <span className="gold-text text-lg font-bold tabular-nums">
-              {formatChips(state.pot)}
+              {formatChips(pot)}
             </span>
           </motion.div>
 
@@ -1119,10 +600,9 @@ export default function TexasHoldem() {
           {/* Board */}
           <div className="flex min-h-[96px] items-center justify-center gap-1.5 sm:gap-2 [@media(max-height:600px)]:min-h-[72px]">
             {[0, 1, 2, 3, 4].map((i) => {
-              const card = state.board[i] ?? null;
-              const shown = i < state.revealBoard && card != null;
-              const isWin =
-                shown && card != null && state.winningIds.includes(card.id);
+              const card = board[i] ?? null;
+              const shown = i < revealBoard && card != null;
+              const isWin = shown && card != null && winningIds.includes(card.id);
               return (
                 <AnimatePresence key={i} mode="popLayout">
                   {shown ? (
@@ -1153,9 +633,7 @@ export default function TexasHoldem() {
 
           {/* Street label */}
           <div className="text-[10px] uppercase tracking-[0.3em] text-white/35">
-            {state.phase === "idle"
-              ? "Place your buy-in"
-              : state.street}
+            {phase === "idle" ? "Place your buy-in" : street}
           </div>
         </div>
 
@@ -1164,28 +642,26 @@ export default function TexasHoldem() {
           name="You"
           active={playerActive}
           isButton={buttonIsPlayer}
-          stack={state.playerStack}
-          streetBet={state.playerStreetBet}
+          stack={playerStack}
+          streetBet={playerStreetBet}
           accent={ACCENT}
           handLabel={playerHandLabel}
         >
           <div className="flex gap-2">
             <PlayingCard
-              card={state.playerHole[0] ?? null}
-              faceDown={state.playerHole.length === 0}
+              card={playerHole[0] ?? null}
+              faceDown={playerHole.length === 0}
               size="lg"
               highlight={
-                state.playerHole[0] != null &&
-                state.winningIds.includes(state.playerHole[0].id)
+                playerHole[0] != null && winningIds.includes(playerHole[0].id)
               }
             />
             <PlayingCard
-              card={state.playerHole[1] ?? null}
-              faceDown={state.playerHole.length === 0}
+              card={playerHole[1] ?? null}
+              faceDown={playerHole.length === 0}
               size="lg"
               highlight={
-                state.playerHole[1] != null &&
-                state.winningIds.includes(state.playerHole[1].id)
+                playerHole[1] != null && winningIds.includes(playerHole[1].id)
               }
             />
           </div>
@@ -1193,7 +669,7 @@ export default function TexasHoldem() {
 
         {/* ===== Result banner ===== */}
         <AnimatePresence>
-          {state.phase === "done" && state.resultKind && (
+          {phase === "done" && resultKind && (
             <motion.div
               className="pointer-events-none absolute inset-0 z-30 grid place-items-center"
               initial={{ opacity: 0 }}
@@ -1201,7 +677,7 @@ export default function TexasHoldem() {
               exit={{ opacity: 0 }}
             >
               {/* Win burst rays */}
-              {state.resultKind === "win" && (
+              {resultKind === "win" && (
                 <motion.div
                   className="absolute"
                   initial={{ scale: 0.2, opacity: 0.9 }}
@@ -1223,42 +699,38 @@ export default function TexasHoldem() {
                 className="rounded-2xl border px-6 py-4 text-center backdrop-blur-md"
                 style={{
                   borderColor:
-                    state.resultKind === "win"
+                    resultKind === "win"
                       ? ACCENT
-                      : state.resultKind === "push"
-                      ? "#d4af37"
-                      : "#e74c3c",
+                      : resultKind === "push"
+                        ? "#d4af37"
+                        : "#e74c3c",
                   background: "rgba(0,0,0,0.6)",
                   boxShadow:
-                    state.resultKind === "win"
+                    resultKind === "win"
                       ? `0 0 40px ${ACCENT}88`
-                      : state.resultKind === "push"
-                      ? "0 0 30px rgba(212,175,55,0.5)"
-                      : "0 0 30px rgba(231,76,60,0.5)",
+                      : resultKind === "push"
+                        ? "0 0 30px rgba(212,175,55,0.5)"
+                        : "0 0 30px rgba(231,76,60,0.5)",
                 }}
               >
                 <div
                   className="font-display text-xl font-bold sm:text-2xl"
                   style={{
                     color:
-                      state.resultKind === "win"
+                      resultKind === "win"
                         ? ACCENT
-                        : state.resultKind === "push"
-                        ? "#f5d060"
-                        : "#ff6b6b",
+                        : resultKind === "push"
+                          ? "#f5d060"
+                          : "#ff6b6b",
                   }}
                 >
-                  {state.resultText}
+                  {resultText}
                 </div>
                 <div
                   className="mt-1 text-sm font-bold tabular-nums"
-                  style={{
-                    color: state.netDelta >= 0 ? ACCENT : "#ff6b6b",
-                  }}
+                  style={{ color: netDelta >= 0 ? ACCENT : "#ff6b6b" }}
                 >
-                  {state.netDelta === 0
-                    ? "Pot returned"
-                    : `${formatDelta(state.netDelta)} chips`}
+                  {netDelta === 0 ? "Pot returned" : `${formatDelta(netDelta)} chips`}
                 </div>
               </motion.div>
             </motion.div>
@@ -1268,7 +740,7 @@ export default function TexasHoldem() {
         {/* Win celebration overlay (z-30, pointer-events:none, reduced-motion safe) */}
         <Celebration
           show={celebrate}
-          seed={state.netDelta}
+          seed={netDelta}
           tier={celebrateTier}
           colors={["#2ecc71", "#ffd24a", "#22e1ff", "#ffffff"]}
         />
@@ -1290,19 +762,19 @@ export default function TexasHoldem() {
                     type="button"
                     onClick={() => {
                       sfx.chip();
-                      dispatch({ type: "SET_BUYIN", value: v });
+                      setBuyIn(v);
                     }}
                     className="flex flex-col items-center gap-1"
                     data-testid={`buyin-${v}`}
                   >
-                    <Chip value={v} size={52} selected={state.buyIn === v} />
+                    <Chip value={v} size={52} selected={buyIn === v} />
                   </button>
                 ))}
               </div>
               <div className="flex items-center justify-center gap-3">
                 <span className="text-xs text-white/50">Buy-in</span>
                 <span className="gold-text text-lg font-bold tabular-nums">
-                  {formatChips(state.buyIn)}
+                  {formatChips(buyIn)}
                 </span>
               </div>
               <Button
@@ -1317,8 +789,11 @@ export default function TexasHoldem() {
               </Button>
               {lowBalance && (
                 <div className="text-center text-xs text-ruby">
-                  Balance below the big blind — use the top-up in the header.
+                  Balance below the minimum buy-in — use the top-up in the header.
                 </div>
+              )}
+              {errorMsg && !lowBalance && (
+                <div className="text-center text-xs text-ruby">{errorMsg}</div>
               )}
             </div>
           ) : (
@@ -1330,14 +805,18 @@ export default function TexasHoldem() {
                     ? toCall > 0
                       ? `To call: ${formatChips(toCall)}`
                       : "Action on you"
-                    : state.phase === "bot"
-                    ? "Bot is thinking…"
-                    : state.phase === "showdown"
-                    ? "Showdown!"
-                    : "Dealing…"}
+                    : phase === "bot"
+                      ? "Bot is thinking…"
+                      : phase === "showdown"
+                        ? "Showdown!"
+                        : "Dealing…"}
                 </span>
-                <span className="tabular-nums">Pot {formatChips(state.pot)}</span>
+                <span className="tabular-nums">Pot {formatChips(pot)}</span>
               </div>
+
+              {errorMsg && (
+                <div className="text-center text-[11px] text-ruby">{errorMsg}</div>
+              )}
 
               {/* action buttons */}
               <div className="grid grid-cols-3 gap-2">
@@ -1345,7 +824,7 @@ export default function TexasHoldem() {
                   variant="danger"
                   size="lg"
                   data-testid="fold-btn"
-                  disabled={!playerActive}
+                  disabled={!playerActive || !legalActions.includes("fold")}
                   onClick={onFold}
                 >
                   Fold
@@ -1354,7 +833,7 @@ export default function TexasHoldem() {
                   variant="felt"
                   size="lg"
                   data-testid="call-btn"
-                  disabled={!playerActive}
+                  disabled={!playerActive || (!playerCanCheck && !legalActions.includes("call"))}
                   onClick={onCheckCall}
                 >
                   {playerCanCheck ? "Check" : `Call ${formatChips(toCall)}`}
@@ -1366,7 +845,7 @@ export default function TexasHoldem() {
                   disabled={!playerActive || !canRaise}
                   onClick={onRaise}
                 >
-                  {state.botStreetBet > 0 ? "Raise" : "Bet"}
+                  {botStreetBet > 0 ? "Raise" : "Bet"}
                 </Button>
               </div>
 
@@ -1434,7 +913,7 @@ export default function TexasHoldem() {
           </div>
           <div className="flex min-h-[88px] flex-col gap-1 text-xs">
             <AnimatePresence initial={false}>
-              {state.log.map((e) => (
+              {log.map((e) => (
                 <motion.div
                   key={e.id}
                   initial={{ opacity: 0, x: -8 }}
@@ -1444,8 +923,8 @@ export default function TexasHoldem() {
                     e.who === "player"
                       ? "text-emerald-300"
                       : e.who === "bot"
-                      ? "text-red-300"
-                      : "text-white/45"
+                        ? "text-red-300"
+                        : "text-white/45"
                   }
                 >
                   {e.who === "player" ? "▸ " : e.who === "bot" ? "◂ " : "· "}
@@ -1477,7 +956,7 @@ export default function TexasHoldem() {
             ))}
           </ol>
           <div className="border-t border-white/10 pt-2 text-[10px] leading-relaxed text-white/40">
-            Heads-up no-limit. Blinds {SB}/{BB}. Button alternates each hand. Best
+            Heads-up no-limit. Blinds {SB}/{BB}. Button is random each hand. Best
             five-card hand wins; ties split the pot.
           </div>
          </div>

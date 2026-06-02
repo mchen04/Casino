@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { kv, USER_KEY, LEADERBOARD_KEY, type UserRecord } from "@/lib/kv";
 import { hashPassword, createSession } from "@/lib/auth";
+import { initBalance } from "@/lib/server/wallet";
 
 const STARTING_BALANCE = 10_000;
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/;
@@ -38,9 +39,11 @@ export async function POST(req: NextRequest) {
       biggestWin: 0,
       resets: 0,
       createdAt: Date.now(),
+      showOnLeaderboard: true,
     };
 
     await kv.set(USER_KEY(username), user);
+    await initBalance(username, STARTING_BALANCE); // authoritative balance key
     await kv.zadd(LEADERBOARD_KEY, { score: STARTING_BALANCE, member: username.toLowerCase() });
 
     const token = await createSession(username);

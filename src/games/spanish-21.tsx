@@ -2,10 +2,11 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { type Card, blackjackTotal, makeDeck } from "@/lib/cards";
-import { shuffle } from "@/lib/rng";
+import { type Card, blackjackTotal } from "@/lib/cards";
 import { useWallet } from "@/lib/wallet";
+import { usePlayRound } from "@/lib/playRound";
 import { formatChips, formatDelta } from "@/lib/format";
+import { sleep } from "@/lib/async";
 import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
@@ -20,33 +21,27 @@ import { Celebration } from "@/components/Celebration";
 const ACCENT = "#e0b341";
 const CHIP_VALUES = [5, 25, 100, 500] as const;
 const DEAL_GAP = 360; // ms between dealt cards
+const DEALER_GAP = 560; // ms between dealer draws
 
 /* ------------------------------------------------------------------ */
-/* Shoe — 6 Spanish decks (every rank-"10" card removed).              */
+/* Bonus evaluation — LABELS ONLY                                      */
 /* ------------------------------------------------------------------ */
-
-function freshShoe(): Card[] {
-  // makeDeck(6) -> 312 cards, strip all 24 "10" spot cards -> 288-card Spanish shoe.
-  return shuffle(makeDeck(6).filter((c) => c.rank !== "10"));
-}
-
-/* ------------------------------------------------------------------ */
-/* Bonus evaluation                                                    */
-/* ------------------------------------------------------------------ */
+/* The server owns all money. We re-derive a display-only bonus label  */
+/* from a winning hand's cards purely to keep the celebration visuals. */
 
 type BonusKind = "five" | "six" | "seven" | "678" | "777";
 
 interface Bonus {
   kind: BonusKind;
-  /** multiplier applied to the ORIGINAL base bet (e.g. 1.5 = 3:2). */
+  /** multiplier on the ORIGINAL base bet (e.g. 1.5 = 3:2). Display only. */
   mult: number;
   label: string;
 }
 
 /**
- * Evaluate the Spanish-21 bonus for a winning player 21.
- * Bonuses are voided after a split (standard Spanish-21 rule) — caller passes
- * `fromSplit` so we can suppress them. Returns the single best applicable bonus.
+ * Evaluate the Spanish-21 bonus for a winning player 21 — FOR DISPLAY LABELS
+ * ONLY. Bonuses are voided after a split, so the caller passes `fromSplit`.
+ * The money never comes from this; the server's `payout` is authoritative.
  */
 function evalBonus(cards: Card[], fromSplit: boolean): Bonus | null {
   if (fromSplit) return null;
@@ -91,7 +86,9 @@ type HandOutcome =
   | "push"
   | "blackjack"
   | "twentyone"
-  | "bust";
+  | "bonus"
+  | "bust"
+  | null;
 
 interface Hand {
   id: number;
@@ -100,30 +97,49 @@ interface Hand {
   doubled: boolean;
   fromSplit: boolean;
   done: boolean; // standing / busted / resolved
-  outcome: HandOutcome | null;
-  bonus: Bonus | null;
-  payout: number; // gross returned to wallet on resolve
+  outcome: HandOutcome;
+  bonus: Bonus | null; // display-only label
 }
 
 let HAND_SEQ = 1;
-function newHand(cards: Card[], bet: number, fromSplit: boolean): Hand {
-  return {
-    id: HAND_SEQ++,
-    cards,
-    bet,
-    doubled: false,
-    fromSplit,
-    done: false,
-    outcome: null,
-    bonus: null,
-    payout: 0,
-  };
-}
-
-type Phase = "betting" | "dealing" | "player" | "dealer" | "resolved";
 
 const isBlackjack = (cards: Card[]) =>
   cards.length === 2 && blackjackTotal(cards).total === 21;
+
+/* ------------------------------------------------------------------ */
+/* Server hand view → the client's Hand shape (display only).          */
+/* ------------------------------------------------------------------ */
+
+interface ServerHand {
+  cards: Card[];
+  bet: number;
+  done?: boolean;
+  doubled?: boolean;
+  fromSplit?: boolean;
+  total?: number;
+}
+
+/** Map server hands to local Hand objects. Outcome/bonus labels optional. */
+function serverHandsToLocal(serverHands: ServerHand[], outcomes?: HandOutcome[]): Hand[] {
+  return serverHands.map((h, i) => {
+    const outcome = outcomes ? outcomes[i] ?? null : null;
+    const fromSplit = !!h.fromSplit;
+    // Display-only bonus label for a winning bonus 21.
+    const bonus = outcome === "bonus" ? evalBonus(h.cards, fromSplit) : null;
+    return {
+      id: HAND_SEQ++,
+      cards: h.cards,
+      bet: h.bet,
+      doubled: !!h.doubled,
+      fromSplit,
+      done: !!h.done,
+      outcome,
+      bonus,
+    };
+  });
+}
+
+type Phase = "betting" | "dealing" | "player" | "dealer" | "resolved";
 
 /* ------------------------------------------------------------------ */
 /* Small presentational helpers                                        */
@@ -288,47 +304,29 @@ export default function Spanish21() {
   const wallet = useWallet();
   const { balance, ready } = wallet;
 
-  const shoeRef = useRef<Card[]>(freshShoe());
-  const [shoeCount, setShoeCount] = useState<number>(shoeRef.current.length);
-  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  // The server owns the real 6-deck Spanish shoe (one per round), dealer play,
+  // and ALL payouts. The client only routes decisions through /api/round and
+  // animates the cards the server deals back.
+  const { start: roundStart, act: roundAct } = usePlayRound();
+  const roundIdRef = useRef<string | null>(null);
 
   const [bet, setBet] = useState<number>(50);
   const [phase, setPhase] = useState<Phase>("betting");
 
   const [dealer, setDealer] = useState<Card[]>([]);
   const [hideHole, setHideHole] = useState<boolean>(true);
-  const [hands, setHandsState] = useState<Hand[]>([]);
+  const [hands, setHands] = useState<Hand[]>([]);
   const [active, setActive] = useState<number>(0); // index into hands
 
-  // Refs mirror state so action handlers can read & write the live board
-  // without scheduling side effects inside React state updaters (which would
-  // double-fire under StrictMode and double-deal cards).
-  const handsRef = useRef<Hand[]>([]);
-  const dealerRef = useRef<Card[]>([]);
+  // The server's legal-action list for the active hand.
+  const [stepActions, setStepActions] = useState<string[]>([]);
 
-  const setHands = useCallback((next: Hand[]) => {
-    handsRef.current = next;
-    setHandsState(next);
-  }, []);
-  const setDealerCards = useCallback((next: Card[]) => {
-    dealerRef.current = next;
-    setDealer(next);
-  }, []);
-
-  const cloneHands = () =>
-    handsRef.current.map((h) => ({ ...h, cards: [...h.cards] }));
-
-  // Stable refs that always point to the latest settle / dealerPlay / finishDeal
-  // so that closures scheduled via setTimeout never hold stale wallet references.
-  const settleRef = useRef<(playerHands: Hand[], dealerCards: Card[], natural: boolean) => void>(
-    () => { /* placeholder, replaced before first use */ },
-  );
-  const dealerPlayRef = useRef<(playerHands: Hand[]) => void>(
-    () => { /* placeholder */ },
-  );
-  const finishDealRef = useRef<(pCards: Card[], dCards: Card[], stake: number, id: number) => void>(
-    () => { /* placeholder */ },
-  );
+  // Generation token to abort stale async sequences across rapid re-deals.
+  const genRef = useRef(0);
+  // Guard against re-entrant action clicks while a request is in flight.
+  const acting = useRef(false);
+  // Cosmetic shoe counter (visual only — the server owns the real shoe).
+  const [shoeCount, setShoeCount] = useState<number>(288);
 
   const [result, setResult] = useState<string>("");
   const [delta, setDelta] = useState<number>(0);
@@ -342,26 +340,11 @@ export default function Spanish21() {
     tier: "win" | "big" | "jackpot";
   }>({ show: false, seed: 0, tier: "win" });
 
-  // Clear any scheduled timers on unmount.
+  // On unmount, advance the generation so any in-flight async aborts.
   useEffect(() => {
     return () => {
-      timers.current.forEach(clearTimeout);
+      genRef.current++;
     };
-  }, []);
-
-  const schedule = useCallback((fn: () => void, ms: number) => {
-    const t = setTimeout(fn, ms);
-    timers.current.push(t);
-  }, []);
-
-  /** Draw a card from the shoe, reshuffling when it runs low. */
-  const draw = useCallback((): Card => {
-    if (shoeRef.current.length < 20) {
-      shoeRef.current = freshShoe();
-    }
-    const card = shoeRef.current.pop()!;
-    setShoeCount(shoeRef.current.length);
-    return card;
   }, []);
 
   const canAfford = bet > 0 && bet <= balance;
@@ -378,349 +361,28 @@ export default function Spanish21() {
   );
 
   /* ---------------------------------------------------------------- */
-  /* Deal                                                              */
+  /* Settlement display — the server already credited the balance;     */
+  /* this only renders the resolved hands, dealer, banner, celebration.*/
   /* ---------------------------------------------------------------- */
 
-  const deal = useCallback(() => {
-    if (inRound) return;
-    if (!canAfford) return;
-    if (!wallet.bet(bet)) return; // deduct stake; abort if unaffordable
+  const settleDisplay = useCallback(
+    (pv: Record<string, unknown>, payout: number) => {
+      const serverHands = (pv.playerHands ?? []) as ServerHand[];
+      const outcomes = (pv.outcomes ?? []) as HandOutcome[];
+      const dealerCards = (pv.dealer ?? []) as Card[];
+      const resolved = serverHandsToLocal(serverHands, outcomes);
+      const totalStake = serverHands.reduce((s, h) => s + h.bet, 0);
+      const net = payout - totalStake;
 
-    // reset board
-    timers.current.forEach(clearTimeout);
-    timers.current = [];
-    setResult("");
-    setDelta(0);
-    setShowBurst(false);
-    setBigBurst(false);
-    setCelebrate((c) => ({ ...c, show: false }));
-    setDealerCards([]);
-    setHands([]);
-    setActive(0);
-    setHideHole(true);
-    setPhase("dealing");
-
-    // Deal sequence: player, dealer(up), player, dealer(hole).
-    const p1 = draw();
-    const d1 = draw();
-    const p2 = draw();
-    const d2 = draw();
-
-    const baseHand = newHand([], bet, false);
-
-    schedule(() => {
-      sfx.card();
-      setHands([{ ...baseHand, cards: [p1] }]);
-    }, DEAL_GAP * 0);
-    schedule(() => {
-      sfx.card();
-      setDealerCards([d1]);
-    }, DEAL_GAP * 1);
-    schedule(() => {
-      sfx.card();
-      setHands([{ ...baseHand, cards: [p1, p2] }]);
-    }, DEAL_GAP * 2);
-    schedule(() => {
-      sfx.card();
-      setDealerCards([d1, d2]);
-      // After the deal, check for naturals.
-      schedule(() => finishDealRef.current([p1, p2], [d1, d2], bet, baseHand.id), 420);
-    }, DEAL_GAP * 3);
-  }, [bet, canAfford, draw, inRound, schedule, setDealerCards, setHands, wallet]);
-
-  /** After the opening 4 cards land, resolve naturals or hand control to player. */
-  const finishDeal = useCallback(
-    (pCards: Card[], dCards: Card[], stake: number, id: number) => {
-      const playerBJ = isBlackjack(pCards);
-      const dealerBJ = isBlackjack(dCards);
-      const base: Hand = { ...newHand(pCards, stake, false), id };
-
-      if (playerBJ || dealerBJ) {
-        setHideHole(false);
-        sfx.card();
-        // Player BJ BEATS dealer BJ in Spanish 21; player BJ pays 3:2.
-        if (playerBJ) {
-          const hand: Hand = {
-            ...base,
-            done: true,
-            outcome: "blackjack",
-            payout: stake * 2.5, // 3:2 incl. stake (exact)
-          };
-          settleRef.current([hand], dCards, true);
-        } else {
-          // dealer natural, player has none -> player loses the hand.
-          const hand: Hand = { ...base, done: true, outcome: "lose", payout: 0 };
-          settleRef.current([hand], dCards, true);
-        }
-        return;
-      }
-
-      // Normal play.
-      setHands([base]);
-      setActive(0);
-      setPhase("player");
-    },
-    [setHands],
-  );
-  // Keep ref current so deal's scheduled callback always calls the live version.
-  finishDealRef.current = finishDeal;
-
-  /* ---------------------------------------------------------------- */
-  /* Player actions                                                    */
-  /* ---------------------------------------------------------------- */
-
-  const activeHand = hands[active];
-
-  const handValue = (h: Hand | undefined) =>
-    h ? blackjackTotal(h.cards).total : 0;
-
-  const canHit =
-    phase === "player" && !!activeHand && !activeHand.done && handValue(activeHand) < 21;
-  const canDouble =
-    phase === "player" &&
-    !!activeHand &&
-    !activeHand.done &&
-    handValue(activeHand) < 21 &&
-    balance >= activeHand.bet;
-  const canSplit = (() => {
-    if (phase !== "player" || !activeHand || activeHand.done) return false;
-    if (activeHand.cards.length !== 2) return false;
-    if (hands.length >= 4 || balance < activeHand.bet) return false;
-    const c0 = activeHand.cards[0];
-    const c1 = activeHand.cards[1];
-    return c0 !== undefined && c1 !== undefined && c0.rank === c1.rank;
-  })();
-
-  /** Advance to the next unfinished hand, or move to the dealer's turn. */
-  const advance = useCallback(
-    (updated: Hand[]) => {
-      const next = updated.findIndex((h) => !h.done);
-      if (next === -1) {
-        // All player hands resolved (stood / busted / made 21) -> dealer plays.
-        setPhase("dealer");
-        schedule(() => dealerPlayRef.current(updated), 380);
-      } else {
-        setActive(next);
-      }
-    },
-    [schedule],
-  );
-
-  const hit = useCallback(() => {
-    if (!canHit || !activeHand) return;
-    sfx.card();
-    const card = draw();
-    const copy = cloneHands();
-    const h = copy[active];
-    if (!h) return;
-    h.cards.push(card);
-    const { total } = blackjackTotal(h.cards);
-    if (total > 21) {
-      h.done = true;
-      h.outcome = "bust";
-      h.payout = 0;
-      sfx.thud();
-    } else if (total === 21) {
-      // Player 21 always wins immediately in Spanish 21.
-      h.done = true;
-    }
-    setHands(copy);
-    if (h.done) schedule(() => advance(copy), 360);
-  }, [active, activeHand, advance, canHit, draw, schedule, setHands]);
-
-  const stand = useCallback(() => {
-    if (phase !== "player" || !activeHand) return;
-    sfx.click();
-    const copy = cloneHands();
-    const standHand = copy[active];
-    if (!standHand) return;
-    standHand.done = true;
-    setHands(copy);
-    schedule(() => advance(copy), 200);
-  }, [active, activeHand, advance, phase, schedule, setHands]);
-
-  const double = useCallback(() => {
-    if (!canDouble || !activeHand) return;
-    if (!wallet.bet(activeHand.bet)) return; // take the extra stake
-    sfx.chip();
-    const card = draw();
-    schedule(() => sfx.card(), 60);
-    const copy = cloneHands();
-    const h = copy[active];
-    if (!h) return;
-    h.bet = h.bet * 2;
-    h.doubled = true;
-    h.cards.push(card);
-    h.done = true;
-    const { total } = blackjackTotal(h.cards);
-    if (total > 21) {
-      h.outcome = "bust";
-      h.payout = 0;
-      schedule(() => sfx.thud(), 200);
-    }
-    setHands(copy);
-    schedule(() => advance(copy), 420);
-  }, [active, activeHand, advance, canDouble, draw, schedule, setHands, wallet]);
-
-  const split = useCallback(() => {
-    if (!canSplit || !activeHand) return;
-    if (!wallet.bet(activeHand.bet)) return; // second hand's stake
-    sfx.chip();
-    const copy = cloneHands();
-    const h = copy[active];
-    // canSplit guarantees cards.length === 2 and same rank; guard for TS strict.
-    if (!h) return;
-    const card0 = h.cards[0];
-    const card1 = h.cards[1];
-    if (!card0 || !card1) return;
-    // first hand keeps card[0] + a fresh draw
-    const firstDraw = draw();
-    h.cards = [card0, firstDraw];
-    h.fromSplit = true;
-    // second hand: moved card + a fresh draw
-    const secondDraw = draw();
-    const second = newHand([card1, secondDraw], activeHand.bet, true);
-    copy.splice(active + 1, 0, second);
-
-    // Auto-resolve any split hand that immediately makes 21.
-    copy.forEach((hh) => {
-      if (blackjackTotal(hh.cards).total === 21) hh.done = true;
-    });
-    setHands(copy);
-    schedule(() => sfx.card(), 80);
-    schedule(() => sfx.card(), 220);
-
-    // If the active hand auto-finished, advance.
-    if (copy[active]?.done) {
-      schedule(() => advance(copy), 420);
-    }
-  }, [active, activeHand, advance, canSplit, draw, schedule, setHands, wallet]);
-
-  /* ---------------------------------------------------------------- */
-  /* Dealer play                                                       */
-  /* ---------------------------------------------------------------- */
-
-  const dealerPlay = useCallback(
-    (playerHands: Hand[]) => {
-      setHideHole(false);
-      sfx.card();
-
-      // If every live hand busted, dealer need not draw.
-      const liveHands = playerHands.filter((h) => h.outcome !== "bust");
-      const dealerNeedsToPlay = liveHands.length > 0;
-
-      const run = (current: Card[]) => {
-        const { total, soft } = blackjackTotal(current);
-        // Dealer hits soft 17.
-        const mustHit = total < 17 || (total === 17 && soft);
-        if (dealerNeedsToPlay && mustHit) {
-          const card = draw();
-          const next = [...current, card];
-          setDealerCards(next);
-          sfx.card();
-          schedule(() => run(next), 600);
-        } else {
-          schedule(() => settleRef.current(playerHands, current, false), 500);
-        }
-      };
-
-      schedule(() => run(dealerRef.current), 450);
-    },
-    [draw, schedule, setDealerCards],
-  );
-  // Keep the ref current after every render so closures always call the live version.
-  dealerPlayRef.current = dealerPlay;
-
-  /* ---------------------------------------------------------------- */
-  /* Settle — compute outcomes, pay the wallet, show the result        */
-  /* ---------------------------------------------------------------- */
-
-  const settle = useCallback(
-    (playerHands: Hand[], dealerCards: Card[], natural: boolean) => {
-      const dTotal = blackjackTotal(dealerCards).total;
-      const dBust = dTotal > 21;
-      const dealerBJ = isBlackjack(dealerCards);
-
-      let totalReturn = 0;
-      let totalStake = 0;
-
-      const resolved: Hand[] = playerHands.map((h) => {
-        const out = { ...h, cards: [...h.cards] };
-        totalStake += out.bet;
-
-        // Pre-resolved naturals carry their outcome/payout already.
-        if (out.outcome === "blackjack") {
-          totalReturn += out.payout;
-          return out;
-        }
-        if (out.outcome === "bust") {
-          out.payout = 0;
-          return out;
-        }
-        if (out.outcome === "lose") {
-          out.payout = 0;
-          return out;
-        }
-
-        const pTotal = blackjackTotal(out.cards).total;
-        const playerBJ = !out.fromSplit && isBlackjack(out.cards);
-
-        // Player blackjack (post-deal path is rare but covered).
-        if (playerBJ) {
-          out.outcome = "blackjack";
-          out.payout = out.bet * 2.5; // 3:2 incl. stake (exact)
-          totalReturn += out.payout;
-          return out;
-        }
-
-        // A player total of 21 ALWAYS wins in Spanish 21.
-        if (pTotal === 21) {
-          out.outcome = "twentyone";
-          // even money on the (possibly doubled) stake...
-          let pay = out.bet * 2;
-          // ...plus the bonus, paid at the BASE bet rate (not the doubled stake).
-          const base = out.doubled ? out.bet / 2 : out.bet;
-          const bonus = evalBonus(out.cards, out.fromSplit);
-          out.bonus = bonus;
-          if (bonus) pay += base * bonus.mult; // exact bonus — wallet rounds to the cent
-          out.payout = pay;
-          totalReturn += out.payout;
-          return out;
-        }
-
-        // Player did not bust and is < 21. Compare to dealer.
-        if (dBust) {
-          out.outcome = "win";
-          out.payout = out.bet * 2;
-        } else if (dealerBJ) {
-          out.outcome = "lose";
-          out.payout = 0;
-        } else if (pTotal > dTotal) {
-          out.outcome = "win";
-          out.payout = out.bet * 2;
-        } else if (pTotal < dTotal) {
-          out.outcome = "lose";
-          out.payout = 0;
-        } else {
-          out.outcome = "push";
-          out.payout = out.bet; // refund stake
-        }
-        totalReturn += out.payout;
-        return out;
-      });
-
-      if (totalReturn > 0) wallet.win(totalReturn);
-
-      // Net delta vs. the staked chips for this round.
-      const net = totalReturn - totalStake;
       setHands(resolved);
-      setDealerCards(dealerCards);
+      setDealer(dealerCards);
       setHideHole(false);
+      setActive(-1);
+      setStepActions([]);
       setPhase("resolved");
       setDelta(net);
 
-      // Build the headline result text.
-      const text = buildResultText(resolved, dealerCards, net, natural);
+      const text = buildResultText(resolved, dealerCards, net);
       setResult(text);
 
       // Feedback.
@@ -730,40 +392,257 @@ export default function Spanish21() {
         setBigBurst(big);
         if (big) sfx.jackpot();
         else sfx.win();
-        schedule(() => setShowBurst(false), big ? 1200 : 900);
 
         // Celebration overlay: fire only on NOTABLE wins, never plain 1:1.
         const hasNatural = resolved.some(
-          (h) => h.outcome === "blackjack" || h.outcome === "twentyone",
+          (h) =>
+            h.outcome === "blackjack" ||
+            h.outcome === "twentyone" ||
+            h.outcome === "bonus",
         );
         const hasBonus = resolved.some((h) => h.bonus);
         const topBonus = resolved.some(
           (h) => h.bonus?.kind === "777" && h.bonus.mult === 3,
         );
-        const ret = totalReturn / Math.max(1, totalStake);
+        const ret = payout / Math.max(1, totalStake);
         const notable = hasNatural || hasBonus || ret >= 2.5;
         if (notable) {
           const tier: "win" | "big" | "jackpot" =
-            topBonus || ret >= 10 ? "jackpot" : hasNatural || hasBonus || ret >= 2.5 ? "big" : "win";
-          setCelebrate({ show: true, seed: totalReturn, tier });
-          schedule(() => setCelebrate((c) => ({ ...c, show: false })), 1600);
+            topBonus || ret >= 10 ? "jackpot" : "big";
+          setCelebrate({ show: true, seed: payout, tier });
+        } else {
+          setCelebrate((c) => ({ ...c, show: false }));
         }
       } else if (net < 0) {
+        setShowBurst(false);
+        setCelebrate((c) => ({ ...c, show: false }));
         sfx.lose();
       } else {
+        setShowBurst(false);
+        setCelebrate((c) => ({ ...c, show: false }));
         sfx.thud();
       }
     },
-    [wallet, schedule, setDealerCards, setHands],
+    [],
   );
-  // Keep the ref current after every render.
-  settleRef.current = settle;
+
+  /* ---------------------------------------------------------------- */
+  /* Animate the dealer drawing out, then settle. (Dealer cards come    */
+  /* from the server, which has already played the hand to S17.)        */
+  /* ---------------------------------------------------------------- */
+
+  const revealDealerAndSettle = useCallback(
+    async (gen: number, pv: Record<string, unknown>, payout: number) => {
+      const dealerCards = (pv.dealer ?? []) as Card[];
+      setActive(-1);
+      setStepActions([]);
+      setPhase("dealer");
+      setHideHole(false);
+      setHands(serverHandsToLocal((pv.playerHands ?? []) as ServerHand[]));
+
+      // Reveal the hole, then draw the rest one at a time.
+      setDealer(dealerCards.slice(0, 2));
+      sfx.card();
+      await sleep(560);
+      if (gen !== genRef.current) return;
+      for (let k = 2; k < dealerCards.length; k++) {
+        setDealer(dealerCards.slice(0, k + 1));
+        setShoeCount((c) => Math.max(0, c - 1));
+        sfx.card();
+        await sleep(DEALER_GAP);
+        if (gen !== genRef.current) return;
+      }
+      if (blackjackTotal(dealerCards).total > 21) sfx.thud();
+      await sleep(300);
+      if (gen !== genRef.current) return;
+      settleDisplay(pv, payout);
+    },
+    [settleDisplay],
+  );
+
+  /* ---------------------------------------------------------------- */
+  /* Apply a non-terminal server step (next hand) or settle.           */
+  /* ---------------------------------------------------------------- */
+
+  const applyStep = useCallback(
+    async (
+      gen: number,
+      res: { done?: boolean; publicView: Record<string, unknown>; actions?: string[]; payout?: number },
+    ) => {
+      const pv = res.publicView;
+      if (res.done) {
+        await revealDealerAndSettle(gen, pv, res.payout ?? 0);
+        return;
+      }
+      const serverHands = (pv.playerHands ?? []) as ServerHand[];
+      setHands(serverHandsToLocal(serverHands));
+      setActive((pv.active as number) ?? 0);
+      setStepActions(res.actions ?? []);
+      setPhase("player");
+    },
+    [revealDealerAndSettle],
+  );
+
+  /* ---------------------------------------------------------------- */
+  /* Deal a fresh round (server-authoritative).                        */
+  /* ---------------------------------------------------------------- */
+
+  const deal = useCallback(async () => {
+    if (inRound) return;
+    if (!canAfford) return;
+
+    const gen = ++genRef.current;
+    let res;
+    try {
+      res = await roundStart("spanish-21", bet, {}); // server debits the main bet
+    } catch {
+      return; // insufficient funds / network — abort back to idle, no balance change
+    }
+    if (gen !== genRef.current) return;
+    roundIdRef.current = res.roundId ?? null;
+
+    // Reset board visuals.
+    setResult("");
+    setDelta(0);
+    setShowBurst(false);
+    setBigBurst(false);
+    setCelebrate((c) => ({ ...c, show: false }));
+    setDealer([]);
+    setHands([]);
+    setActive(0);
+    setStepActions([]);
+    setHideHole(true);
+    setShoeCount(288);
+    setPhase("dealing");
+
+    const pv = res.publicView;
+    const serverHands = (pv.playerHands ?? []) as ServerHand[];
+    const playerCards = serverHands[0]?.cards ?? [];
+    const dealerUp = (pv.dealerUp as Card) ?? ((pv.dealer as Card[]) ?? [])[0];
+    const holePlaceholder = ((pv.dealer as Card[]) ?? [])[1] ?? playerCards[0];
+
+    const baseHand: Hand = {
+      id: HAND_SEQ++,
+      cards: [],
+      bet,
+      doubled: false,
+      fromSplit: false,
+      done: false,
+      outcome: null,
+      bonus: null,
+    };
+    setHands([baseHand]);
+
+    // Staged deal: player, dealer-up, player, dealer-hole(face-down).
+    await sleep(DEAL_GAP * 0.5);
+    if (gen !== genRef.current) return;
+    sfx.card();
+    setHands([{ ...baseHand, cards: [playerCards[0]] }]);
+    setShoeCount((c) => Math.max(0, c - 1));
+    await sleep(DEAL_GAP);
+    if (gen !== genRef.current) return;
+    sfx.card();
+    setDealer([dealerUp]);
+    setShoeCount((c) => Math.max(0, c - 1));
+    await sleep(DEAL_GAP);
+    if (gen !== genRef.current) return;
+    sfx.card();
+    setHands([{ ...baseHand, cards: playerCards }]);
+    setShoeCount((c) => Math.max(0, c - 1));
+    await sleep(DEAL_GAP);
+    if (gen !== genRef.current) return;
+    sfx.card();
+    setDealer([dealerUp, holePlaceholder]); // face-down placeholder hole
+    setShoeCount((c) => Math.max(0, c - 1));
+    await sleep(DEAL_GAP);
+    if (gen !== genRef.current) return;
+
+    if (res.done) {
+      // Natural (player and/or dealer) — settled at the deal.
+      await revealDealerAndSettle(gen, pv, res.payout ?? 0);
+      return;
+    }
+
+    // Hand control to the player.
+    setHands(serverHandsToLocal(serverHands));
+    setActive((pv.active as number) ?? 0);
+    setStepActions(res.actions ?? []);
+    setPhase("player");
+  }, [bet, canAfford, inRound, roundStart, revealDealerAndSettle]);
+
+  /* ---------------------------------------------------------------- */
+  /* Player actions — each routes a decision through the server.       */
+  /* ---------------------------------------------------------------- */
+
+  const sendAction = useCallback(
+    async (action: string) => {
+      const rid = roundIdRef.current;
+      if (!rid || acting.current) return;
+      if (!stepActions.includes(action)) return; // server gates legality
+      acting.current = true;
+      const gen = genRef.current;
+      try {
+        if (action === "double" || action === "split") sfx.chip();
+        else if (action === "hit") sfx.card();
+        else sfx.click();
+        let res;
+        try {
+          res = await roundAct(rid, action);
+        } catch {
+          return;
+        }
+        if (gen !== genRef.current) return;
+        await applyStep(gen, res);
+      } finally {
+        acting.current = false;
+      }
+    },
+    [roundAct, applyStep, stepActions],
+  );
+
+  const activeHand = active >= 0 ? hands[active] : undefined;
+
+  const canHit = phase === "player" && stepActions.includes("hit");
+  const canStand = phase === "player" && stepActions.includes("stand");
+  const canDouble =
+    phase === "player" &&
+    stepActions.includes("double") &&
+    !!activeHand &&
+    balance >= activeHand.bet;
+  const canSplit =
+    phase === "player" &&
+    stepActions.includes("split") &&
+    !!activeHand &&
+    balance >= activeHand.bet;
+
+  const hit = useCallback(() => {
+    if (!canHit) return;
+    void sendAction("hit");
+  }, [canHit, sendAction]);
+
+  const stand = useCallback(() => {
+    if (!canStand) return;
+    void sendAction("stand");
+  }, [canStand, sendAction]);
+
+  const double = useCallback(() => {
+    if (!canDouble) return;
+    void sendAction("double");
+  }, [canDouble, sendAction]);
+
+  const split = useCallback(() => {
+    if (!canSplit) return;
+    void sendAction("split");
+  }, [canSplit, sendAction]);
+
+  /* ---------------------------------------------------------------- */
+  /* Result text                                                       */
+  /* ---------------------------------------------------------------- */
 
   function buildResultText(
     resolved: Hand[],
     dealerCards: Card[],
     net: number,
-    natural: boolean,
   ): string {
     const dTotal = blackjackTotal(dealerCards).total;
 
@@ -772,13 +651,13 @@ export default function Spanish21() {
       if (!h) return "";
       switch (h.outcome) {
         case "blackjack":
-          return natural
-            ? `Spanish Blackjack! Pays 3:2  ${formatDelta(net)}`
-            : `Blackjack! Pays 3:2  ${formatDelta(net)}`;
-        case "twentyone": {
+          return `Spanish Blackjack! Pays 3:2  ${formatDelta(net)}`;
+        case "bonus": {
           const b = h.bonus ? ` · ${h.bonus.label}` : "";
-          return `Twenty-One wins!${b}  ${formatDelta(net)}`;
+          return `Bonus 21!${b}  ${formatDelta(net)}`;
         }
+        case "twentyone":
+          return `Twenty-One wins!  ${formatDelta(net)}`;
         case "win":
           return dTotal > 21
             ? `Dealer busts — you win  ${formatDelta(net)}`
@@ -798,7 +677,11 @@ export default function Spanish21() {
 
     // Multiple (split) hands -> summarise.
     const wins = resolved.filter(
-      (h) => h.outcome === "win" || h.outcome === "twentyone" || h.outcome === "blackjack",
+      (h) =>
+        h.outcome === "win" ||
+        h.outcome === "twentyone" ||
+        h.outcome === "bonus" ||
+        h.outcome === "blackjack",
     ).length;
     const pushes = resolved.filter((h) => h.outcome === "push").length;
     const losses = resolved.length - wins - pushes;
@@ -809,17 +692,20 @@ export default function Spanish21() {
 
   const newRound = useCallback(() => {
     if (inRound) return;
+    genRef.current++;
+    roundIdRef.current = null;
     sfx.click();
     setPhase("betting");
     setResult("");
     setDelta(0);
     setShowBurst(false);
     setCelebrate((c) => ({ ...c, show: false }));
-    setDealerCards([]);
+    setDealer([]);
     setHands([]);
     setActive(0);
+    setStepActions([]);
     setHideHole(true);
-  }, [inRound, setDealerCards, setHands]);
+  }, [inRound]);
 
   /* ---------------------------------------------------------------- */
   /* Render                                                            */
@@ -891,7 +777,7 @@ export default function Spanish21() {
               No 10s in the shoe · J Q K remain
             </span>
             <span className="text-[10px] uppercase tracking-widest text-white/35">
-              Dealer hits soft 17 · BJ pays 3:2
+              Dealer stands on all 17 · BJ pays 3:2
             </span>
           </div>
 
@@ -971,6 +857,7 @@ export default function Spanish21() {
                 const won =
                   h.outcome === "win" ||
                   h.outcome === "twentyone" ||
+                  h.outcome === "bonus" ||
                   h.outcome === "blackjack";
                 return (
                   <motion.div
@@ -1007,9 +894,11 @@ export default function Spanish21() {
                         >
                           {h.outcome === "twentyone"
                             ? "21"
-                            : h.outcome === "blackjack"
-                              ? "BJ"
-                              : h.outcome}
+                            : h.outcome === "bonus"
+                              ? "21+"
+                              : h.outcome === "blackjack"
+                                ? "BJ"
+                                : h.outcome}
                         </span>
                       )}
                     </div>
@@ -1155,6 +1044,7 @@ export default function Spanish21() {
                   size="lg"
                   variant="felt"
                   data-testid="stand-btn"
+                  disabled={!canStand}
                   onClick={stand}
                 >
                   Stand
@@ -1217,8 +1107,8 @@ export default function Spanish21() {
             21 Bonuses
           </h3>
           <p className="mb-2 text-[10px] leading-relaxed text-white/45">
-            Paid on a winning 21 at the base-bet rate (kept even after doubling;
-            voided after a split).
+            Paid on a winning 21 at the base-bet rate (voided after a double or a
+            split).
           </p>
           <ul className="space-y-1 text-xs text-white/75">
             <PayRow label="5-card 21" value="3 : 2" />
@@ -1237,7 +1127,7 @@ export default function Spanish21() {
             <ul className="space-y-1 text-[11px] leading-relaxed text-white/55">
               <li>• A player total of 21 always wins.</li>
               <li>• Player blackjack beats dealer blackjack.</li>
-              <li>• Dealer hits soft 17.</li>
+              <li>• Dealer stands on all 17 (S17).</li>
               <li>• Double on any number of cards.</li>
               <li>• Split equal-rank pairs (up to 4 hands).</li>
             </ul>

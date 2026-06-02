@@ -10,6 +10,7 @@ import {
 } from "framer-motion";
 import { type Card, makeShoe, rankValue } from "@/lib/cards";
 import { useWallet } from "@/lib/wallet";
+import { usePlayRound } from "@/lib/playRound";
 import { formatChips, formatDelta } from "@/lib/format";
 import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
@@ -395,6 +396,8 @@ function BetSpot({
 
 export default function TeenPatti() {
   const wallet = useWallet();
+  const { start: roundStart, act: roundAct } = usePlayRound();
+  const roundIdRef = useRef<string | null>(null);
 
   const [boot, setBoot] = useState(DEFAULT_BOOT);
 
@@ -475,14 +478,19 @@ export default function TeenPatti() {
   // Deal — take the BOOT (ante), deal 3 to player (seen) + 3 to dealer (down)
   // -------------------------------------------------------------------------
 
-  const deal = () => {
+  const deal = async () => {
     if (phase !== "betting" || boot < MIN_BOOT) return;
-    if (!wallet.bet(boot)) return; // deducts the boot up-front
 
-    const shoe = makeShoe(1);
-    // Alternate-style deal: p0,d0,p1,d1,p2,d2
-    const p: Card[] = [shoe[0], shoe[2], shoe[4]];
-    const d: Card[] = [shoe[1], shoe[3], shoe[5]];
+    let handle;
+    try {
+      handle = await roundStart("teen-patti", boot, {}); // server debits the boot
+    } catch {
+      return;
+    }
+    roundIdRef.current = handle.roundId ?? null;
+    const p = handle.publicView.playerCards as Card[];
+    // Dealer cards stay hidden until play/fold; placeholders are never shown.
+    const d: Card[] = makeShoe(1).slice(0, 3) as Card[];
 
     setResolution(null);
     setBurst({ show: false, big: false });
@@ -512,10 +520,11 @@ export default function TeenPatti() {
   // -------------------------------------------------------------------------
 
   const resolveRound = useCallback(
-    (folded: boolean, playBet: number) => {
+    (folded: boolean, playBet: number, serverDealer: Card[]) => {
       const pCards = player.filter((c): c is Card => c !== null);
-      const dCards = dealer.filter((c): c is Card => c !== null);
+      const dCards = serverDealer;
       if (pCards.length !== 3 || dCards.length !== 3) return;
+      setDealer(serverDealer); // swap placeholders for the real (still face-down) cards
 
       const pRank = evaluateTeenPatti(pCards);
       const dRank = evaluateTeenPatti(dCards);
@@ -596,9 +605,8 @@ export default function TeenPatti() {
 
       // After the reveal lands, credit winnings and fire the result feedback.
       after(3 * 360 + 320, () => {
-        // Credit the gross return at the same moment the result becomes visible,
-        // so the balance counter does not jump during the dealer-flip animation.
-        if (totalReturn > 0) wallet.win(totalReturn);
+        // Balance is already settled server-side (applied when the round resolved);
+        // we only drive the visual reveal here — no client-side credit.
         setPhase("result");
         if (outcome === "win") {
           const big = net >= boot * 6;
@@ -613,25 +621,42 @@ export default function TeenPatti() {
         }
       });
     },
-    [player, dealer, boot, wallet, after],
+    [player, boot, after],
   );
 
-  const onPlay = () => {
+  const onPlay = async () => {
     if (phase !== "seen" || !playerSeen) return;
-    // Match the boot to stay in.
-    if (!wallet.bet(boot)) return; // can't afford → caller disables this
+    const rid = roundIdRef.current;
+    if (!rid) return;
     sfx.chip();
     setPlayStake(boot);
     setChipFlight((n) => n + 1);
     setPhase("revealing");
-    resolveRound(false, boot);
+    let handle;
+    try {
+      handle = await roundAct(rid, "play"); // server debits the matched boot + settles
+    } catch {
+      setPhase("seen");
+      setPlayStake(0);
+      return;
+    }
+    resolveRound(false, boot, handle.publicView.dealerCards as Card[]);
   };
 
-  const onFold = () => {
+  const onFold = async () => {
     if (phase !== "seen" || !playerSeen) return;
+    const rid = roundIdRef.current;
+    if (!rid) return;
     sfx.click();
     setPhase("revealing");
-    resolveRound(true, 0);
+    let handle;
+    try {
+      handle = await roundAct(rid, "fold");
+    } catch {
+      setPhase("seen");
+      return;
+    }
+    resolveRound(true, 0, handle.publicView.dealerCards as Card[]);
   };
 
   const nextRound = () => {

@@ -3,7 +3,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useWallet } from "@/lib/wallet";
-import { makeShoe, type Card, SUIT_SYMBOL, SUIT_COLOR } from "@/lib/cards";
+import { usePlayStateless } from "@/lib/playStateless";
+import { type Card, SUIT_SYMBOL } from "@/lib/cards";
 import { sfx } from "@/lib/sound";
 import { formatChips, formatDelta } from "@/lib/format";
 import { CountingNumber } from "@/components/CountingNumber";
@@ -82,6 +83,8 @@ function rankLabel(card: Card): string {
 
 export default function AndarBahar() {
   const wallet = useWallet();
+  const playRound = usePlayStateless();
+  const dealingRef = useRef(false);
 
   const [bet, setBet] = useState(DEFAULT_BET);
   const [pick, setPick] = useState<Side>("andar");
@@ -131,20 +134,11 @@ export default function AndarBahar() {
   // Exact value (no truncation) — wallet credits the exact return rounded to the cent.
   const pickPotential = bet * (isBetting ? 1.9 : pickMultiplier);
 
-  /* ---- Resolve a finished deal: credit wallet, set result text ---- */
-  const resolve = useCallback(
-    (
-      result: Outcome,
-      stake: number,
-      placedSide: Side,
-    ) => {
+  /* ---- Display a finished deal (money already settled by the server) ---- */
+  const applyResult = useCallback(
+    (result: Outcome, gross: number, stake: number, placedSide: Side) => {
       const won = result.winner === placedSide;
-      // Starting side pays 0.9:1, other side pays 1:1.
-      const mult = placedSide === result.startSide ? 1.9 : 2;
-      // Pass the EXACT return (stake*mult) — wallet.win() rounds to the cent.
-      const gross = won ? stake * mult : 0;
       const net = gross - stake;
-      if (gross > 0) wallet.win(gross);
 
       setOutcome(result);
       setNetDelta(net);
@@ -165,17 +159,14 @@ export default function AndarBahar() {
 
       setPhase("resolved");
     },
-    [wallet, after],
+    [after],
   );
 
-  /* ---- Begin a round: shuffle, draw joker, deal alternately ---- */
-  const startRound = useCallback(() => {
-    if (!isBetting || !affordable) return;
+  /* ---- Begin a round: the server (or guest demo) deals + resolves ---- */
+  const startRound = useCallback(async () => {
+    if (!isBetting || !affordable || dealingRef.current) return;
     const stake = bet;
-    if (!wallet.bet(stake)) {
-      sfx.lose();
-      return;
-    }
+    dealingRef.current = true;
     const placedSide = pick;
 
     // Reset table state.
@@ -188,21 +179,34 @@ export default function AndarBahar() {
     setShowBurst(false);
     setAndar([]);
     setBahar([]);
+    setJoker(null);
+    setJokerDown(true);
+    setPhase("dealing");
+    sfx.card();
 
-    // Fresh single-deck shoe each round.
-    const shoe = makeShoe(1);
-    // pop() returns Card | undefined; the deck is always 52 cards so this is safe.
-    const j = shoe.pop();
-    if (!j) { setPhase("betting"); return; }
+    let round;
+    try {
+      round = await playRound("andar-bahar", stake, { side: placedSide });
+    } catch {
+      dealingRef.current = false;
+      setPhase("betting");
+      sfx.lose();
+      return;
+    }
 
-    // Convention: black joker -> Andar deals first; red joker -> Bahar first.
-    const start: Side = SUIT_COLOR[j.suit] === "black" ? "andar" : "bahar";
+    const j = round.outcome.joker as Card;
+    const start = round.outcome.startSide as Side;
+    const sequence = round.outcome.sequence as DealtCard[];
+    const result: Outcome = {
+      winner: round.outcome.winner as Side,
+      joker: j,
+      startSide: start,
+      cards: Number(round.outcome.cards),
+    };
 
     setJoker(j);
     setJokerDown(true);
     setStartSide(start);
-    setPhase("dealing");
-    sfx.card();
 
     // Flip the joker face up.
     after(380, () => {
@@ -210,31 +214,7 @@ export default function AndarBahar() {
       sfx.card();
     });
 
-    // Pre-compute the full deal so animation timing is deterministic.
-    const sequence: DealtCard[] = [];
-    let side: Side = start;
-    let matchSide: Side = start;
-    let seq = 0;
-    // The remaining 51 cards guarantee a match exists (the other 3 of the rank).
-    for (const c of shoe) {
-      const isMatch = c.rank === j.rank;
-      sequence.push({ card: c, side, seq, isMatch });
-      seq++;
-      if (isMatch) {
-        matchSide = side;
-        break;
-      }
-      side = side === "andar" ? "bahar" : "andar";
-    }
-
-    const result: Outcome = {
-      winner: matchSide,
-      joker: j,
-      startSide: start,
-      cards: sequence.length,
-    };
-
-    // Schedule each card landing on its side.
+    // Schedule each server-dealt card landing on its side.
     let t = 720; // after the joker flip settles
     sequence.forEach((dc, i) => {
       after(t, () => {
@@ -246,9 +226,12 @@ export default function AndarBahar() {
       t += dealDelay(i);
     });
 
-    // After the final card lands, resolve.
-    after(t + 520, () => resolve(result, stake, placedSide));
-  }, [isBetting, affordable, bet, pick, wallet, after, resolve]);
+    // After the final card lands, show the result.
+    after(t + 520, () => {
+      dealingRef.current = false;
+      applyResult(result, round.payout, stake, placedSide);
+    });
+  }, [isBetting, affordable, bet, pick, playRound, after, applyResult]);
 
   const newRound = useCallback(() => {
     timers.current.forEach(clearTimeout);

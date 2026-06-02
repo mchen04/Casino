@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { kv, USER_KEY, type UserRecord } from "@/lib/kv";
 import { verifyPassword, hashPassword, createSession } from "@/lib/auth";
+import { getBalance, initBalance } from "@/lib/server/wallet";
 
 // Pre-hashed dummy to prevent timing attacks when username doesn't exist
 const DUMMY_HASH = await hashPassword("__dummy_password_never_matches__");
@@ -24,9 +25,17 @@ export async function POST(req: NextRequest) {
     }
 
     const token = await createSession(user.username);
-    const { passwordHash: _, ...publicUser } = user;
 
-    return NextResponse.json({ token, user: publicUser });
+    // Lazy one-time migration: seed the authoritative balance key from the
+    // legacy record if it doesn't exist yet (nx, so concurrent logins are safe).
+    let balance = await getBalance(user.username);
+    if (Number.isNaN(balance)) {
+      await initBalance(user.username, user.balance, true);
+      balance = user.balance;
+    }
+
+    const { passwordHash: _, ...publicUser } = user;
+    return NextResponse.json({ token, user: { ...publicUser, balance } });
   } catch {
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }

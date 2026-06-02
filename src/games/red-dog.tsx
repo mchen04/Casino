@@ -3,7 +3,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useWallet } from "@/lib/wallet";
-import { makeShoe, rankValue, type Card } from "@/lib/cards";
+import { usePlayRound } from "@/lib/playRound";
+import { rankValue, type Card } from "@/lib/cards";
 import { formatChips, formatDelta } from "@/lib/format";
 import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
@@ -63,6 +64,8 @@ const DEFAULT_CHIPS = [5, 25, 100, 500];
 
 export default function RedDog() {
   const wallet = useWallet();
+  const { start: roundStart, act: roundAct } = usePlayRound();
+  const roundIdRef = useRef<string | null>(null);
 
   const [ante, setAnte] = useState(25);
   const [phase, setPhase] = useState<Phase>("betting");
@@ -86,7 +89,6 @@ export default function RedDog() {
   const [resultText, setResultText] = useState("");
   const [winningTier, setWinningTier] = useState<number | null>(null);
 
-  const shoeRef = useRef<Card[]>([]);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   // Guard against rapid double-clicks before the phase state update commits.
   const dealing = useRef(false);
@@ -111,59 +113,14 @@ export default function RedDog() {
     return { low: Math.min(a, b), high: Math.max(a, b) };
   }, [left, right]);
 
-  const drawCard = useCallback((): Card => {
-    if (shoeRef.current.length < 5) shoeRef.current = makeShoe(1);
-    const c = shoeRef.current.pop();
-    // makeShoe(1) always yields 52 cards; fallback keeps types honest.
-    if (!c) {
-      shoeRef.current = makeShoe(1);
-      return shoeRef.current.pop() as Card;
-    }
-    return c;
-  }, []);
-
   // -------------------------------------------------------------------------
   // Round flow
   // -------------------------------------------------------------------------
 
-  const resolveBetween = useCallback(
-    (third: Card, sp: number, total: number) => {
-      const lo = sorted ? sorted.low : 0;
-      const hi = sorted ? sorted.high : 0;
-      const mid = rankValue(third.rank);
-      const between = mid > lo && mid < hi;
-      if (between) {
-        const ratio = ratioForSpread(sp);
-        const gross = total * (ratio + 1); // includes the stake
-        wallet.win(gross);
-        setPayout(gross);
-        setDelta(gross - total);
-        setOutcome("win");
-        setResultText(`Between! ${ratio}:1 — Win ${formatChips(gross - total)}`);
-        const tierIdx = SPREAD_TIERS.findIndex((t) =>
-          t.spread === 4 ? sp >= 4 : t.spread === sp,
-        );
-        setWinningTier(tierIdx);
-        if (gross - total >= total * 4) sfx.jackpot();
-        else sfx.win();
-      } else {
-        setPayout(0);
-        setDelta(-total);
-        setOutcome("lose");
-        setResultText(`Missed — ${third.rank} not between. Lost ${formatChips(total)}`);
-        sfx.lose();
-      }
-      dealing.current = false;
-      setPhase("resolved");
-    },
-    [sorted, wallet],
-  );
-
-  // Deal the third card for the between-case (after raise decision).
-  const dealThird = useCallback(
-    (total: number) => {
+  // Reveal the (server-committed) third card, then show the round result.
+  const revealThird = useCallback(
+    (third: Card, finishFn: () => void) => {
       setPhase("thirdDeal");
-      const third = drawCard();
       setMiddle(third);
       setMiddleDown(true);
       setShowMiddle(true);
@@ -172,74 +129,72 @@ export default function RedDog() {
         setMiddleDown(false);
         sfx.card();
       });
-      after(1180, () => {
-        resolveBetween(third, spread, total);
-      });
+      after(1180, finishFn);
     },
-    [after, drawCard, resolveBetween, spread],
+    [after],
   );
 
-  const handleRaise = useCallback(() => {
-    if (phase !== "decision") return;
-    if (dealing.current) return; // guard rapid double-clicks
-    // Player doubles the ante: place an equal additional wager.
-    if (!wallet.bet(ante)) return; // can't afford raise -> ignore
-    dealing.current = true;
-    sfx.chip();
-    setRaised(true);
-    dealThird(ante * 2);
-  }, [ante, dealThird, phase, wallet]);
-
-  const handleCall = useCallback(() => {
-    if (phase !== "decision") return;
-    if (dealing.current) return; // guard rapid double-clicks
-    dealing.current = true;
-    sfx.click();
-    dealThird(ante);
-  }, [ante, dealThird, phase]);
-
-  // Pair branch: deal third immediately, check for trips (11:1) else push.
-  // leftCard is passed explicitly to avoid reading stale `left` state from the closure.
-  const resolvePair = useCallback((leftCard: Card) => {
-    setPhase("thirdDeal");
-    const third = drawCard();
-    setMiddle(third);
-    setMiddleDown(true);
-    setShowMiddle(true);
-    sfx.card();
-    after(520, () => {
-      setMiddleDown(false);
-      sfx.card();
-    });
-    after(1180, () => {
-      const pairRank = rankValue(leftCard.rank);
-      const isTrips = rankValue(third.rank) === pairRank;
-      if (isTrips) {
-        const gross = ante * 12; // 11:1 on the ante (11 profit + stake)
-        wallet.win(gross);
-        setPayout(gross);
-        setDelta(gross - ante);
-        setOutcome("trips");
-        setResultText(`Three of a Kind! 11:1 — Win ${formatChips(gross - ante)}`);
-        sfx.jackpot();
+  // Player's raise/call decision — resolved server-side via /api/round.
+  const decide = useCallback(
+    async (action: "raise" | "call") => {
+      if (phase !== "decision" || dealing.current) return;
+      const rid = roundIdRef.current;
+      if (!rid) return;
+      dealing.current = true;
+      if (action === "raise") {
+        sfx.chip();
+        setRaised(true);
       } else {
-        wallet.win(ante); // push, ante returned
-        setPayout(ante);
-        setDelta(0);
-        setOutcome("push");
-        setResultText("Pair — no trips. Push, ante returned.");
-        sfx.thud();
+        sfx.click();
       }
-      dealing.current = false;
-      setPhase("resolved");
-    });
-  }, [after, ante, drawCard, wallet]);
 
-  const deal = useCallback(() => {
+      let handle;
+      try {
+        handle = await roundAct(rid, action);
+      } catch {
+        dealing.current = false;
+        setPhase("decision");
+        if (action === "raise") setRaised(false);
+        return;
+      }
+      const pv = handle.publicView;
+      const third = pv.third as Card;
+      const isWin = pv.outcome === "win";
+      const ratio = Number(pv.ratio);
+      const total = action === "raise" ? ante * 2 : ante;
+
+      revealThird(third, () => {
+        if (isWin) {
+          const gross = handle.payout ?? total * (ratio + 1);
+          setPayout(gross);
+          setDelta(gross - total);
+          setOutcome("win");
+          setResultText(`Between! ${ratio}:1 — Win ${formatChips(gross - total)}`);
+          const tierIdx = SPREAD_TIERS.findIndex((t) => (t.spread === 4 ? spread >= 4 : t.spread === spread));
+          setWinningTier(tierIdx);
+          if (gross - total >= total * 4) sfx.jackpot();
+          else sfx.win();
+        } else {
+          setPayout(0);
+          setDelta(-total);
+          setOutcome("lose");
+          setResultText(`Missed — ${third.rank} not between. Lost ${formatChips(total)}`);
+          sfx.lose();
+        }
+        dealing.current = false;
+        setPhase("resolved");
+      });
+    },
+    [phase, ante, spread, roundAct, revealThird],
+  );
+
+  const handleRaise = useCallback(() => void decide("raise"), [decide]);
+  const handleCall = useCallback(() => void decide("call"), [decide]);
+
+  const deal = useCallback(async () => {
     if (phase !== "betting" && phase !== "resolved") return;
     if (dealing.current) return; // guard rapid double-clicks
     if (ante <= 0 || ante > wallet.balance) return;
-    if (!wallet.bet(ante)) return; // unaffordable -> abort round
     dealing.current = true;
 
     // Reset table
@@ -256,10 +211,20 @@ export default function RedDog() {
     setMiddleDown(true);
     setShowMiddle(false);
 
-    if (shoeRef.current.length < 10) shoeRef.current = makeShoe(1);
+    // Server (logged-in) or guest local demo deals + commits the round.
+    let handle;
+    try {
+      handle = await roundStart("red-dog", ante, {});
+    } catch {
+      dealing.current = false;
+      setPhase("betting");
+      return;
+    }
+    const pv = handle.publicView;
+    const c1 = pv.card1 as Card;
+    const c2 = pv.card2 as Card;
+    roundIdRef.current = handle.roundId ?? null;
 
-    const c1 = drawCard();
-    const c2 = drawCard();
     setLeft(c1);
     setRight(c2);
     setLeftDown(true);
@@ -277,37 +242,49 @@ export default function RedDog() {
       sfx.card();
     });
 
-    // After both flips, evaluate the matchup.
     after(1550, () => {
-      const a = rankValue(c1.rank);
-      const b = rankValue(c2.rank);
-      const lo = Math.min(a, b);
-      const hi = Math.max(a, b);
-      const diff = hi - lo;
-
-      if (diff === 0) {
-        // Pair -> deal a third card. Pass c1 directly to avoid stale `left` state.
-        sfx.tick();
-        resolvePair(c1);
-      } else if (diff === 1) {
-        // Consecutive -> immediate push.
-        wallet.win(ante);
-        setPayout(ante);
-        setDelta(0);
-        setOutcome("push");
-        setResultText("Consecutive cards — Push, ante returned.");
-        sfx.thud();
-        dealing.current = false;
-        setPhase("resolved");
+      if (pv.outcome) {
+        // Resolved at the deal: pair (trips/push) or consecutive (push).
+        const third = pv.third as Card | undefined;
+        if (third) {
+          sfx.tick();
+          revealThird(third, () => {
+            if (pv.outcome === "trips") {
+              const gross = ante * 12;
+              setPayout(gross);
+              setDelta(gross - ante);
+              setOutcome("trips");
+              setResultText(`Three of a Kind! 11:1 — Win ${formatChips(gross - ante)}`);
+              sfx.jackpot();
+            } else {
+              setPayout(ante);
+              setDelta(0);
+              setOutcome("push");
+              setResultText("Pair — no trips. Push, ante returned.");
+              sfx.thud();
+            }
+            dealing.current = false;
+            setPhase("resolved");
+          });
+        } else {
+          setPayout(ante);
+          setDelta(0);
+          setOutcome("push");
+          setResultText("Consecutive cards — Push, ante returned.");
+          sfx.thud();
+          dealing.current = false;
+          setPhase("resolved");
+        }
       } else {
-        const sp = diff - 1;
+        // Spread → raise/call decision.
+        const sp = Number(pv.spread);
         setSpread(sp);
         dealing.current = false;
         setPhase("decision");
         sfx.tick();
       }
     });
-  }, [after, ante, drawCard, phase, resolvePair, wallet]);
+  }, [after, ante, phase, wallet.balance, roundStart, revealThird]);
 
   // -------------------------------------------------------------------------
   // Derived display values

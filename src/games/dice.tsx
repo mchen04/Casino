@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useWallet } from "@/lib/wallet";
+import { usePlayStateless } from "@/lib/playStateless";
 import { randFloat, clamp } from "@/lib/rng";
 import { formatChips, formatDelta, formatMultiplier } from "@/lib/format";
 import { sfx } from "@/lib/sound";
@@ -102,7 +103,8 @@ function StatTile({
 }
 
 export default function Dice() {
-  const { balance, bet: placeBet, win, ready } = useWallet();
+  const { balance, ready } = useWallet();
+  const playRound = usePlayStateless();
 
   const [bet, setBet] = useState(50);
   const [target, setTarget] = useState(50);
@@ -124,6 +126,9 @@ export default function Dice() {
     isMountedRef.current = true;
     return () => { isMountedRef.current = false; };
   }, []);
+  // Synchronous re-entrancy guard: blocks a double-fire before React re-renders
+  // the disabled state, so one click = one server wager.
+  const rollingRef = useRef(false);
 
   const busy = phase === "rolling";
   const betLocked = busy;
@@ -147,21 +152,34 @@ export default function Dice() {
   // Core roll.
   // -------------------------------------------------------------------------
   const roll = useCallback(async () => {
-    if (busy) return;
+    if (busy || rollingRef.current) return;
     if (!canAfford) return;
+    rollingRef.current = true;
 
-    // Snapshot the wager terms before deducting.
+    // Snapshot the wager terms.
     const stake = bet;
     const t = target;
     const m = mode;
-    const mult = payoutFor(t, m);
-
-    if (!placeBet(stake)) return; // unaffordable → abort
 
     setResult(null);
     setPhase("rolling");
     setRollKey((k) => k + 1);
     sfx.thud();
+
+    // Server (logged-in) or local guest demo decides the roll + payout. Money is
+    // settled inside playRound; we only animate toward the returned outcome.
+    let round;
+    try {
+      round = await playRound("dice", stake, { target: t, mode: m });
+    } catch {
+      rollingRef.current = false;
+      setPhase("idle");
+      return;
+    }
+
+    const finalRoll = Number(round.outcome.roll);
+    const won = Boolean(round.outcome.won);
+    const mult = Number(round.outcome.multiplier);
 
     // Anticipation: skitter the marker across the track with quick ticks while
     // the "physics" settle. We show transient random values then lock the real one.
@@ -177,19 +195,16 @@ export default function Dice() {
 
     if (!isMountedRef.current) return;
 
-    // The real, committed outcome.
-    const final = randFloat(0, 100);
-    setRollValue(final);
+    // The real, committed (server-authoritative) outcome.
+    setRollValue(finalRoll);
     await sleep(560); // let the marker glide & settle
 
     if (!isMountedRef.current) return;
 
-    const won = m === "over" ? final > t : final < t;
-    const gross = won ? stake * mult : 0;
-    const delta = won ? gross - stake : -stake;
+    const delta = won ? round.payout - stake : -stake;
 
     const res: RollResult = {
-      roll: final,
+      roll: finalRoll,
       target: t,
       mode: m,
       won,
@@ -200,7 +215,6 @@ export default function Dice() {
     setHistory((h) => [res, ...h].slice(0, 16));
 
     if (won) {
-      win(gross);
       setBurst((b) => b + 1);
       if (mult >= 8) sfx.jackpot();
       else sfx.win();
@@ -209,7 +223,8 @@ export default function Dice() {
     }
 
     setPhase("resolved");
-  }, [busy, canAfford, bet, target, mode, placeBet, win]);
+    rollingRef.current = false;
+  }, [busy, canAfford, bet, target, mode, playRound]);
 
   const newRound = useCallback(() => {
     setPhase("idle");

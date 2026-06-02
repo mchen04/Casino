@@ -16,6 +16,7 @@ import {
   type HandRank,
 } from "@/lib/cards";
 import { useWallet } from "@/lib/wallet";
+import { usePlayRound } from "@/lib/playRound";
 import { formatChips, formatDelta } from "@/lib/format";
 import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
@@ -233,6 +234,8 @@ function BetSpot({
 export default function LetItRide() {
   const wallet = useWallet();
   const { balance, ready } = wallet;
+  const { start: roundStart, act: roundAct } = usePlayRound();
+  const roundIdRef = useRef<string | null>(null);
 
   const [unit, setUnit] = useState(25);
   const [phase, setPhase] = useState<Phase>("betting");
@@ -278,10 +281,17 @@ export default function LetItRide() {
   const canAfford = balance >= totalWager;
 
   /* ------------------------------ deal ------------------------------ */
-  const startRound = useCallback(() => {
+  const startRound = useCallback(async () => {
     if (inRound) return;
     if (unit < MIN_BET) return;
-    if (!wallet.bet(totalWager)) return; // deduct all 3 bets up front
+
+    let handle;
+    try {
+      handle = await roundStart("let-it-ride", unit, {}); // server debits all 3 bets
+    } catch {
+      return;
+    }
+    roundIdRef.current = handle.roundId ?? null;
 
     // reset
     timers.current.forEach(clearTimeout);
@@ -294,13 +304,14 @@ export default function LetItRide() {
     setCommRevealed([false, false]);
     setDealt(0);
 
-    const shoe = makeShoe(1);
-    const p = [shoe[0], shoe[1], shoe[2]];
-    const c = [shoe[3], shoe[4]];
-    finalRef.current = { player: p, community: c };
+    const p = handle.publicView.playerCards as Card[];
+    // Community cards stay hidden on the server until each decision reveals one;
+    // use placeholders (never shown until the real card arrives).
+    const placeholder = makeShoe(1).slice(0, 2) as Card[];
+    finalRef.current = { player: p, community: placeholder };
 
     setPlayer(p);
-    setCommunity(c); // present but face-down until revealed
+    setCommunity(placeholder); // face-down until revealed
     setPhase("dealing");
 
     // Fly player cards in one by one.
@@ -311,7 +322,7 @@ export default function LetItRide() {
       });
     });
     after(220 + 3 * 230 + 200, () => setPhase("decision1"));
-  }, [inRound, unit, totalWager, wallet, after]);
+  }, [inRound, unit, roundStart, after]);
 
   /* ---------------------------- resolve ----------------------------- */
   const resolve = useCallback(
@@ -339,9 +350,8 @@ export default function LetItRide() {
         gross += stakeInPlay * (mult + 1);
         isWin = true;
       }
-      // loss on remaining bets: those chips are gone (credit nothing for them)
-
-      if (gross > 0) wallet.win(gross);
+      // Balance already settled server-side on the final decision; this block only
+      // recomputes the same numbers locally to drive the result display.
 
       const net = gross - totalWager;
       setResolution({
@@ -364,49 +374,75 @@ export default function LetItRide() {
       }
       setPhase("resolved");
     },
-    [unit, totalWager, wallet],
+    [unit, totalWager],
   );
 
   /* --------------------------- decisions ---------------------------- */
   // bet 1 decision (after seeing 3 player cards)
   const decideBet1 = useCallback(
-    (letRide: boolean) => {
+    async (letRide: boolean) => {
       if (phase !== "decision1") return;
+      const rid = roundIdRef.current;
+      if (!rid) return;
+      setPhase("reveal1");
       sfx.chip();
+      let handle;
+      try {
+        handle = await roundAct(rid, letRide ? "ride1" : "pull1");
+      } catch {
+        setPhase("decision1");
+        return;
+      }
       if (!letRide) {
         bet1ActiveRef.current = false;
         setBets((b) => [{ active: false }, b[1], b[2]]);
         sfx.thud();
       }
-      setPhase("reveal1");
+      // Swap in the real first community card the server just revealed.
+      const c0 = (handle.publicView.community as Card[])[0];
+      if (finalRef.current) finalRef.current.community[0] = c0;
+      setCommunity((c) => [c0, c[1]]);
       after(80, () => {
         sfx.card();
         setCommRevealed([true, false]);
       });
       after(620, () => setPhase("decision2"));
     },
-    [phase, after],
+    [phase, roundAct, after],
   );
 
   // bet 2 decision (after first community card)
   const decideBet2 = useCallback(
-    (letRide: boolean) => {
+    async (letRide: boolean) => {
       if (phase !== "decision2") return;
+      const rid = roundIdRef.current;
+      if (!rid) return;
+      setPhase("reveal2");
       sfx.chip();
+      let handle;
+      try {
+        handle = await roundAct(rid, letRide ? "ride2" : "pull2"); // server settles
+      } catch {
+        setPhase("decision2");
+        return;
+      }
       if (!letRide) sfx.thud();
       setBets((b): [BetSlot, BetSlot, BetSlot] => [
         b[0],
         letRide ? b[1] : { active: false },
         b[2],
       ]);
-      setPhase("reveal2");
+      // Real full community from the server — resolve() reads it via finalRef.
+      const serverComm = handle.publicView.community as Card[];
+      if (finalRef.current) finalRef.current.community = serverComm;
+      setCommunity(serverComm);
       after(80, () => {
         sfx.card();
         setCommRevealed([true, true]);
       });
       after(720, () => resolve(letRide));
     },
-    [phase, after, resolve],
+    [phase, roundAct, after, resolve],
   );
 
   /* --------------------------- next round --------------------------- */

@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useWallet } from "@/lib/wallet";
-import { randInt } from "@/lib/rng";
+import { usePlayStateless } from "@/lib/playStateless";
 import { sfx } from "@/lib/sound";
 import { formatChips, formatDelta } from "@/lib/format";
 import { CountingNumber } from "@/components/CountingNumber";
@@ -129,18 +129,6 @@ function settleBet(key: BetKey, r: RollResult): number {
   return 0;
 }
 
-function rollDice(): RollResult {
-  const dice: [Die, Die, Die] = [
-    randInt(1, 6) as Die,
-    randInt(1, 6) as Die,
-    randInt(1, 6) as Die,
-  ];
-  const counts: Record<Die, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
-  for (const d of dice) counts[d] += 1;
-  const total = dice[0] + dice[1] + dice[2];
-  const isTriple = dice[0] === dice[1] && dice[1] === dice[2];
-  return { dice, total, counts, isTriple, tripleFace: isTriple ? dice[0] : null };
-}
 
 /* ---- Pip layouts for dice faces ------------------------------------------ */
 // 3x3 grid positions (col,row 0..2). Each face lights specific cells.
@@ -428,6 +416,8 @@ function WinBurst() {
 
 export default function SicBo() {
   const wallet = useWallet();
+  const playRound = usePlayStateless();
+  const rollingRef = useRef(false);
 
   const [bets, setBets] = useState<Record<BetKey, number>>({});
   const [chip, setChip] = useState(25);
@@ -489,22 +479,19 @@ export default function SicBo() {
     setBets({});
   }, [isBetting]);
 
-  const { win: walletWin, bet: walletBet } = wallet;
   const resolve = useCallback(
-    (r: RollResult, stake: number, placed: Record<BetKey, number>) => {
-      let gross = 0;
+    (r: RollResult, gross: number, stake: number, placed: Record<BetKey, number>) => {
+      // Money already settled server-side; recompute winners for the highlight.
       const winners = new Set<BetKey>();
       let topMult = 0;
       for (const [key, amt] of Object.entries(placed)) {
         if (amt <= 0) continue;
         const mult = settleBet(key, r);
         if (mult > 0) {
-          gross += amt * mult;
           winners.add(key);
           topMult = Math.max(topMult, mult);
         }
       }
-      if (gross > 0) walletWin(gross);
 
       const net = gross - stake;
       setResult(r);
@@ -530,17 +517,15 @@ export default function SicBo() {
         sfx.thud();
       }
       setPhase("resolved");
+      rollingRef.current = false;
     },
-    [walletWin, after],
+    [after],
   );
 
-  const roll = useCallback(() => {
-    if (!canRoll) return;
+  const roll = useCallback(async () => {
+    if (!canRoll || rollingRef.current) return;
+    rollingRef.current = true;
     const stake = totalStake;
-    if (!walletBet(stake)) {
-      sfx.lose();
-      return;
-    }
     const placed = { ...bets };
     setLastStake(stake);
     setNetDelta(0);
@@ -548,16 +533,38 @@ export default function SicBo() {
     setResultText("");
     setShowBurst(false);
     setWinningKeys(new Set());
-
-    const r = rollDice();
-    setDice(r.dice);
     setPhase("rolling");
     sfx.thud();
+
+    // Server (logged-in) or local guest demo rolls the dice + settles.
+    let round;
+    try {
+      round = await playRound("sic-bo", stake, { bets: placed });
+    } catch {
+      rollingRef.current = false;
+      setPhase("betting");
+      sfx.lose();
+      return;
+    }
+
+    const o = round.outcome;
+    const diceArr = o.dice as [Die, Die, Die];
+    const counts: Record<Die, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
+    for (const d of diceArr) counts[d] += 1;
+    const r: RollResult = {
+      dice: diceArr,
+      total: Number(o.total),
+      counts,
+      isTriple: Boolean(o.isTriple),
+      tripleFace: (o.tripleFace as Die | null) ?? null,
+    };
+    setDice(r.dice);
+
     // tick clatter while the dice tumble
     [120, 280, 440, 620, 800].forEach((t) => after(t, () => sfx.tick()));
     // settle once the tumble settles
-    after(1180, () => resolve(r, stake, placed));
-  }, [canRoll, totalStake, walletBet, bets, after, resolve]);
+    after(1180, () => resolve(r, round.payout, stake, placed));
+  }, [canRoll, totalStake, bets, after, resolve, playRound]);
 
   const newRound = useCallback(() => {
     timers.current.forEach(clearTimeout);

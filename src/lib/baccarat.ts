@@ -2,7 +2,7 @@
 // official third-card drawing tableau / coup resolution. No React, wallet,
 // DOM, or animation — just the math, given a shoe slice to consume.
 
-import { type Card, type Rank } from "@/lib/cards";
+import { type Card, type Rank } from "./cards";
 
 /** Baccarat point value of a single card. A=1, 2-9 face, 10/J/Q/K = 0. */
 export function baccaratValue(rank: Rank): number {

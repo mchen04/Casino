@@ -9,7 +9,7 @@ import React, {
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useWallet } from "@/lib/wallet";
-import { chance } from "@/lib/rng";
+import { usePlayStateless } from "@/lib/playStateless";
 import { formatChips, formatDelta, formatMultiplier } from "@/lib/format";
 import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
@@ -170,6 +170,8 @@ interface Ball {
   bucket: number;
   mult: number;
   stake: number;
+  /** Server-authoritative gross return for this ball (0 on a sub-1× bucket). */
+  payout: number;
   resolved: boolean;
 }
 
@@ -185,7 +187,15 @@ function easeSide(t: number): number {
   return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 }
 
-function buildBall(geom: BoardGeom, risk: Risk, stake: number): Ball {
+function buildBall(
+  geom: BoardGeom,
+  risk: Risk,
+  stake: number,
+  bounces: boolean[],
+  bucket: number,
+  mult: number,
+  payout: number,
+): Ball {
   const { rows } = geom;
   const path: Pt[] = [];
   const segDur: number[] = [];
@@ -193,26 +203,15 @@ function buildBall(geom: BoardGeom, risk: Risk, stake: number): Ball {
   // Start dead-center, just above the top peg.
   path.push({ x: 0.5, y: TOP_PAD * 0.25 });
 
-  // Fair 50/50 per peg. offset walks ±1 half-gap per row; the ball is drawn
-  // sitting on the peg it strikes in each row.
+  // Walk the SERVER-decided bounce sequence so the animated trajectory lands in
+  // the exact bucket the server paid out on.
   let offset = 0; // ball sits on the single peg at offset 0 in row 0
-  let rights = 0;
   for (let r = 0; r < rows; r++) {
-    // The peg struck in row r is at the ball's current offset.
     path.push({ x: geom.xForOffset(offset), y: geom.rowY(r) });
     segDur.push(118 + r * 5); // accelerating fall
-    // Decide left/right off this peg.
-    const right = chance(0.5);
-    if (right) {
-      rights += 1;
-      offset += 1;
-    } else {
-      offset -= 1;
-    }
+    if (bounces[r]) offset += 1;
+    else offset -= 1;
   }
-
-  const bucket = rights; // = number of right bounces
-  const mult = PAYOUTS[rows as RowCount][risk][bucket] ?? 1;
 
   // Drop into the bucket, bounce once, settle.
   const bx = geom.bucketX(bucket);
@@ -235,6 +234,7 @@ function buildBall(geom: BoardGeom, risk: Risk, stake: number): Ball {
     bucket,
     mult,
     stake,
+    payout,
     resolved: false,
   };
 }
@@ -335,7 +335,8 @@ interface ResultLog {
 }
 
 export default function Plinko() {
-  const { balance, bet: placeBet, win, ready } = useWallet();
+  const { balance, ready } = useWallet();
+  const playRound = usePlayStateless();
 
   const [bet, setBet] = useState(25);
   const [rows, setRows] = useState<RowCount>(12);
@@ -372,8 +373,8 @@ export default function Plinko() {
   // -------------------------------------------------------------------------
   const resolveBall = useCallback(
     (b: Ball) => {
-      const gross = b.stake * b.mult;
-      if (gross > 0) win(gross);
+      // Money was already settled server-side at drop time; just animate/log it.
+      const gross = b.payout;
       const delta = gross - b.stake;
       const log: ResultLog = { id: b.id, bucket: b.bucket, mult: b.mult, delta };
       setLastResult(log);
@@ -400,7 +401,7 @@ export default function Plinko() {
         sfx.thud();
       }
     },
-    [win],
+    [],
   );
 
   // -------------------------------------------------------------------------
@@ -472,13 +473,22 @@ export default function Plinko() {
   // -------------------------------------------------------------------------
   // Drop a ball.
   // -------------------------------------------------------------------------
-  const drop = useCallback(() => {
+  const drop = useCallback(async () => {
     if (!canAfford) return;
-    if (!placeBet(bet)) return;
     sfx.chip();
-    const ball = buildBall(geom, risk, bet);
+    // Server (logged-in) or local guest demo decides the bounce path + payout.
+    let round;
+    try {
+      round = await playRound("plinko", bet, { rows, risk });
+    } catch {
+      return;
+    }
+    const bounces = round.outcome.bounces as boolean[];
+    const bucket = Number(round.outcome.bucket);
+    const mult = Number(round.outcome.multiplier);
+    const ball = buildBall(geom, risk, round.bet, bounces, bucket, mult, round.payout);
     setBalls((bs) => [...bs, ball]);
-  }, [canAfford, placeBet, bet, geom, risk]);
+  }, [canAfford, bet, rows, risk, geom, playRound]);
 
   // Lock row/risk edits only while balls are in flight (bet itself is locked
   // mid-flight too, so each ball uses a consistent stake/board).

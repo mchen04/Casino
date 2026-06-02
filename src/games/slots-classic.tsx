@@ -14,6 +14,7 @@ import React, {
 } from "react";
 import { motion, AnimatePresence, useMotionValue, animate } from "framer-motion";
 import { useWallet } from "@/lib/wallet";
+import { usePlayStateless } from "@/lib/playStateless";
 import { BetControls } from "@/components/BetControls";
 import { Button } from "@/components/ui/Button";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
@@ -387,6 +388,9 @@ const BUY_MULT = 10;
 
 export default function LuckySevens() {
   const wallet = useWallet();
+  const playRound = usePlayStateless();
+  const serverAuthoritative = wallet.serverAuthoritative;
+  const spinGuardRef = useRef(false);
   const [bet, setBet] = useState(50);
   const [phase, setPhase] = useState<GamePhase>("idle");
 
@@ -440,24 +444,45 @@ export default function LuckySevens() {
   // to avoid stale-closure bugs where the captured doSpin sees stale phase/bet.
   const doSpinRef = useRef<() => void>(() => undefined);
 
-  const doSpin = useCallback(() => {
-    if (phase === "spinning") return;
+  const doSpin = useCallback(async () => {
+    if (phase === "spinning" || spinGuardRef.current) return;
     if (!wallet.ready) return;
-    // Bonus spins are pre-paid by the buy — they don't draw from the wallet and
-    // they consume one of the remaining bought spins.
+    spinGuardRef.current = true;
+    // Bonus spins are pre-paid by the buy (guest-only) — they consume one of the
+    // remaining bought spins and don't hit the server.
     const isBonus = bonusLeftRef.current > 0;
+
+    let line: SymKey[];
+    let result: Outcome;
+    let gross: number;
+
     if (isBonus) {
       bonusLeftRef.current -= 1;
+      line = [spinSymbol(), spinSymbol(), spinSymbol()];
+      result = evaluateLine(line);
+      gross = bet * result.multiplier * buyMultRef.current;
     } else {
       if (bet < MIN_BET || bet > wallet.balance) {
         setAutoSpin(false);
+        spinGuardRef.current = false;
         return;
       }
-      // Take the stake first. Abort if unaffordable.
-      if (!wallet.bet(bet)) {
+      // Server (logged-in) or local guest demo decides the line + payout.
+      let round;
+      try {
+        round = await playRound("slots-classic", bet, {});
+      } catch {
         setAutoSpin(false);
+        spinGuardRef.current = false;
         return;
       }
+      line = round.outcome.line as SymKey[];
+      result = {
+        multiplier: Number(round.outcome.multiplier),
+        label: round.outcome.label as string,
+        tier: round.outcome.tier as Outcome["tier"],
+      };
+      gross = round.payout;
     }
 
     clearTimers();
@@ -467,13 +492,8 @@ export default function LuckySevens() {
     setWinReels([false, false, false]);
     setPhase("spinning");
 
-    // Decide the final results up-front using weightedPick per reel.
-    const line: SymKey[] = [spinSymbol(), spinSymbol(), spinSymbol()];
-    const next: SymKey[][] = line.map((mid) => [
-      spinSymbol(),
-      mid,
-      spinSymbol(),
-    ]);
+    // Build the resting windows from the decided line; top/bot are cosmetic.
+    const next: SymKey[][] = line.map((mid) => [spinSymbol(), mid, spinSymbol()]);
     setWindows(next);
     setReelPhase(["spinning", "spinning", "spinning"]);
     sfx.tick();
@@ -497,53 +517,40 @@ export default function LuckySevens() {
 
     // Resolve shortly after the last reel settles.
     const resolveT = setTimeout(() => {
-      // Stop tick interval.
       if (tickIvRef.current !== null) {
         clearInterval(tickIvRef.current);
         tickIvRef.current = null;
       }
-      const result = evaluateLine(line);
-      // Bonus spins multiply the win; normal spins use ×1.
-      const gross =
-        bet * result.multiplier * (isBonus ? buyMultRef.current : 1); // x includes stake
       setOutcome(result);
       setWinReels(winningReels(line, result));
       setPhase("resolved");
 
       if (gross > 0) {
-        wallet.win(gross);
         setPayout(gross);
-        // On bonus spins the stake wasn't deducted this spin (it was pre-paid
-        // by the buy), so the net delta is the full gross, not gross − bet.
         setLastDelta(isBonus ? gross : gross - bet);
-        if (result.tier === "jackpot" || result.tier === "big") {
-          sfx.jackpot();
-        } else {
-          sfx.win();
-        }
+        if (result.tier === "jackpot" || result.tier === "big") sfx.jackpot();
+        else sfx.win();
       } else {
         setPayout(0);
-        // No stake was deducted on a bonus spin, so a loss nets zero this spin.
         setLastDelta(isBonus ? 0 : -bet);
         sfx.lose();
       }
 
+      spinGuardRef.current = false;
+
       // Continuation — keep going while auto-spin is on OR bonus spins remain.
-      // Uses the ref to always call the latest doSpin (avoids the stale-closure
-      // bug where the captured closure sees phase === "spinning" and bails).
       if (autoRef.current || bonusLeftRef.current > 0) {
         const again = setTimeout(() => {
           if (autoRef.current || bonusLeftRef.current > 0) doSpinRef.current();
         }, 1400);
         timers.current.push(again);
       } else if (isBonus) {
-        // The bought bonus round just finished — clear the multiplier.
         buyMultRef.current = 1;
         setBonusActive(false);
       }
     }, stopTimes[2] + 520);
     timers.current.push(resolveT);
-  }, [bet, phase, wallet, clearTimers]);
+  }, [bet, phase, wallet, clearTimers, playRound]);
 
   // Keep the ref in sync with the latest doSpin every render.
   doSpinRef.current = doSpin;
@@ -826,10 +833,16 @@ export default function LuckySevens() {
             data-testid="buy-bonus-btn"
             size="lg"
             variant="ghost"
-            disabled={!wallet.ready || spinning || bonusActive || buyCost > balance}
+            disabled={
+              !wallet.ready || spinning || bonusActive || buyCost > balance || serverAuthoritative
+            }
             onClick={handleBuy}
             className="border border-amber-300/50 text-amber-200"
-            title={`Buy ${BUY_SPINS} spins at ${BUY_MULT}× for ${BUY_COST_MULT}× your bet`}
+            title={
+              serverAuthoritative
+                ? "Buy Bonus is available in the guest demo"
+                : `Buy ${BUY_SPINS} spins at ${BUY_MULT}× for ${BUY_COST_MULT}× your bet`
+            }
           >
             {bonusActive
               ? `BONUS · ${bonusLeftRef.current}`

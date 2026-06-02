@@ -9,12 +9,13 @@ import React, {
 } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useWallet } from "@/lib/wallet";
+import { usePlayRound } from "@/lib/playRound";
 import { BetControls } from "@/components/BetControls";
 import { Button } from "@/components/ui/Button";
 import { formatChips, formatMultiplier, formatDelta } from "@/lib/format";
 import { sfx } from "@/lib/sound";
 import { clamp } from "@/lib/rng";
-import { HOUSE_EDGE, rollMultiplier, toCrashPoint } from "@/lib/cryptoGames";
+import { HOUSE_EDGE } from "@/lib/cryptoGames";
 import { CollapsiblePanel } from "@/components/CollapsiblePanel";
 import { Celebration } from "@/components/Celebration";
 
@@ -89,6 +90,7 @@ const PARTICLE_DIRS = Array.from({ length: 18 }, (_, i) => {
 
 export default function Crash() {
   const wallet = useWallet();
+  const { start: roundStart, act: roundAct } = usePlayRound();
 
   const [bet, setBet] = useState(50);
   const [phase, setPhase] = useState<Phase>("idle");
@@ -105,7 +107,6 @@ export default function Crash() {
   // Refs for the rAF loop (avoid stale closures).
   const rafRef = useRef<number | null>(null);
   const startRef = useRef(0);
-  const crashRef = useRef(0);
   const stakeRef = useRef(0);
   const cashedRef = useRef(false);
   const autoRef = useRef<{ on: boolean; target: number }>({ on: false, target: 2 });
@@ -115,6 +116,12 @@ export default function Crash() {
   // cash-out handler always read the latest value without stale-closure risk.
   const multiplierRef = useRef(1);
   const shakeTimerRef = useRef<number | null>(null);
+  // Server round id for this flight, and a ref to the latest `settle` so the rAF
+  // loop can trigger an auto-cashout without a declaration cycle.
+  const roundIdRef = useRef<string | null>(null);
+  const settleRef = useRef<(claimed: number) => void>(() => {});
+  // Safety cap so the climb can't run unbounded if the player never cashes out.
+  const MAX_MULT = 100_000;
 
   const ready = wallet.ready;
   const canAfford = bet > 0 && bet <= wallet.balance;
@@ -138,70 +145,123 @@ export default function Crash() {
     [stopLoop],
   );
 
-  /** Resolve the round when the rocket explodes (no cash-out). */
-  const bust = useCallback((point: number) => {
-    stopLoop();
-    cashedRef.current = true; // lock further cash-outs
-    setMultiplier(point);
-    setPhase("crashed");
-    setLastProfit(-stakeRef.current);
-    setShake(true);
-    sfx.lose();
-    sfx.thud();
-    if (shakeTimerRef.current) clearTimeout(shakeTimerRef.current);
-    shakeTimerRef.current = window.setTimeout(() => setShake(false), 520);
-    setHistory((h) =>
-      [{ id: ++histIdRef.current, point, cashed: false }, ...h].slice(0, 18),
-    );
-  }, [stopLoop]);
+  /**
+   * Schedule the rAF climb. The crash point lives ONLY on the server, so the
+   * loop merely climbs (m = GROWTH ^ elapsed) and fires an auto-cashout at the
+   * target; a bust is revealed by the server when the player settles. A safety
+   * cap forces a settle if the climb is left running.
+   */
+  const startClimb = useCallback(() => {
+    const tick = (now: number) => {
+      const elapsed = (now - startRef.current) / 1000;
+      const m = Math.pow(GROWTH_RATE, elapsed);
+      if (Math.floor(m * 4) > Math.floor(lastTickRef.current * 4)) sfx.tick();
+      lastTickRef.current = m;
 
-  /** Cash out at the current (or supplied) multiplier — a win. */
-  const cashOut = useCallback(
-    (atMultiplier: number) => {
+      const auto = autoRef.current;
+      if (!cashedRef.current && auto.on && auto.target > 1 && m >= auto.target) {
+        settleRef.current(auto.target);
+        return;
+      }
+      if (m >= MAX_MULT) {
+        settleRef.current(MAX_MULT);
+        return;
+      }
+      multiplierRef.current = m;
+      setMultiplier(m);
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+  }, []);
+
+  /**
+   * Lock in the round: send the claimed multiplier to the server, which pays
+   * stake × m if m < the hidden crash point, else reveals the bust. The balance
+   * is updated authoritatively by the round hook — we never credit locally.
+   */
+  const settle = useCallback(
+    async (claimed: number) => {
       if (cashedRef.current) return;
       cashedRef.current = true;
       setCashoutFired(true);
       stopLoop();
-      const m = atMultiplier;
-      const gross = stakeRef.current * m; // multiplier already includes stake
-      wallet.win(gross);
-      const profit = gross - stakeRef.current;
-      setCashedAt(m);
-      multiplierRef.current = m;
-      setMultiplier(m);
-      setLastProfit(profit);
-      setPhase("cashed");
-      if (m >= 10) sfx.jackpot();
-      else sfx.win();
-      setHistory((h) =>
-        [{ id: ++histIdRef.current, point: m, cashed: true }, ...h].slice(0, 18),
-      );
+      const rid = roundIdRef.current;
+      if (!rid) return;
+
+      let handle;
+      try {
+        handle = await roundAct(rid, "cashout", { multiplier: Math.max(1, claimed) });
+      } catch {
+        // Network hiccup — keep the flight live and let the player try again.
+        cashedRef.current = false;
+        setCashoutFired(false);
+        startClimb();
+        return;
+      }
+
+      const pv = handle.publicView as { busted: boolean; crashPoint: number; multiplier: number };
+      if (pv.busted) {
+        setMultiplier(pv.crashPoint);
+        setCrashPoint(pv.crashPoint);
+        setPhase("crashed");
+        setLastProfit(-stakeRef.current);
+        setShake(true);
+        sfx.lose();
+        sfx.thud();
+        if (shakeTimerRef.current) clearTimeout(shakeTimerRef.current);
+        shakeTimerRef.current = window.setTimeout(() => setShake(false), 520);
+        setHistory((h) =>
+          [{ id: ++histIdRef.current, point: pv.crashPoint, cashed: false }, ...h].slice(0, 18),
+        );
+      } else {
+        const m = pv.multiplier;
+        setCashedAt(m);
+        multiplierRef.current = m;
+        setMultiplier(m);
+        setLastProfit((handle.payout ?? 0) - stakeRef.current);
+        setPhase("cashed");
+        if (m >= 10) sfx.jackpot();
+        else sfx.win();
+        setHistory((h) =>
+          [{ id: ++histIdRef.current, point: m, cashed: true }, ...h].slice(0, 18),
+        );
+      }
     },
-    [stopLoop, wallet],
+    [stopLoop, roundAct, startClimb],
   );
+
+  // Keep settleRef pointed at the latest settle for the rAF loop to call.
+  useEffect(() => {
+    settleRef.current = settle;
+  }, [settle]);
 
   // Keep auto config in a ref so the loop reads live values.
   useEffect(() => {
     autoRef.current = { on: autoEnabled, target: autoTarget };
   }, [autoEnabled, autoTarget]);
 
-  const launch = useCallback(() => {
+  const launch = useCallback(async () => {
     // Only allow launch from idle state — not from running, cashed, or crashed.
     if (phase !== "idle") return;
     if (!ready) return;
     const stake = Math.floor(bet);
     if (stake <= 0 || stake > wallet.balance) return;
-    // Deduct the stake; abort if unaffordable.
-    if (!wallet.bet(stake)) return;
 
-    const point = toCrashPoint(rollMultiplier());
+    // Server draws the HIDDEN crash point and debits the stake atomically.
+    let handle;
+    try {
+      handle = await roundStart("crash", stake, {});
+    } catch {
+      return; // bet rejected (insufficient funds / network) → stay idle
+    }
+    roundIdRef.current = handle.roundId ?? null;
+
     stakeRef.current = stake;
-    crashRef.current = point;
     cashedRef.current = false;
     lastTickRef.current = 1;
     multiplierRef.current = 1;
     setCashoutFired(false);
-    setCrashPoint(point);
+    setCrashPoint(0);
     setCashedAt(null);
     setLastProfit(0);
     setMultiplier(1);
@@ -209,52 +269,15 @@ export default function Crash() {
     sfx.thud();
 
     startRef.current = performance.now();
-
-    const tick = (now: number) => {
-      const elapsed = (now - startRef.current) / 1000;
-      const m = Math.pow(GROWTH_RATE, elapsed);
-      const cp = crashRef.current;
-
-      // Reel-tick sound on each whole/quarter step up.
-      if (Math.floor(m * 4) > Math.floor(lastTickRef.current * 4)) {
-        sfx.tick();
-      }
-      lastTickRef.current = m;
-
-      // Auto cash-out: trigger when multiplier reaches or exceeds target and
-      // the target is reachable (≤ crash point) so the player actually wins.
-      const auto = autoRef.current;
-      if (
-        !cashedRef.current &&
-        auto.on &&
-        auto.target > 1 &&
-        m >= auto.target &&
-        auto.target <= cp
-      ) {
-        cashOut(auto.target);
-        return;
-      }
-
-      // Crash reached → bust at exactly the crash point.
-      if (m >= cp) {
-        bust(cp);
-        return;
-      }
-
-      multiplierRef.current = m;
-      setMultiplier(m);
-      rafRef.current = requestAnimationFrame(tick);
-    };
-
-    rafRef.current = requestAnimationFrame(tick);
-  }, [bet, phase, ready, wallet, bust, cashOut]);
+    startClimb();
+  }, [bet, phase, ready, wallet.balance, roundStart, startClimb]);
 
   const onManualCashOut = useCallback(() => {
     if (phase !== "running" || cashedRef.current) return;
     // Use the ref value so we cash out at the live multiplier, not the
     // 1-frame-stale state value that React may have rendered last tick.
-    cashOut(multiplierRef.current);
-  }, [phase, cashOut]);
+    settle(multiplierRef.current);
+  }, [phase, settle]);
 
   const resetToIdle = useCallback(() => {
     stopLoop();

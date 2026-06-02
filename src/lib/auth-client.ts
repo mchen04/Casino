@@ -102,6 +102,52 @@ export async function apiMe(): Promise<PublicUser | null> {
   }
 }
 
+export interface PlayResult {
+  ok: true;
+  outcome: Record<string, unknown>;
+  bet: number;
+  payout: number;
+  balance: number;
+}
+
+/** Server-authoritative one-shot wager. Server decides outcome + payout. */
+export async function apiPlay(
+  game: string,
+  bet: number,
+  params: unknown,
+): Promise<PlayResult> {
+  const res = await fetch("/api/play", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ game, bet, params }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { error?: string })?.error ?? "Play failed");
+  return data as PlayResult;
+}
+
+export interface RoundResponse {
+  roundId?: string;
+  done: boolean;
+  publicView: Record<string, unknown>;
+  actions?: string[];
+  balance: number;
+  bet?: number;
+  payout?: number;
+}
+
+/** Stateful round: start a new round, or submit a decision. Server-authoritative. */
+export async function apiRound(body: Record<string, unknown>): Promise<RoundResponse> {
+  const res = await fetch("/api/round", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { error?: string })?.error ?? "Round failed");
+  return data as RoundResponse;
+}
+
 export async function apiSync(payload: SyncPayload): Promise<boolean> {
   try {
     const res = await fetch("/api/sync", {

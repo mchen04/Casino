@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useWallet } from "@/lib/wallet";
+import { usePlayStateless } from "@/lib/playStateless";
 import { chance } from "@/lib/rng";
 import { formatChips, formatDelta, formatMultiplier } from "@/lib/format";
 import { sfx } from "@/lib/sound";
@@ -283,10 +284,19 @@ function SideButton({
 }
 
 export default function CoinFlip() {
-  const { balance, bet: placeBet, win, ready } = useWallet();
+  const { balance, bet: placeBet, win, ready, serverAuthoritative } = useWallet();
+  const playRound = usePlayStateless();
 
   const [bet, setBet] = useState(25);
   const [mode, setMode] = useState<Mode>("single");
+
+  // Streak / let-it-ride holds a pot OUTSIDE the balance, which the one-shot
+  // /api/play channel can't model — so for logged-in (server-authoritative)
+  // users we offer SINGLE flips on the secure channel and keep streak as a
+  // guest-only local demo until the stateful round machine can hold the pot.
+  useEffect(() => {
+    if (serverAuthoritative && mode === "streak") setMode("single");
+  }, [serverAuthoritative, mode]);
   const [call, setCall] = useState<Side>("heads");
   const [phase, setPhase] = useState<Phase>("betting");
 
@@ -312,7 +322,10 @@ export default function CoinFlip() {
   // Tracks mount status so async continuations after an await can bail out if
   // the component unmounted mid-animation (avoids state updates on unmounted).
   const mountedRef = useRef(true);
-  useEffect(() => () => { mountedRef.current = false; }, []);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   const busy = phase === "flipping";
 
@@ -338,11 +351,69 @@ export default function CoinFlip() {
     if (busy || resolvingRef.current) return;
     resolvingRef.current = true;
 
+    // ---- SINGLE mode: server-authoritative (guests resolve locally via the hook) ----
+    if (mode === "single") {
+      if (!canAfford) {
+        resolvingRef.current = false;
+        return;
+      }
+      const stake = bet;
+      setResult(null);
+      setLastDelta(null);
+      setStreakStake(stake);
+      setStreak(0);
+      setPot(stake);
+      setStreakActive(false);
+      setPhase("flipping");
+      sfx.thud();
+
+      let round;
+      try {
+        round = await playRound("coin-flip", stake, { call });
+      } catch {
+        resolvingRef.current = false;
+        setPhase("betting");
+        return;
+      }
+      const landedSide = round.outcome.landed as Side;
+      setLanded(landedSide);
+      setSpinKey((k) => k + 1);
+
+      for (let i = 0; i < 6; i++) {
+        await sleep(230);
+        if (!mountedRef.current) return;
+        sfx.tick();
+      }
+      await sleep(560);
+      if (!mountedRef.current) return;
+
+      const won = Boolean(round.outcome.won);
+      setResult({ call, landed: landedSide, won });
+      const hid = ++historyIdRef.current;
+      setHistory((h) => [{ side: landedSide, id: hid }, ...h].slice(0, 14));
+
+      if (won) {
+        setPot(round.payout);
+        setStreak(1);
+        setBurst((b) => b + 1);
+        setLastDelta(round.payout - stake);
+        sfx.win();
+      } else {
+        setPot(0);
+        setLastDelta(-stake);
+        sfx.lose();
+      }
+      setPhase("resolved");
+      resolvingRef.current = false;
+      return;
+    }
+
+    // ---- STREAK mode: guest-only local let-it-ride ----
     let stakeForRound = streakStake;
     const priorStreak = streakActive ? streak : 0;
 
     if (!streakActive) {
-      // Starting a fresh round / streak — take the wager now.
+      // Starting a fresh streak — take the wager now.
       if (!canAfford) {
         resolvingRef.current = false;
         return;
@@ -367,7 +438,6 @@ export default function CoinFlip() {
     setLanded(landedSide);
     setSpinKey((k) => k + 1);
 
-    // Ticking spin feedback during the tumble.
     for (let i = 0; i < 6; i++) {
       await sleep(230);
       if (!mountedRef.current) return;
@@ -386,17 +456,8 @@ export default function CoinFlip() {
       setStreak((s) => s + 1);
       setPot(newPot);
       setBurst((b) => b + 1);
-
-      if (mode === "single") {
-        // Resolve immediately: pay the gross and end the round.
-        win(newPot);
-        setLastDelta(newPot - stakeForRound);
-        setStreakActive(false);
-        sfx.win();
-      } else {
-        // Streak continues — pot rides, nothing credited yet.
-        sfx.chip();
-      }
+      // Streak continues — pot rides, nothing credited yet (cash out to bank it).
+      sfx.chip();
     } else {
       // Wrong flip — lose the whole pot (already deducted at stake time).
       setLastDelta(-stakeForRound);
@@ -410,6 +471,7 @@ export default function CoinFlip() {
     resolvingRef.current = false;
   }, [
     busy,
+    mode,
     streakActive,
     streakStake,
     streak,
@@ -417,8 +479,7 @@ export default function CoinFlip() {
     placeBet,
     bet,
     call,
-    mode,
-    win,
+    playRound,
   ]);
 
   // -------------------------------------------------------------------------
@@ -494,9 +555,14 @@ export default function CoinFlip() {
                 key={m}
                 type="button"
                 data-testid={`mode-${m}`}
-                disabled={betLocked}
+                disabled={betLocked || (m === "streak" && serverAuthoritative)}
+                title={
+                  m === "streak" && serverAuthoritative
+                    ? "Streak ride is available in the guest demo"
+                    : undefined
+                }
                 onClick={() => {
-                  if (betLocked) return;
+                  if (betLocked || (m === "streak" && serverAuthoritative)) return;
                   sfx.click();
                   setMode(m);
                   startNew();

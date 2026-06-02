@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useWallet } from "@/lib/wallet";
+import { usePlayStateless } from "@/lib/playStateless";
 import { sfx } from "@/lib/sound";
 import { formatChips, formatDelta, formatMultiplier } from "@/lib/format";
 import { shuffle, randFloat, randInt } from "@/lib/rng";
@@ -188,6 +189,7 @@ const BONUS_INTERVAL = 360; // faster cadence during the blackout bonus chase
 
 export default function Bingo() {
   const wallet = useWallet();
+  const playRound = usePlayStateless();
 
   const [bet, setBet] = useState(25);
   const [numCards, setNumCards] = useState(2);
@@ -213,6 +215,12 @@ export default function Bingo() {
   const bonusRef = useRef<boolean>(false); // are we in the blackout chase phase?
   // Guard against rapid double-click starting two rounds simultaneously.
   const startingRef = useRef<boolean>(false);
+  // Server-authoritative result for this round (the local draw replay is purely
+  // animation; this drives the money + the displayed per-card outcome).
+  const serverResultRef = useRef<{
+    gross: number;
+    perCard: { index: number; pattern: PatternKind; firstLineBall: number; mult: number; payout: number }[];
+  } | null>(null);
 
   const [bonusPhase, setBonusPhase] = useState(false);
 
@@ -265,43 +273,29 @@ export default function Bingo() {
 
   /* ----- resolve a finished draw ----- */
   const resolve = useCallback(() => {
-    const finalCalls = new Set(callsRef.current);
     const ballsDrawn = callsRef.current.length;
     const stake = stakeRef.current;
-    const firstLine = firstLineRef.current;
-    const lineBalls = firstLine.filter((n) => n > 0);
-    const earliestLineBall = lineBalls.length ? Math.min(...lineBalls) : 0;
-
-    let gross = 0;
+    // Money + per-card outcome are server-authoritative (the local draw replay
+    // is animation only). The server already settled the balance via /api/play.
+    const sr = serverResultRef.current;
+    const srv = sr?.perCard ?? [];
+    const gross = sr?.gross ?? 0;
     let bestMult = 0;
 
     const perCard = cardsRef.current.map((card, i) => {
-      const sc = scoreCard(card, finalCalls);
-      const flb = firstLine[i] ?? 0;
-      let pattern: PatternKind = "none";
-      let mult = 0;
-      if (bonusRef.current && sc.blackout) {
-        // Blackout jackpot replaces the line pay for this card.
-        pattern = "blackout";
-        mult = BLACKOUT_MULT;
-      } else if (flb > 0) {
-        // Pay by how fast THIS card's own first line landed.
-        pattern = "line";
-        mult = lineMultFor(flb);
-      }
-      if (mult > bestMult) bestMult = mult;
-      const payout = bet * mult;
-      gross += payout;
-      return { id: card.id, pattern, firstLineBall: flb, mult, payout };
+      const sp = srv[i] ?? { pattern: "none" as PatternKind, firstLineBall: 0, mult: 0, payout: 0 };
+      if (sp.mult > bestMult) bestMult = sp.mult;
+      return { id: card.id, pattern: sp.pattern, firstLineBall: sp.firstLineBall, mult: sp.mult, payout: sp.payout };
     });
+
+    const lineBalls = perCard.map((p) => p.firstLineBall).filter((n) => n > 0);
+    const earliestLineBall = lineBalls.length ? Math.min(...lineBalls) : 0;
 
     const best: PatternKind = perCard.some((p) => p.pattern === "blackout")
       ? "blackout"
       : perCard.some((p) => p.pattern === "line")
         ? "line"
         : "none";
-
-    if (gross > 0) wallet.win(gross);
 
     const profit = gross - stake;
     setResult({ stake, gross, profit, ballsDrawn, earliestLineBall, perCard, best });
@@ -329,7 +323,7 @@ export default function Bingo() {
     setBonusPhase(false);
     setCurrentBall(null);
     setPhase("resolved");
-  }, [bet, wallet]);
+  }, []);
 
   /* ----- draw one ball, recurse (two-phase race) ----- */
   const drawNext = useCallback(() => {
@@ -406,7 +400,7 @@ export default function Bingo() {
   }, [resolve]);
 
   /* ----- start a round ----- */
-  const start = useCallback(() => {
+  const start = useCallback(async () => {
     if (phase !== "betting") return;
     // Guard against rapid double-clicks firing two rounds before the phase
     // state propagates back through React's render cycle.
@@ -414,15 +408,34 @@ export default function Bingo() {
     startingRef.current = true;
     const stake = bet * numCards;
     if (stake < MIN_BET) { startingRef.current = false; return; }
-    if (!wallet.bet(stake)) { startingRef.current = false; return; } // unaffordable → abort
 
     sfx.chip();
+    cardsRef.current = cards;
+
+    // Server (logged-in) or local guest demo draws the hopper + settles. The
+    // local draw replay below is animation only; the server owns the balls,
+    // per-card result and payout. The cards the player previewed ARE played.
+    let round;
+    try {
+      round = await playRound("bingo", stake, { cards: cards.map((c) => c.cells) });
+    } catch {
+      startingRef.current = false;
+      sfx.lose();
+      setResultText("Couldn't start the round");
+      return;
+    }
+    const o = round.outcome as {
+      balls: number[];
+      perCard: { index: number; pattern: PatternKind; firstLineBall: number; mult: number; payout: number }[];
+    };
+    serverResultRef.current = { gross: round.payout, perCard: o.perCard };
+
     stakeRef.current = stake;
     callsRef.current = [];
-    cardsRef.current = cards;
     firstLineRef.current = cards.map(() => 0);
     bonusRef.current = false;
-    bagRef.current = shuffle(Array.from({ length: 75 }, (_, i) => i + 1));
+    // Replay the SERVER's exact ball order (deterministic → matches its result).
+    bagRef.current = o.balls.slice();
 
     setCalls([]);
     setCurrentBall(null);
@@ -434,11 +447,9 @@ export default function Bingo() {
     setBurst(0);
     setPhase("drawing");
 
+    startingRef.current = false;
     drawTimer.current = window.setTimeout(drawNext, 420);
-    // Reset the guard after one event loop turn — by then setPhase("drawing")
-    // will have committed and the play button will be disabled.
-    Promise.resolve().then(() => { startingRef.current = false; });
-  }, [phase, bet, numCards, cards, wallet, drawNext]);
+  }, [phase, bet, numCards, cards, playRound, drawNext]);
 
   /* ----- new round ----- */
   const newRound = useCallback(() => {

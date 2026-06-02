@@ -10,6 +10,7 @@ import {
   type Variants,
 } from "framer-motion";
 import { useWallet } from "@/lib/wallet";
+import { usePlayRound } from "@/lib/playRound";
 import { type Card, makeShoe, rankValue, RANKS } from "@/lib/cards";
 import { formatChips, formatMultiplier, formatDelta } from "@/lib/format";
 import { sfx } from "@/lib/sound";
@@ -64,13 +65,6 @@ function pct(p: number): string {
   return `${(p * 100).toFixed(1)}%`;
 }
 
-// Resolve a guess against the revealed card. Tie counts as HIGHER.
-function isWin(current: Card, next: Card, guess: Guess): boolean {
-  const c = rankValue(current.rank);
-  const n = rankValue(next.rank);
-  if (guess === "higher") return n >= c; // higher or same
-  return n < c; // strictly lower
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Animated multiplier counter
@@ -168,7 +162,9 @@ const cardSlide: Variants = {
 
 export default function HiLo() {
   const wallet = useWallet();
-  const { balance, ready, bet: walletBet, win: walletWin } = wallet;
+  const { balance, ready } = wallet;
+  const { start: roundStart, act: roundAct } = usePlayRound();
+  const roundIdRef = useRef<string | null>(null);
 
   const [bet, setBet] = useState(50);
   const [phase, setPhase] = useState<Phase>("betting");
@@ -236,13 +232,10 @@ export default function HiLo() {
   const canAfford = bet > 0 && bet <= balance;
 
   // ── Start a round ─────────────────────────────────────────────────────────
-  const startRound = useCallback(() => {
+  const startRound = useCallback(async () => {
     if (phase !== "betting" && phase !== "busted" && phase !== "cashed") return;
     if (bet <= 0 || bet > balance) return;
-    if (!walletBet(bet)) return; // unaffordable → abort
 
-    sfx.chip();
-    stakeRef.current = bet;
     setMult(1);
     setStreak([]);
     setLastGuess(null);
@@ -255,29 +248,50 @@ export default function HiLo() {
     setNextCard(null);
     setNextFaceDown(true);
 
-    // Fresh base card for the streak.
-    const base = drawCard();
-    setCurrent(base);
+    // Server (logged-in) or guest local demo starts the round + deals the base card.
+    let handle;
+    try {
+      handle = await roundStart("hi-lo", bet, {});
+    } catch {
+      return;
+    }
+    roundIdRef.current = handle.roundId ?? null;
+    stakeRef.current = bet;
+    sfx.chip();
+    setCurrent(handle.publicView.current as Card);
     sfx.card();
     setPhase("playing");
-  }, [phase, bet, balance, walletBet, drawCard]);
+  }, [phase, bet, balance, roundStart]);
 
   // ── Make a guess ─────────────────────────────────────────────────────────
   const guess = useCallback(
-    (g: Guess) => {
+    async (g: Guess) => {
       if (phase !== "playing" || !current) return;
       const p = g === "higher" ? liveOdds.pHigher : liveOdds.pLower;
       if (p <= 0) return; // impossible outcome — guard
+      const rid = roundIdRef.current;
+      if (!rid) return;
 
-      const drawn = drawCard();
-      const won = isWin(current, drawn, g);
       const step = g === "higher" ? higherStep : lowerStep;
-
+      const baseCard = current;
       setLastGuess(g);
       setLastWon(null);
+      setPhase("revealing");
+
+      // Server (or guest demo) draws + judges the next card.
+      let handle;
+      try {
+        handle = await roundAct(rid, g);
+      } catch {
+        setPhase("playing");
+        return;
+      }
+      const drawn = handle.publicView.revealed as Card;
+      const won = Boolean(handle.publicView.correct);
+      const serverMult = Number(handle.publicView.mult);
+
       setNextCard(drawn);
       setNextFaceDown(true);
-      setPhase("revealing");
       sfx.card();
 
       // Reveal after the card slides in.
@@ -288,11 +302,10 @@ export default function HiLo() {
         const t2 = window.setTimeout(() => {
           setLastWon(won);
           if (won) {
-            const newMult = mult * step;
-            setMult(newMult);
+            setMult(serverMult);
             setStreak((s) => [
               ...s,
-              { card: current, guess: g, stepMult: step, id: `${current.id}-${s.length}` },
+              { card: baseCard, guess: g, stepMult: step, id: `${baseCard.id}-${s.length}` },
             ]);
             setBurst(true);
             const t3 = window.setTimeout(() => setBurst(false), 720);
@@ -322,15 +335,22 @@ export default function HiLo() {
       }, 360);
       timerRefs.current.push(t1);
     },
-    [phase, current, liveOdds, higherStep, lowerStep, drawCard, mult, streak.length],
+    [phase, current, liveOdds, higherStep, lowerStep, roundAct, streak.length],
   );
 
   // ── Cash out ───────────────────────────────────────────────────────────────
-  const cashOut = useCallback(() => {
+  const cashOut = useCallback(async () => {
     if (phase !== "playing" || streak.length === 0) return;
+    const rid = roundIdRef.current;
+    if (!rid) return;
     const stake = stakeRef.current;
-    const gross = stake * mult;
-    walletWin(gross);
+    let handle;
+    try {
+      handle = await roundAct(rid, "cashout");
+    } catch {
+      return;
+    }
+    const gross = handle.payout ?? stake * mult;
     const profit = gross - stake;
     sfx.jackpot();
     setBurst(true);
@@ -342,7 +362,7 @@ export default function HiLo() {
     if (profit > 0) setCashOutResult({ gross, mult });
     stakeRef.current = 0;
     setPhase("cashed");
-  }, [phase, streak.length, mult, walletWin]);
+  }, [phase, streak.length, mult, roundAct]);
 
   // ── New deal (reset to betting) ──────────────────────────────────────────
   const newDeal = useCallback(() => {

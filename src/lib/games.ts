@@ -259,6 +259,17 @@ export const GAMES: GameMeta[] = [
 
   // ---------------- Slots ----------------
   {
+    slug: "tiannas-treasury",
+    name: "Tianna's Treasury",
+    category: "Slots",
+    blurb: "Cascading neon Megaways with a roaring vault multiplier.",
+    accent: "#ff2bd1",
+    emoji: "👑",
+    players: "single",
+    tags: ["megaways", "flagship", "new"],
+    load: () => import("@/games/tiannas-treasury"),
+  },
+  {
     slug: "slots-classic",
     name: "Lucky Sevens",
     category: "Slots",
@@ -419,6 +430,7 @@ export const HOUSE_EDGE: Record<string, number> = {
   "slots-fruit": 3.2,
   "slots-egypt": 3.2,
   "slots-megaways": 4.7,
+  "tiannas-treasury": 5.2,
   // Dice / Modern
   dice: 1,
   limbo: 1,
@@ -449,6 +461,7 @@ export const EDGE_NOTE: Record<string, string> = {
   "three-card-poker": "on the Ante · Pair Plus ~7.3%",
   "red-dog": "optimal play · raise on spread ≥ 7",
   "slots-megaways": "rises steeply at small bets",
+  "tiannas-treasury": "Megaways · cascading vault",
 };
 
 export function getGame(slug: string): GameMeta | undefined {

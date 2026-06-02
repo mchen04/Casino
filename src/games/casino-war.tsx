@@ -3,7 +3,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useWallet } from "@/lib/wallet";
-import { type Card, makeShoe, rankValue } from "@/lib/cards";
+import { usePlayRound } from "@/lib/playRound";
+import { type Card, rankValue } from "@/lib/cards";
 import { formatChips, formatDelta } from "@/lib/format";
 import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
@@ -55,7 +56,9 @@ interface ResultInfo {
 
 export default function CasinoWar() {
   const wallet = useWallet();
-  const { balance, bet: placeBet, win, ready } = wallet;
+  const { balance, ready } = wallet;
+  const { start: roundStart, act: roundAct } = usePlayRound();
+  const roundIdRef = useRef<string | null>(null);
 
   const [bet, setBet] = useState(25);
   const [phase, setPhase] = useState<Phase>("betting");
@@ -75,22 +78,6 @@ export default function CasinoWar() {
   const [result, setResult] = useState<ResultInfo | null>(null);
   const [showWarBanner, setShowWarBanner] = useState(false);
   const [burst, setBurst] = useState(0);
-
-  // The shoe persists across rounds; reshuffle when it runs low.
-  const shoeRef = useRef<Card[]>([]);
-  const ensureShoe = useCallback((need: number) => {
-    if (shoeRef.current.length < need) shoeRef.current = makeShoe(6);
-  }, []);
-  const draw = useCallback((): Card => {
-    ensureShoe(1);
-    const card = shoeRef.current.pop();
-    // ensureShoe guarantees at least 1 card; this branch is a safety guard.
-    if (!card) {
-      shoeRef.current = makeShoe(6);
-      return shoeRef.current.pop()!;
-    }
-    return card;
-  }, [ensureShoe]);
 
   // Ref-based mutex: prevents double-invocation of async handlers on rapid clicks.
   const resolvingRef = useRef(false);
@@ -145,19 +132,28 @@ export default function CasinoWar() {
     [],
   );
 
-  // ---- The opening deal --------------------------------------------------
+  // ---- The opening deal (server-authoritative; guest resolves locally) ----
   const deal = useCallback(async () => {
     if (!canBet || !affordable) return;
     if (resolvingRef.current) return; // guard against rapid-click race
     resolvingRef.current = true;
-    if (!placeBet(bet)) { resolvingRef.current = false; return; } // unaffordable — abort
     resetTable();
     setPhase("dealing");
 
-    const p = draw();
-    const d = draw();
+    let handle;
+    try {
+      handle = await roundStart("casino-war", bet, {});
+    } catch {
+      resolvingRef.current = false;
+      setPhase("betting");
+      return;
+    }
+    const pvw = handle.publicView;
+    const p = pvw.playerCard as Card;
+    const d = pvw.dealerCard as Card;
+    const outcome = pvw.outcome as string;
+    roundIdRef.current = handle.roundId ?? null;
 
-    // Player card slides in face down then flips.
     setPlayerCard(p);
     sfx.card();
     await sleep(280);
@@ -174,65 +170,78 @@ export default function CasinoWar() {
     setDealerDown(false);
     sfx.card();
     await sleep(420);
+    if (!mountedRef.current) return;
 
-    const pv = rankValue(p.rank);
-    const dv = rankValue(d.rank);
-
-    if (pv > dv) {
-      // Settle money first so the win lands even if we have unmounted.
-      win(bet * 2);
-      if (!mountedRef.current) return;
+    if (outcome === "win") {
       finish({ outcome: "win", net: bet, label: "You Win!", good: true });
-    } else if (pv < dv) {
-      if (!mountedRef.current) return;
+    } else if (outcome === "lose") {
       finish({ outcome: "lose", net: -bet, label: "Dealer Wins", good: false });
     } else {
       // TIE — player must choose surrender or war.
-      if (!mountedRef.current) return;
       sfx.thud();
       setPhase("tie");
     }
-    // Release the mutex regardless of outcome (tie path unlocks for war/surrender).
     resolvingRef.current = false;
-  }, [canBet, affordable, placeBet, bet, resetTable, draw, win, finish]);
+  }, [canBet, affordable, bet, resetTable, roundStart, finish]);
 
   // ---- Surrender ---------------------------------------------------------
-  const surrender = useCallback(() => {
+  const surrender = useCallback(async () => {
     if (phase !== "tie") return;
-    if (resolvingRef.current) return; // guard against rapid-click
+    if (resolvingRef.current) return;
     resolvingRef.current = true;
-    const refund = bet / 2; // forfeit exactly half the bet
-    if (refund > 0) win(refund);
-    finish({
-      outcome: "surrender",
-      net: refund - bet,
-      label: "Surrendered",
-      good: false,
-    });
+    const rid = roundIdRef.current;
+    if (!rid) {
+      resolvingRef.current = false;
+      return;
+    }
+    try {
+      await roundAct(rid, "surrender");
+    } catch {
+      resolvingRef.current = false;
+      return;
+    }
+    finish({ outcome: "surrender", net: bet / 2 - bet, label: "Surrendered", good: false });
     resolvingRef.current = false;
-  }, [phase, bet, win, finish]);
+  }, [phase, bet, roundAct, finish]);
 
   // ---- Go to War ---------------------------------------------------------
   const goToWar = useCallback(async () => {
     if (phase !== "tie") return;
-    if (resolvingRef.current) return; // guard against rapid-click race
+    if (resolvingRef.current) return;
     resolvingRef.current = true;
-    if (!placeBet(bet)) { resolvingRef.current = false; return; } // can't afford the raise
+    const rid = roundIdRef.current;
+    if (!rid) {
+      resolvingRef.current = false;
+      return;
+    }
     setWarStake(bet);
     setPhase("war");
-
-    // Dramatic banner.
     setShowWarBanner(true);
     sfx.jackpot();
+
+    let handle;
+    try {
+      handle = await roundAct(rid, "war");
+    } catch {
+      resolvingRef.current = false;
+      setShowWarBanner(false);
+      setPhase("tie");
+      return;
+    }
+    const pvw = handle.publicView;
+    const burnCards = (pvw.burn as Card[]) ?? [];
+    const pw = pvw.playerWar as Card;
+    const dw = pvw.dealerWar as Card;
+    const outcome = pvw.outcome as string;
+
     await sleep(950);
     if (!mountedRef.current) return;
     setShowWarBanner(false);
 
-    // Burn three cards.
+    // Burn three server-dealt cards.
     const b: Card[] = [];
-    for (let i = 0; i < 3; i++) {
-      const c = draw();
-      b.push(c);
+    for (let i = 0; i < burnCards.length; i++) {
+      b.push(burnCards[i]);
       setBurned([...b]);
       sfx.card();
       await sleep(180);
@@ -240,10 +249,6 @@ export default function CasinoWar() {
     }
     await sleep(180);
     if (!mountedRef.current) return;
-
-    // Deal one more to each.
-    const pw = draw();
-    const dw = draw();
 
     setPlayerWar(pw);
     sfx.card();
@@ -263,35 +268,15 @@ export default function CasinoWar() {
     await sleep(460);
     if (!mountedRef.current) return;
 
-    const pv = rankValue(pw.rank);
-    const dv = rankValue(dw.rank);
-
-    if (pv > dv) {
-      // War win: original pushes, war bet pays 1:1.
-      win(bet); // push original stake
-      win(bet * 2); // war bet: stake back + 1:1 profit
+    if (outcome === "war-win") {
       finish({ outcome: "war-win", net: bet, label: "War Won!", good: true });
-    } else if (pv === dv) {
-      // Tie on the war: war bet pushes, original pays a 2:1 bonus.
-      win(bet); // push war stake
-      win(bet * 3); // 2:1 bonus on original (stake + 2× profit)
-      finish({
-        outcome: "war-tie",
-        net: bet * 2,
-        label: "War Tie — 2:1 Bonus!",
-        good: true,
-      });
+    } else if (outcome === "war-tie") {
+      finish({ outcome: "war-tie", net: bet * 2, label: "War Tie — 2:1 Bonus!", good: true });
     } else {
-      // Lose both stakes.
-      finish({
-        outcome: "war-lose",
-        net: -(bet * 2),
-        label: "War Lost",
-        good: false,
-      });
+      finish({ outcome: "war-lose", net: -(bet * 2), label: "War Lost", good: false });
     }
     resolvingRef.current = false;
-  }, [phase, bet, placeBet, draw, win, finish]);
+  }, [phase, bet, roundAct, finish]);
 
   const newRound = useCallback(() => {
     resolvingRef.current = false; // ensure mutex is clear for the next round

@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useWallet } from "@/lib/wallet";
+import { usePlayRound } from "@/lib/playRound";
 import { sfx } from "@/lib/sound";
 import { randInt } from "@/lib/rng";
 import { formatChips, formatDelta } from "@/lib/format";
@@ -15,12 +16,15 @@ import { Celebration } from "@/components/Celebration";
 /* ----------------------------------------------------------------------------
  * CRAPS — two dice on the felt.
  *
- * Money model (settles exactly through useWallet):
- *  - Committing a wager calls bet(amount): chips LEAVE the wallet immediately.
- *  - On each roll every active wager is resolved:
- *      win  -> win(stake * multiplier)   (multiplier already includes stake)
- *      push -> win(stake)                (refund)
- *      lose -> credit nothing            (chips already deducted)
+ * Money model (SERVER-AUTHORITATIVE — settles through /api/round):
+ *  - A session is opened lazily with roundStart("craps", 0, {}) (no money down).
+ *  - Committing a wager sends act("place", { spot, amount }): the SERVER debits
+ *    the chips and returns the new table (publicView) — the single source of truth.
+ *  - A roll sends act("roll"): the server rolls two crypto-RNG dice, resolves
+ *    every bet, CREDITS the winnings (publicView.gross), and returns the table.
+ *  - Take-downs send act("takedown"); leaving the table sends act("leave").
+ *  - After every action we mirror publicView into local render state. The client
+ *    never computes payouts — it only animates the server's dice + result.
  *  - Bets that neither win nor lose stay "working" on the table for the next roll.
  *
  * Come-out roll (no point):
@@ -154,6 +158,117 @@ function dontOddsProfit(point: number): { num: number; den: number } {
   return { num: 5, den: 6 }; // 6 or 8
 }
 
+/** Lightweight shape of the table fields the log diff needs. */
+interface RollSnapshot {
+  point: number | null;
+  bets: Record<LineKey, number>;
+  passOdds: number;
+  dontOdds: number;
+  hard: Record<HardKey, number>;
+  rep: Record<number, number>;
+  repCount: Record<number, number>;
+}
+
+/**
+ * Build the roll-log lines by DIFFING the table before vs after the server's
+ * roll — never by recomputing payouts. We only describe what changed (a bet was
+ * cleared, the point moved, a repeater advanced) and let the headline carry the
+ * server's gross. `prev.point` is the come-out flag for this roll.
+ */
+function buildRollEvents(
+  prev: RollSnapshot,
+  next: RollSnapshot,
+  total: number,
+  isHard: boolean,
+): { text: string; tone: LogEntry["tone"] }[] {
+  const events: { text: string; tone: LogEntry["tone"] }[] = [];
+  const comeOut = prev.point === null;
+  const sevenOut = !comeOut && total === 7;
+
+  // FIELD (one-roll) — resolved every roll if it was staked.
+  if (prev.bets.field > 0) {
+    if (total === 2) events.push({ text: `Field hits 2 — pays 2:1`, tone: "win" });
+    else if (total === 12) events.push({ text: `Field hits 12 — pays 3:1`, tone: "win" });
+    else if (total === 3 || total === 4 || total === 9 || total === 10 || total === 11)
+      events.push({ text: `Field hits ${total} — pays 1:1`, tone: "win" });
+    else events.push({ text: `Field loses on ${total} (-${formatChips(prev.bets.field)})`, tone: "lose" });
+  }
+
+  // PLACE 6 / 8 — win pays 7:6 (bet rides); lose only on a 7 (bet cleared).
+  for (const [key, num] of [["place6", 6], ["place8", 8]] as const) {
+    const before = prev.bets[key];
+    if (before <= 0) continue;
+    if (total === num && next.bets[key] === before)
+      events.push({ text: `Place ${num} hits — pays 7:6`, tone: "win" });
+    else if (next.bets[key] < before)
+      events.push({ text: `Place ${num} loses on the 7 (-${formatChips(before)})`, tone: "lose" });
+  }
+
+  // HARDWAYS — cleared on a hit (hard win) or a loss (easy / 7).
+  for (const hd of HARD_DEFS) {
+    const before = prev.hard[hd.key];
+    if (before <= 0 || next.hard[hd.key] >= before) continue;
+    if (total === hd.num && isHard)
+      events.push({ text: `${hd.label} the hard way — pays ${hd.pays}:1`, tone: "win" });
+    else if (total === hd.num)
+      events.push({ text: `${hd.label} down — ${hd.num} came easy (-${formatChips(before)})`, tone: "lose" });
+    else events.push({ text: `${hd.label} loses on the 7 (-${formatChips(before)})`, tone: "lose" });
+  }
+
+  // PASS / DON'T PASS + odds.
+  if (comeOut) {
+    if (prev.bets.pass > 0 && next.bets.pass === 0) {
+      if (total === 7 || total === 11) events.push({ text: `Pass wins on ${total}!`, tone: "win" });
+      else events.push({ text: `Craps ${total} — Pass loses (-${formatChips(prev.bets.pass)})`, tone: "lose" });
+    }
+    if (prev.bets.dontPass > 0 && next.bets.dontPass === 0) {
+      if (total === 2 || total === 3) events.push({ text: `Don't Pass wins on ${total}!`, tone: "win" });
+      else if (total === 12) events.push({ text: `12 — Don't Pass pushes`, tone: "info" });
+      else events.push({ text: `Don't Pass loses on ${total} (-${formatChips(prev.bets.dontPass)})`, tone: "lose" });
+    }
+    if (next.point !== null && next.point !== prev.point)
+      events.push({ text: `Point is ${next.point}. Roll it again before a 7.`, tone: "point" });
+  } else {
+    const p = prev.point as number;
+    if (total === p) {
+      if (prev.bets.pass > 0) events.push({ text: `Point ${p} repeats — Pass wins!`, tone: "win" });
+      if (prev.passOdds > 0) {
+        const r = passOddsProfit(p);
+        events.push({ text: `Pass odds win ${r.num}:${r.den}`, tone: "win" });
+      }
+      if (prev.bets.dontPass > 0) events.push({ text: `Point hit — Don't Pass loses (-${formatChips(prev.bets.dontPass)})`, tone: "lose" });
+      if (prev.dontOdds > 0) events.push({ text: `Don't odds lose (-${formatChips(prev.dontOdds)})`, tone: "lose" });
+    } else if (total === 7) {
+      if (prev.bets.pass > 0) events.push({ text: `Seven out — Pass loses (-${formatChips(prev.bets.pass)})`, tone: "lose" });
+      if (prev.passOdds > 0) events.push({ text: `Pass odds lose (-${formatChips(prev.passOdds)})`, tone: "lose" });
+      if (prev.bets.dontPass > 0) events.push({ text: `Seven out — Don't Pass wins!`, tone: "win" });
+      if (prev.dontOdds > 0) {
+        const r = dontOddsProfit(p);
+        events.push({ text: `Don't odds win ${r.num}:${r.den}`, tone: "win" });
+      }
+    }
+  }
+
+  // REPEATERS — a seven-out clears them; otherwise they advance / cash.
+  for (const rd of REPEATER_DEFS) {
+    const before = prev.rep[rd.num] ?? 0;
+    if (before <= 0) continue;
+    const after = next.rep[rd.num] ?? 0;
+    if (sevenOut) {
+      events.push({ text: `Repeater ${rd.num} cleared on the seven-out (-${formatChips(before)})`, tone: "lose" });
+    } else if (total === rd.num) {
+      if (after === 0) {
+        events.push({ text: `REPEATER ${rd.num} hit ${rd.target}× — pays ${rd.pays}:1`, tone: "win" });
+      } else {
+        const c = next.repCount[rd.num] ?? 0;
+        events.push({ text: `Repeater ${rd.num}: ${c}/${rd.target}`, tone: "point" });
+      }
+    }
+  }
+
+  return events;
+}
+
 /** Pip layout (1..6) as a 3x3 grid of filled positions. */
 const PIPS: Record<number, [number, number][]> = {
   1: [[1, 1]],
@@ -241,10 +356,40 @@ let logId = 0;
 
 const EMPTY_HARD: Record<HardKey, number> = { hard4: 0, hard6: 0, hard8: 0, hard10: 0 };
 
+/** The full table the server returns after every action. */
+interface CrapsPublicView {
+  point: number | null;
+  working: boolean;
+  bets: Record<LineKey, number>;
+  passOdds: number;
+  dontOdds: number;
+  hard: Record<HardKey, number>;
+  rep: Record<number, number>;
+  repCount: Record<number, number>;
+  dice?: DiceResult;
+  gross?: number;
+  prevPoint?: number | null;
+  placed?: string;
+  tookDown?: boolean;
+  refund?: number;
+  left?: boolean;
+}
+
 export default function Craps() {
   const wallet = useWallet();
+  // The server owns the whole table (point, bets, odds, hardways, repeaters,
+  // working flag). The client only routes decisions through /api/round and
+  // animates the dice the server rolls back. No wallet.bet/win here — the
+  // playRound hook applies the authoritative balance itself.
+  const { start: roundStart, act: roundAct } = usePlayRound();
+  const roundIdRef = useRef<string | null>(null);
+  // Generation token: bumped on every action / unmount so stale async (a slow
+  // roll animation, an in-flight place) can't write to a table that moved on.
+  const genRef = useRef(0);
+  // Serialize server calls so a double-tap can't fire two overlapping actions.
+  const acting = useRef(false);
 
-  // Active wagers (chips already deducted from wallet once committed).
+  // Active wagers (mirrored from the server's publicView after each action).
   const [bets, setBets] = useState<Record<LineKey, number>>({
     pass: 0,
     dontPass: 0,
@@ -295,10 +440,62 @@ export default function Craps() {
       tickRef.current = null;
     }
   }, []);
-  useEffect(() => () => clearRollTimers(), [clearRollTimers]);
+  // On unmount drop any pending roll animation AND invalidate stale async.
+  useEffect(
+    () => () => {
+      genRef.current++;
+      clearRollTimers();
+    },
+    [clearRollTimers],
+  );
 
   const pushLog = useCallback((text: string, tone: LogEntry["tone"]) => {
     setLog((l) => [{ id: ++logId, text, tone }, ...l].slice(0, 8));
+  }, []);
+
+  // Mirror the server's table into the local render state (single source of
+  // truth). Does NOT touch `dice` — the roll animation owns that so it can
+  // tumble toward the server result.
+  const syncFromPublicView = useCallback((pv: CrapsPublicView) => {
+    setBets({
+      pass: pv.bets.pass,
+      dontPass: pv.bets.dontPass,
+      field: pv.bets.field,
+      place6: pv.bets.place6,
+      place8: pv.bets.place8,
+    });
+    setPassOdds(pv.passOdds);
+    setDontOdds(pv.dontOdds);
+    setHardBets({
+      hard4: pv.hard.hard4,
+      hard6: pv.hard.hard6,
+      hard8: pv.hard.hard8,
+      hard10: pv.hard.hard10,
+    });
+    setRepeaterBets({ ...pv.rep });
+    setRepeaterCounts({ ...pv.repCount });
+    setWorkingOnComeOut(pv.working);
+    setPoint(pv.point);
+  }, []);
+
+  // Open a session lazily (the base bet is 0 — no money down). Returns the
+  // roundId, or null if the server rejected the open.
+  const ensureRound = useCallback(async (): Promise<string | null> => {
+    if (roundIdRef.current) return roundIdRef.current;
+    try {
+      const res = await roundStart("craps", 0, {});
+      roundIdRef.current = res.roundId ?? null;
+      syncFromPublicView(res.publicView as unknown as CrapsPublicView);
+      return roundIdRef.current;
+    } catch {
+      return null;
+    }
+  }, [roundStart, syncFromPublicView]);
+
+  // Open the session on mount so the table is live before the first action.
+  useEffect(() => {
+    void ensureRound();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const repeaterTotal = useMemo(
@@ -330,11 +527,49 @@ export default function Craps() {
    *  come-out only if the player has turned them on. */
   const multiActive = !comeOut || workingOnComeOut;
 
-  // ---- placing wagers (each commits chips immediately via bet()) ----
+  // ---- placing wagers (the SERVER debits each placement) ----
+
+  /** Route one server action, sync from the returned table, surface errors.
+   *  Returns the publicView on success, or null if it failed / was superseded. */
+  const sendAction = useCallback(
+    async (
+      action: string,
+      payload?: unknown,
+    ): Promise<CrapsPublicView | null> => {
+      if (acting.current) return null;
+      acting.current = true;
+      const gen = ++genRef.current;
+      try {
+        const rid = await ensureRound();
+        if (!rid) {
+          setResultText("Couldn't open the table — try again.");
+          setResultTone("info");
+          return null;
+        }
+        const res = await roundAct(rid, action, payload);
+        if (gen !== genRef.current) return null;
+        const pv = res.publicView as unknown as CrapsPublicView;
+        // A "leave" closes the session: reopen a fresh one for the next bets.
+        if (res.done) roundIdRef.current = null;
+        else syncFromPublicView(pv);
+        return pv;
+      } catch (err) {
+        if (gen !== genRef.current) return null;
+        const msg = err instanceof Error ? err.message : "That bet isn't allowed.";
+        sfx.lose();
+        setResultText(msg);
+        setResultTone("info");
+        return null;
+      } finally {
+        acting.current = false;
+      }
+    },
+    [ensureRound, roundAct, syncFromPublicView],
+  );
 
   const placeOnSpot = useCallback(
     (key: LineKey) => {
-      if (rolling) return;
+      if (rolling || acting.current) return;
       // Pass / Don't Pass contract can only be added during come-out (no point).
       if ((key === "pass" || key === "dontPass") && !comeOut && bets[key] === 0) {
         sfx.lose();
@@ -348,36 +583,30 @@ export default function Craps() {
         setResultTone("info");
         return;
       }
-      if (!wallet.bet(chip)) {
-        sfx.lose();
-        setResultText("Not enough chips for that.");
-        setResultTone("info");
-        return;
-      }
       sfx.chip();
-      setBets((b) => ({ ...b, [key]: b[key] + chip }));
+      void sendAction("place", { spot: key, amount: chip });
     },
-    [rolling, comeOut, bets, chip, wallet],
+    [rolling, comeOut, bets, chip, wallet.balance, sendAction],
   );
 
   const placeHardway = useCallback(
     (key: HardKey) => {
-      if (rolling) return;
-      if (!wallet.bet(chip)) {
+      if (rolling || acting.current) return;
+      if (chip > wallet.balance) {
         sfx.lose();
         setResultText("Not enough chips for that.");
         setResultTone("info");
         return;
       }
       sfx.chip();
-      setHardBets((b) => ({ ...b, [key]: b[key] + chip }));
+      void sendAction("place", { spot: key, amount: chip });
     },
-    [rolling, chip, wallet],
+    [rolling, chip, wallet.balance, sendAction],
   );
 
   const placeRepeater = useCallback(
     (num: number) => {
-      if (rolling) return;
+      if (rolling || acting.current) return;
       // Repeaters track a whole shooter's hand — they can only be opened on the
       // come-out (before a point), and once placed they ride until they hit or
       // a seven-out clears them.
@@ -387,313 +616,52 @@ export default function Craps() {
         setResultTone("info");
         return;
       }
-      if (!wallet.bet(chip)) {
+      if (chip > wallet.balance) {
         sfx.lose();
         setResultText("Not enough chips for that.");
         setResultTone("info");
         return;
       }
       sfx.chip();
-      setRepeaterBets((b) => ({ ...b, [num]: (b[num] ?? 0) + chip }));
-      setRepeaterCounts((c) => ({ ...c, [num]: c[num] ?? 0 }));
+      void sendAction("place", { spot: `rep${num}`, amount: chip });
     },
-    [rolling, comeOut, chip, wallet],
+    [rolling, comeOut, chip, wallet.balance, sendAction],
   );
 
   const addPassOdds = useCallback(() => {
-    if (rolling || comeOut || bets.pass === 0) return;
-    if (!wallet.bet(chip)) {
+    if (rolling || acting.current || comeOut || bets.pass === 0) return;
+    if (chip > wallet.balance) {
       sfx.lose();
       return;
     }
     sfx.chip();
-    setPassOdds((o) => o + chip);
-  }, [rolling, comeOut, bets.pass, chip, wallet]);
+    void sendAction("place", { spot: "passOdds", amount: chip });
+  }, [rolling, comeOut, bets.pass, chip, wallet.balance, sendAction]);
 
   const addDontOdds = useCallback(() => {
-    if (rolling || comeOut || bets.dontPass === 0) return;
-    if (!wallet.bet(chip)) {
+    if (rolling || acting.current || comeOut || bets.dontPass === 0) return;
+    if (chip > wallet.balance) {
       sfx.lose();
       return;
     }
     sfx.chip();
-    setDontOdds((o) => o + chip);
-  }, [rolling, comeOut, bets.dontPass, chip, wallet]);
+    void sendAction("place", { spot: "dontOdds", amount: chip });
+  }, [rolling, comeOut, bets.dontPass, chip, wallet.balance, sendAction]);
 
-  // Take down removable wagers and refund them. Only allowed pre-roll. Field /
-  // place / hardways may be taken down anytime there's no roll in progress;
-  // Pass/Don't contracts + odds only during come-out. Repeaters are locked once
-  // placed (hand-long prop) so they are never refunded here.
-  const clearBets = useCallback(() => {
-    if (rolling) return;
-    let refund = bets.field + bets.place6 + bets.place8 + hardTotal;
-    if (comeOut) refund += bets.pass + bets.dontPass + passOdds + dontOdds;
-    setBets((b) => {
-      const next = { ...b };
-      next.field = 0;
-      next.place6 = 0;
-      next.place8 = 0;
-      if (comeOut) {
-        next.pass = 0;
-        next.dontPass = 0;
-      }
-      return next;
-    });
-    setHardBets({ ...EMPTY_HARD });
-    if (comeOut) {
-      setPassOdds(0);
-      setDontOdds(0);
-    }
-    if (refund > 0) {
-      wallet.win(refund);
-      sfx.chip();
-    }
-  }, [rolling, comeOut, bets, passOdds, dontOdds, hardTotal, wallet]);
+  // Take down removable wagers; the SERVER refunds them (field/place/hardways
+  // always; line bets + odds only during the come-out; repeaters never). At the
+  // come-out (no money left on the table) this also leaves the table — closing
+  // the session and refunding anything takeable.
+  const clearBets = useCallback(async () => {
+    if (rolling || acting.current) return;
+    const pv = await sendAction("takedown");
+    if (pv && (pv.refund ?? 0) > 0) sfx.chip();
+  }, [rolling, sendAction]);
 
-  // ---- resolution math for one roll ----
-
-  const resolveRoll = useCallback(
-    (res: DiceResult) => {
-      const t = res.total;
-      const isHard = res.a === res.b;
-      let payout = 0; // gross credited this roll
-      let staked = 0; // chips that were riding (for delta display)
-      const events: { text: string; tone: LogEntry["tone"] }[] = [];
-      let newPoint = point;
-      const nextBets: Record<LineKey, number> = { ...bets };
-      let nextPassOdds = passOdds;
-      let nextDontOdds = dontOdds;
-      const nextHard: Record<HardKey, number> = { ...hardBets };
-      const nextRepBets: Record<number, number> = { ...repeaterBets };
-      const nextRepCounts: Record<number, number> = { ...repeaterCounts };
-
-      // ---------- FIELD (one-roll, always resolves) ----------
-      if (bets.field > 0) {
-        staked += bets.field;
-        if (t === 2) {
-          payout += bets.field * 3; // 2:1 -> 3x money
-          events.push({ text: `Field hits 2 — pays 2:1 (+${bets.field * 2})`, tone: "win" });
-        } else if (t === 12) {
-          payout += bets.field * 4; // 3:1 -> 4x money
-          events.push({ text: `Field hits 12 — pays 3:1 (+${bets.field * 3})`, tone: "win" });
-        } else if (t === 3 || t === 4 || t === 9 || t === 10 || t === 11) {
-          payout += bets.field * 2; // 1:1
-          events.push({ text: `Field hits ${t} — pays 1:1 (+${bets.field})`, tone: "win" });
-        } else {
-          events.push({ text: `Field loses on ${t} (-${bets.field})`, tone: "lose" });
-        }
-        nextBets.field = 0; // field is settled every roll
-      }
-
-      // ---------- PLACE 6 / PLACE 8 (only when working) ----------
-      if (multiActive) {
-        const settlePlace = (key: "place6" | "place8", num: number) => {
-          if (bets[key] <= 0) return;
-          if (t === num) {
-            // Bet stays working; only the 7:6 profit is paid out.
-            const profit = (bets[key] / 6) * 7;
-            payout += profit;
-            events.push({ text: `Place ${num} hits — pays 7:6 (+${formatChips(profit)})`, tone: "win" });
-          } else if (t === 7) {
-            staked += bets[key];
-            events.push({ text: `Place ${num} loses on the 7 (-${bets[key]})`, tone: "lose" });
-            nextBets[key] = 0;
-          }
-        };
-        settlePlace("place6", 6);
-        settlePlace("place8", 8);
-
-        // ---------- HARDWAYS (only when working) ----------
-        for (const hd of HARD_DEFS) {
-          const stake = hardBets[hd.key];
-          if (stake <= 0) continue;
-          if (t === hd.num) {
-            if (isHard) {
-              // Win resolves the hardway: return the stake AND the odds profit
-              // (gross = stake × (pays+1)), so the edge matches the verified
-              // 9.09% (6/8) / 11.11% (4/10). The bet is then taken down.
-              staked += stake;
-              payout += stake * (hd.pays + 1);
-              events.push({ text: `${hd.label} the hard way — pays ${hd.pays}:1 (+${stake * hd.pays})`, tone: "win" });
-              nextHard[hd.key] = 0;
-            } else {
-              staked += stake;
-              events.push({ text: `${hd.label} down — ${hd.num} came easy (-${stake})`, tone: "lose" });
-              nextHard[hd.key] = 0;
-            }
-          } else if (t === 7) {
-            staked += stake;
-            events.push({ text: `${hd.label} loses on the 7 (-${stake})`, tone: "lose" });
-            nextHard[hd.key] = 0;
-          }
-        }
-      }
-
-      // ---------- PASS / DON'T PASS (+ odds) ----------
-      if (comeOut) {
-        // COME-OUT ROLL
-        if (bets.pass > 0) {
-          if (t === 7 || t === 11) {
-            staked += bets.pass;
-            payout += bets.pass * 2;
-            events.push({ text: `Pass wins on ${t}! (+${bets.pass})`, tone: "win" });
-            nextBets.pass = 0;
-          } else if (t === 2 || t === 3 || t === 12) {
-            staked += bets.pass;
-            events.push({ text: `Craps ${t} — Pass loses (-${bets.pass})`, tone: "lose" });
-            nextBets.pass = 0;
-          }
-          // else: point set, pass stays working (handled below)
-        }
-        if (bets.dontPass > 0) {
-          if (t === 2 || t === 3) {
-            staked += bets.dontPass;
-            payout += bets.dontPass * 2;
-            events.push({ text: `Don't Pass wins on ${t}! (+${bets.dontPass})`, tone: "win" });
-            nextBets.dontPass = 0;
-          } else if (t === 7 || t === 11) {
-            staked += bets.dontPass;
-            events.push({ text: `Don't Pass loses on ${t} (-${bets.dontPass})`, tone: "lose" });
-            nextBets.dontPass = 0;
-          } else if (t === 12) {
-            staked += bets.dontPass;
-            payout += bets.dontPass; // push refund
-            events.push({ text: `12 — Don't Pass pushes`, tone: "info" });
-            nextBets.dontPass = 0;
-          }
-        }
-        // Establish the point on 4,5,6,8,9,10.
-        if (t === 4 || t === 5 || t === 6 || t === 8 || t === 9 || t === 10) {
-          newPoint = t;
-          events.push({ text: `Point is ${t}. Roll it again before a 7.`, tone: "point" });
-        }
-      } else {
-        // POINT PHASE — point is a number
-        const p = point as number;
-        if (t === p) {
-          // Pass + pass odds WIN; don't pass + odds LOSE.
-          if (bets.pass > 0) {
-            staked += bets.pass;
-            payout += bets.pass * 2;
-            events.push({ text: `Point ${p} repeats — Pass wins! (+${bets.pass})`, tone: "win" });
-            nextBets.pass = 0;
-          }
-          if (passOdds > 0) {
-            const r = passOddsProfit(p);
-            const profit = (passOdds * r.num) / r.den;
-            staked += passOdds;
-            payout += passOdds + profit;
-            events.push({
-              text: `Pass odds win ${r.num}:${r.den} (+${formatChips(profit)})`,
-              tone: "win",
-            });
-            nextPassOdds = 0;
-          }
-          if (bets.dontPass > 0) {
-            staked += bets.dontPass;
-            events.push({ text: `Point hit — Don't Pass loses (-${bets.dontPass})`, tone: "lose" });
-            nextBets.dontPass = 0;
-          }
-          if (dontOdds > 0) {
-            staked += dontOdds;
-            events.push({ text: `Don't odds lose (-${dontOdds})`, tone: "lose" });
-            nextDontOdds = 0;
-          }
-          newPoint = null;
-        } else if (t === 7) {
-          // SEVEN OUT — Pass + odds LOSE; Don't pass + odds WIN. Place bets lose
-          // too (handled above). This ends the shooter's hand.
-          if (bets.pass > 0) {
-            staked += bets.pass;
-            events.push({ text: `Seven out — Pass loses (-${bets.pass})`, tone: "lose" });
-            nextBets.pass = 0;
-          }
-          if (passOdds > 0) {
-            staked += passOdds;
-            events.push({ text: `Pass odds lose (-${passOdds})`, tone: "lose" });
-            nextPassOdds = 0;
-          }
-          if (bets.dontPass > 0) {
-            staked += bets.dontPass;
-            payout += bets.dontPass * 2;
-            events.push({ text: `Seven out — Don't Pass wins! (+${bets.dontPass})`, tone: "win" });
-            nextBets.dontPass = 0;
-          }
-          if (dontOdds > 0) {
-            const r = dontOddsProfit(p);
-            const profit = (dontOdds * r.num) / r.den;
-            staked += dontOdds;
-            payout += dontOdds + profit;
-            events.push({
-              text: `Don't odds win ${r.num}:${r.den} (+${formatChips(profit)})`,
-              tone: "win",
-            });
-            nextDontOdds = 0;
-          }
-          newPoint = null;
-        }
-        // any other number: pass/don't & odds ride untouched
-      }
-
-      // ---------- REPEATER BETS (hand-long) ----------
-      // A seven-out (7 in the point phase) ends the shooter's hand and clears
-      // every repeater. Come-out sevens do NOT (the shooter keeps the dice).
-      const sevenOut = !comeOut && t === 7;
-      for (const rd of REPEATER_DEFS) {
-        const stake = repeaterBets[rd.num] ?? 0;
-        if (stake <= 0) continue;
-        if (sevenOut) {
-          staked += stake;
-          events.push({ text: `Repeater ${rd.num} cleared on the seven-out (-${stake})`, tone: "lose" });
-          nextRepBets[rd.num] = 0;
-          nextRepCounts[rd.num] = 0;
-          continue;
-        }
-        if (t === rd.num) {
-          const c = (nextRepCounts[rd.num] ?? 0) + 1;
-          if (c >= rd.target) {
-            const gross = stake * (rd.pays + 1);
-            payout += gross;
-            staked += stake; // bet is resolved & removed
-            events.push({
-              text: `REPEATER ${rd.num} hit ${rd.target}× — pays ${rd.pays}:1 (+${stake * rd.pays})`,
-              tone: "win",
-            });
-            nextRepBets[rd.num] = 0;
-            nextRepCounts[rd.num] = 0;
-          } else {
-            nextRepCounts[rd.num] = c;
-            events.push({ text: `Repeater ${rd.num}: ${c}/${rd.target}`, tone: "point" });
-          }
-        }
-      }
-
-      // Credit the wallet exactly once with the EXACT total (wallet rounds to the cent).
-      if (payout > 0) wallet.win(payout);
-
-      // Net delta vs chips that were riding this roll (already deducted on placement).
-      const net = payout - staked;
-
-      return {
-        events,
-        net,
-        gross: payout,
-        nextBets,
-        nextPassOdds,
-        nextDontOdds,
-        nextHard,
-        nextRepBets,
-        nextRepCounts,
-        newPoint,
-      };
-    },
-    [bets, passOdds, dontOdds, hardBets, repeaterBets, repeaterCounts, comeOut, point, multiActive, wallet],
-  );
-
-  // ---- the roll action (cinematic toss) ----
+  // ---- the roll action (cinematic toss; SERVER decides the dice) ----
 
   const roll = useCallback(() => {
-    if (rolling) return;
+    if (rolling || acting.current) return;
     if (totalOnTable <= 0) {
       sfx.lose();
       setResultText("Place at least one bet to roll.");
@@ -702,13 +670,21 @@ export default function Craps() {
     }
     clearRollTimers();
 
+    // Snapshot the table BEFORE the roll so we can diff for the log.
+    const prev: RollSnapshot = {
+      point,
+      bets: { ...bets },
+      passOdds,
+      dontOdds,
+      hard: { ...hardBets },
+      rep: { ...repeaterBets },
+      repCount: { ...repeaterCounts },
+    };
+
     // The throw begins on the faces the player "set" (or the last result), then
-    // tumbles to a fair random outcome.
+    // tumbles toward the SERVER's result (set once the response lands).
     const startA = presetDice?.a ?? dice.a;
     const startB = presetDice?.b ?? dice.b;
-    const a = randInt(1, 6);
-    const b = randInt(1, 6);
-    const res: DiceResult = { a, b, total: a + b };
 
     sfx.thud();
     setPhase("rolling");
@@ -719,6 +695,27 @@ export default function Craps() {
     setResultTone("info");
     setDice({ a: startA, b: startB, total: startA + startB });
     setPresetDice(null); // a set is consumed by the throw
+
+    const gen = ++genRef.current;
+    // The server's landed dice (filled in by the in-flight act("roll")).
+    const landed: { res: DiceResult | null } = { res: null };
+
+    // Fire the authoritative roll. The hook credits winnings + balance itself.
+    acting.current = true;
+    const rollPromise: Promise<{ pv: CrapsPublicView | null; error?: string }> = (async () => {
+      try {
+        const rid = roundIdRef.current ?? (await ensureRound());
+        if (!rid) return { pv: null, error: "Couldn't open the table — try again." };
+        const r = await roundAct(rid, "roll");
+        const pv = r.publicView as unknown as CrapsPublicView;
+        if (pv.dice) landed.res = pv.dice;
+        return { pv };
+      } catch (err) {
+        return { pv: null, error: err instanceof Error ? err.message : "Roll failed." };
+      } finally {
+        acting.current = false;
+      }
+    })();
 
     // tumble ticks while the dice fly across the felt
     let ticks = 0;
@@ -733,80 +730,124 @@ export default function Craps() {
     }, 80);
 
     // Lock the faces while the camera zooms back in (≈82% through the throw).
+    // If the server's dice have landed by now, snap to them; otherwise the
+    // resolve step below sets the final faces.
     timers.current.push(
       setTimeout(() => {
+        if (gen !== genRef.current) return;
         if (tickRef.current) {
           clearInterval(tickRef.current);
           tickRef.current = null;
         }
-        setDice(res);
+        if (landed.res) setDice(landed.res);
       }, 1180),
     );
 
-    // Resolve once the dice have landed.
+    // Resolve once the dice have landed AND the server responded.
     timers.current.push(
       setTimeout(() => {
-        const out = resolveRoll(res);
+        void rollPromise.then(({ pv, error }) => {
+          if (gen !== genRef.current) return;
 
-        setBets(out.nextBets);
-        setPassOdds(out.nextPassOdds);
-        setDontOdds(out.nextDontOdds);
-        setHardBets(out.nextHard);
-        setRepeaterBets(out.nextRepBets);
-        setRepeaterCounts(out.nextRepCounts);
-        setPoint(out.newPoint);
-        setRolling(false);
-        setPhase("betting");
+          if (tickRef.current) {
+            clearInterval(tickRef.current);
+            tickRef.current = null;
+          }
+          setRolling(false);
+          setPhase("betting");
 
-        // result text + sound
-        const won = out.net > 0;
-        const lost = out.net < 0;
-        let headline: string;
-        let tone: LogEntry["tone"];
-        if (out.events.length === 0) {
-          headline = `Rolled ${res.total} — no action.`;
-          tone = "info";
-        } else if (won) {
-          headline = `Rolled ${res.total} — you win ${formatDelta(out.net)}!`;
-          tone = "win";
-        } else if (lost) {
-          headline = `Rolled ${res.total} — down ${formatChips(Math.abs(out.net))}.`;
-          tone = "lose";
-        } else {
-          headline = `Rolled ${res.total}.`;
-          tone = out.newPoint && comeOut ? "point" : "info";
-        }
-        setResultText(headline);
-        setResultTone(tone);
-        setLastDelta(out.net);
-        out.events.forEach((e) => pushLog(e.text, e.tone));
+          if (!pv || !pv.dice) {
+            // Roll rejected (e.g. session lost) — never leave the UI stuck.
+            setDice({ a: startA, b: startB, total: startA + startB });
+            sfx.lose();
+            setResultText(error ?? "Roll failed — try again.");
+            setResultTone("info");
+            return;
+          }
 
-        if (won) {
-          setBurst((n) => n + 1);
-          // Did a high-pay prop (hardway / repeater, >= 7:1) cash this roll?
-          const propHit = out.events.some(
-            (e) => e.tone === "win" && (/the hard way/.test(e.text) || /^REPEATER/.test(e.text)),
-          );
-          // Chips that were riding the resolving bets this roll (net = gross - staked).
-          const staked = out.gross - out.net;
-          // Notable: a big prop, >= 3x the resolving stake, or a meaningful pile vs. chip.
-          const bigMultiple = staked > 0 && out.gross >= staked * 3;
-          const notable = propHit || bigMultiple || out.net >= chip * 8;
-          setCelebrate(notable);
-          setCelebrateTier(
-            propHit ? "jackpot" : staked > 0 && out.gross >= staked * 5 ? "big" : "win",
-          );
-          if (out.net >= chip * 12) sfx.jackpot();
-          else sfx.win();
-        } else {
-          setCelebrate(false);
-          if (lost) sfx.lose();
-          else if (out.newPoint && comeOut) sfx.thud();
-          else sfx.card();
-        }
+          const res = pv.dice;
+          const gross = pv.gross ?? 0;
+          setDice(res);
+          syncFromPublicView(pv);
+
+          // Build the log by diffing prev vs the server's table — no payouts recomputed.
+          const next: RollSnapshot = {
+            point: pv.point,
+            bets: pv.bets,
+            passOdds: pv.passOdds,
+            dontOdds: pv.dontOdds,
+            hard: pv.hard,
+            rep: pv.rep,
+            repCount: pv.repCount,
+          };
+          const events = buildRollEvents(prev, next, res.total, res.a === res.b);
+
+          const pointSet = prev.point === null && pv.point !== null && pv.point !== prev.point;
+          const won = gross > 0;
+          let headline: string;
+          let tone: LogEntry["tone"];
+          if (won) {
+            headline = `Rolled ${res.total} — you win ${formatDelta(gross)}!`;
+            tone = "win";
+          } else if (events.some((e) => e.tone === "lose")) {
+            headline = `Rolled ${res.total}.`;
+            tone = "lose";
+          } else if (pointSet) {
+            headline = `Rolled ${res.total}.`;
+            tone = "point";
+          } else if (events.length === 0) {
+            headline = `Rolled ${res.total} — no action.`;
+            tone = "info";
+          } else {
+            headline = `Rolled ${res.total}.`;
+            tone = "info";
+          }
+          setResultText(headline);
+          setResultTone(tone);
+          setLastDelta(gross > 0 ? gross : 0);
+          events.forEach((e) => pushLog(e.text, e.tone));
+
+          if (won) {
+            setBurst((n) => n + 1);
+            // A high-pay prop (hardway / repeater) cashed this roll?
+            const propHit = events.some(
+              (e) => e.tone === "win" && (/the hard way/.test(e.text) || /^REPEATER/.test(e.text)),
+            );
+            // Notable: a big prop or a meaningful pile vs. the chip in hand.
+            const notable = propHit || gross >= chip * 8;
+            setCelebrate(notable);
+            setCelebrateTier(propHit ? "jackpot" : gross >= chip * 12 ? "big" : "win");
+            if (gross >= chip * 12) sfx.jackpot();
+            else sfx.win();
+          } else {
+            setCelebrate(false);
+            if (events.some((e) => e.tone === "lose")) sfx.lose();
+            else if (pointSet) sfx.thud();
+            else sfx.card();
+          }
+        });
       }, 1480),
     );
-  }, [rolling, totalOnTable, comeOut, point, presetDice, dice, resolveRoll, pushLog, chip, clearRollTimers]);
+  }, [
+    rolling,
+    totalOnTable,
+    comeOut,
+    point,
+    presetDice,
+    dice,
+    bets,
+    passOdds,
+    dontOdds,
+    hardBets,
+    repeaterBets,
+    repeaterCounts,
+    ensureRound,
+    roundAct,
+    syncFromPublicView,
+    pushLog,
+    chip,
+    clearRollTimers,
+  ]);
 
   // Clear the on-screen log (between hands).
   const resetHand = useCallback(() => {
@@ -815,6 +856,17 @@ export default function Craps() {
     setResultText("Place your bets, then roll.");
     setResultTone("info");
   }, []);
+
+  // Working-on-come-out toggle — the SERVER owns the flag (place/hardways/
+  // repeaters only resolve on the come-out when it's on). Optimistically flip
+  // the UI, then reconcile from the returned table.
+  const toggleWorking = useCallback(() => {
+    if (rolling || acting.current) return;
+    sfx.click();
+    const next = !workingOnComeOut;
+    setWorkingOnComeOut(next);
+    void sendAction("working", { on: next });
+  }, [rolling, workingOnComeOut, sendAction]);
 
   // Cycle a set-die face (1→2→…→6→1). Establishes a preset on first touch.
   const cycleSetDie = useCallback(
@@ -880,7 +932,7 @@ export default function Craps() {
           style={{ background: `${ACCENT}33` }}
         />
 
-        {/* win celebration — only fires on a notable roll (see resolveRoll wiring) */}
+        {/* win celebration — only fires on a notable roll (armed in the roll resolve step) */}
         <Celebration
           show={celebrate}
           seed={burst}
@@ -1345,10 +1397,7 @@ export default function Craps() {
             type="button"
             data-testid="working-toggle"
             disabled={rolling}
-            onClick={() => {
-              sfx.click();
-              setWorkingOnComeOut((v) => !v);
-            }}
+            onClick={toggleWorking}
             className="glass flex items-center justify-between gap-3 rounded-2xl p-3 text-left disabled:opacity-50"
           >
             <div className="min-w-0">

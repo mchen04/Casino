@@ -15,6 +15,7 @@ import {
   useTransform,
 } from "framer-motion";
 import { useWallet } from "@/lib/wallet";
+import { usePlayStateless } from "@/lib/playStateless";
 import { weightedPick, randInt } from "@/lib/rng";
 import { formatChips, formatMultiplier } from "@/lib/format";
 import { sfx } from "@/lib/sound";
@@ -520,6 +521,8 @@ const BUY_MULT = 10;
 
 export default function FruitFrenzy() {
   const wallet = useWallet();
+  const playRound = usePlayStateless();
+  const serverAuthoritative = wallet.serverAuthoritative;
   const { balance, ready } = wallet;
 
   const [bet, setBet] = useState(50);
@@ -554,6 +557,8 @@ export default function FruitFrenzy() {
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const cycleWinRef = useRef(0); // accumulated free-spin session win
   const tickInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Re-entrancy guard for the server-driven spin (held across base + free spins).
+  const serverSpinRef = useRef(false);
   // Keep a stable ref to resolveSpin so runSpin never closes over a stale version.
   const resolveSpinRef = useRef<((grid: Grid, free: boolean) => void) | null>(null);
 
@@ -774,18 +779,134 @@ export default function FruitFrenzy() {
   }, [phase, freeSpins, inFreeSpin]);
 
   /** Player-initiated paid spin. */
-  const handleSpin = useCallback(() => {
-    if (busy || freeSpins > 0) return;
+  // Animate a SERVER-decided spin (grid + line wins). Money is already settled at
+  // /api/play; this only animates. The promise resolves when the display completes.
+  type ServerEval = { grid: Grid; lineWins: LineWin[]; scatterCount: number; totalMultiplier: number };
+  const animateServerSpin = useCallback(
+    (ev: ServerEval, free: boolean): Promise<void> =>
+      new Promise<void>((done) => {
+        clearTimers();
+        setPhase("spinning");
+        setResult(null);
+        setResultText("");
+        setHighlightLine([]);
+        setShowAllLines(false);
+        setInFreeSpin(free);
+
+        const target = ev.grid;
+        setCells((prev) => prev.map((reel, r) => reel.map((c) => ({ ...c, spinning: true, spinSym: spinCell(r) }))));
+        tickInterval.current = setInterval(() => {
+          setCells((prev) => prev.map((reel, r) => reel.map((c) => (c.spinning ? { ...c, spinSym: spinCell(r) } : c))));
+        }, 70);
+
+        for (let r = 0; r < REELS; r++) {
+          const stopAt = SPIN_BASE_MS + r * REEL_STAGGER_MS;
+          timers.current.push(
+            setTimeout(() => {
+              sfx.thud();
+              sfx.tick();
+              setCells((prev) =>
+                prev.map((reel, ri) =>
+                  ri === r
+                    ? reel.map((_c, row) => ({
+                        sym: target[r]?.[row] ?? "CHERRY",
+                        spinning: false,
+                        spinSym: target[r]?.[row] ?? "CHERRY",
+                      }))
+                    : reel,
+                ),
+              );
+            }, stopAt),
+          );
+        }
+
+        const resolveAt = SPIN_BASE_MS + (REELS - 1) * REEL_STAGGER_MS + 260;
+        timers.current.push(
+          setTimeout(() => {
+            if (tickInterval.current) {
+              clearInterval(tickInterval.current);
+              tickInterval.current = null;
+            }
+            const scatterCells: { reel: number; row: number }[] = [];
+            for (let reel = 0; reel < REELS; reel++)
+              for (let row = 0; row < ROWS; row++)
+                if (ev.grid[reel]?.[row] === "SCATTER") scatterCells.push({ reel, row });
+            setResult({ grid: ev.grid, lineWins: ev.lineWins, scatterCells, scatterCount: ev.scatterCount, totalMultiplier: ev.totalMultiplier });
+            setPhase("resolved");
+
+            const gross = bet * ev.totalMultiplier;
+            if (gross > 0) {
+              setLastWin(gross);
+              setBurst((b) => b + 1);
+              if (ev.totalMultiplier >= 10) sfx.jackpot();
+              else sfx.win();
+              if (ev.lineWins.length > 0) {
+                let i = 0;
+                const showNext = () => {
+                  if (i >= ev.lineWins.length) {
+                    setHighlightLine(ev.lineWins.map((w) => w.line));
+                    return;
+                  }
+                  const w = ev.lineWins[i];
+                  if (w) setHighlightLine([w.line]);
+                  i++;
+                  timers.current.push(setTimeout(showNext, 650));
+                };
+                showNext();
+              }
+            } else {
+              setLastWin(0);
+              if (!free && ev.scatterCount < SCATTERS_FOR_FREE) sfx.lose();
+            }
+            done();
+          }, resolveAt),
+        );
+      }),
+    [bet, clearTimers],
+  );
+
+  /** Player-initiated paid spin — server-authoritative (guest resolves locally). */
+  const handleSpin = useCallback(async () => {
+    if (busy || freeSpins > 0 || serverSpinRef.current) return;
     if (bet < MIN_BET) return;
-    if (!wallet.bet(bet)) {
+    serverSpinRef.current = true;
+
+    let round;
+    try {
+      round = await playRound("slots-fruit", bet, {});
+    } catch {
+      serverSpinRef.current = false;
       sfx.lose();
       setResultText("Not enough chips for that bet");
       return;
     }
     sfx.chip();
-    cycleWinRef.current = 0;
-    runSpin(false);
-  }, [busy, freeSpins, bet, wallet, runSpin]);
+    const o = round.outcome as unknown as { base: ServerEval; freeSpins: ServerEval[] };
+
+    let sessionWin = bet * o.base.totalMultiplier;
+    await animateServerSpin(o.base, false);
+    setLastNet(sessionWin - bet);
+
+    if (o.base.scatterCount >= SCATTERS_FOR_FREE) {
+      setFreeBanner(true);
+      sfx.jackpot();
+      setResultText(`${o.base.scatterCount} 🪙 → ${FREE_SPINS_AWARD} FREE SPINS!`);
+      timers.current.push(setTimeout(() => setFreeBanner(false), 1800));
+      for (let i = 0; i < o.freeSpins.length; i++) {
+        await new Promise<void>((r) => timers.current.push(setTimeout(r, 1100)));
+        const fs = o.freeSpins[i];
+        await animateServerSpin(fs, true);
+        sessionWin += bet * fs.totalMultiplier;
+      }
+      setInFreeSpin(false);
+      setResultText(
+        sessionWin > bet * o.base.totalMultiplier
+          ? `FREE SPINS DONE · won ${formatChips(sessionWin)} total!`
+          : "Free spins done",
+      );
+    }
+    serverSpinRef.current = false;
+  }, [busy, freeSpins, bet, playRound, animateServerSpin]);
 
   /** Buy the bonus: pay BUY_COST_MULT× the bet for an enhanced free-spin round. */
   const buyCost = bet * BUY_COST_MULT;
@@ -854,7 +975,7 @@ export default function FruitFrenzy() {
   const celebrationTier: "win" | "big" | "jackpot" =
     triggeredFree || winRatio >= 15 ? "jackpot" : winRatio >= 4 ? "big" : "win";
   const playDisabled = !ready || busy || freeSpins > 0 || !affordable;
-  const buyDisabled = !ready || busy || freeSpins > 0 || buyCost > balance;
+  const buyDisabled = !ready || busy || freeSpins > 0 || buyCost > balance || serverAuthoritative;
 
   return (
     <div className="mx-auto w-full max-w-5xl">

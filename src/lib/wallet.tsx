@@ -12,11 +12,13 @@ import React, {
 import {
   apiMe,
   apiSync,
+  apiPlay,
   apiLogin,
   apiRegister,
   apiDeleteAccount,
   clearToken,
   type SyncPayload,
+  type PlayResult,
 } from "./auth-client";
 
 const STARTING_BALANCE = 10_000;
@@ -44,6 +46,23 @@ export interface WalletState {
 export interface Wallet extends WalletState {
   bet: (amount: number) => boolean;
   win: (amount: number) => void;
+  /**
+   * Server-authoritative play (logged-in users). Sends only {game, bet, params};
+   * the server decides the outcome + payout and returns the authoritative balance.
+   * Throws on rejection (insufficient funds / invalid). Guests should use bet()/win().
+   */
+  play: (game: string, amount: number, params: unknown) => Promise<PlayResult>;
+  /**
+   * Apply the authoritative balance returned by a /api/round step. Mid-round
+   * steps pass only the balance; on settle, pass the wagered/returned deltas so
+   * display stats + leaderboard stay in sync.
+   */
+  applyServerBalance: (
+    balance: number,
+    deltas?: { wagered?: number; returned?: number; biggestWin?: number; settled?: boolean },
+  ) => void;
+  /** True when a server-authoritative wallet is active (i.e. logged in). */
+  serverAuthoritative: boolean;
   topUp: (amount?: number) => void;
   reset: () => void;
   ready: boolean;
@@ -166,6 +185,46 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
+  /**
+   * Server-authoritative one-shot wager (logged-in users). The client sends only
+   * { game, bet, params }; the server owns the RNG, the outcome and the payout,
+   * and returns the AUTHORITATIVE balance. We mirror that balance verbatim and
+   * advance display-only stats — we never compute money locally for a logged-in
+   * user. Throws on rejection (insufficient funds / invalid bet / network).
+   */
+  const play = useCallback(
+    async (game: string, amount: number, params: unknown): Promise<PlayResult> => {
+      const result = await apiPlay(game, amount, params);
+      setState((s) => ({
+        ...s,
+        balance: result.balance, // authoritative — server is the source of truth
+        totalWagered: s.totalWagered + amount,
+        totalReturned: round2(s.totalReturned + result.payout),
+        rounds: s.rounds + 1,
+        biggestWin: Math.max(s.biggestWin, result.payout),
+      }));
+      return result;
+    },
+    [],
+  );
+
+  const applyServerBalance = useCallback(
+    (
+      balance: number,
+      deltas?: { wagered?: number; returned?: number; biggestWin?: number; settled?: boolean },
+    ) => {
+      setState((s) => ({
+        ...s,
+        balance,
+        totalWagered: s.totalWagered + (deltas?.wagered ?? 0),
+        totalReturned: round2(s.totalReturned + (deltas?.returned ?? 0)),
+        rounds: deltas?.settled ? s.rounds + 1 : s.rounds,
+        biggestWin: Math.max(s.biggestWin, deltas?.biggestWin ?? 0),
+      }));
+    },
+    [],
+  );
+
   const topUp = useCallback((amount = STARTING_BALANCE) => {
     setState((s) => ({ ...s, balance: round2(s.balance + Math.max(0, Math.floor(amount))) }));
   }, []);
@@ -232,8 +291,23 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo<Wallet>(
-    () => ({ ...state, bet, win, topUp, reset, ready, username, login, register, logout, deleteAccount }),
-    [state, bet, win, topUp, reset, ready, username, login, register, logout, deleteAccount],
+    () => ({
+      ...state,
+      bet,
+      win,
+      play,
+      applyServerBalance,
+      serverAuthoritative: username !== null,
+      topUp,
+      reset,
+      ready,
+      username,
+      login,
+      register,
+      logout,
+      deleteAccount,
+    }),
+    [state, bet, win, play, applyServerBalance, topUp, reset, ready, username, login, register, logout, deleteAccount],
   );
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;

@@ -12,7 +12,7 @@ import {
   motion,
 } from "framer-motion";
 import { useWallet } from "@/lib/wallet";
-import { weightedPick, shuffle, pick } from "@/lib/rng";
+import { usePlayStateless } from "@/lib/playStateless";
 import { formatChips, formatMultiplier, formatDelta } from "@/lib/format";
 import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
@@ -143,53 +143,8 @@ interface CardOutcome {
   prize: Prize | null;
   /** The three winning cell indices (sorted), or [] for a loser. */
   winCells: number[];
-}
-
-/** Fill the non-winning cells so that NO symbol reaches a count of 3. */
-function fillNoTriple(
-  theme: Theme,
-  fixed: Map<number, string>,
-  count: number,
-): string[] {
-  const keys = theme.prizes.map((p) => p.key);
-  const cells: string[] = new Array(GRID).fill("");
-  const tally = new Map<string, number>();
-  for (const [idx, k] of fixed) {
-    cells[idx] = k;
-    tally.set(k, (tally.get(k) ?? 0) + 1);
-  }
-  const open: number[] = [];
-  for (let i = 0; i < count; i++) if (!fixed.has(i)) open.push(i);
-
-  for (const idx of shuffle(open)) {
-    // candidate symbols that won't reach 3 of a kind
-    const cand = keys.filter((k) => (tally.get(k) ?? 0) < 2);
-    const pool = cand.length > 0 ? cand : keys;
-    // pick() is safe here: pool is always non-empty (theme always has prizes)
-    const choice = pick(pool) ?? pool[0];
-    cells[idx] = choice;
-    tally.set(choice, (tally.get(choice) ?? 0) + 1);
-  }
-  return cells;
-}
-
-function rollCard(theme: Theme): CardOutcome {
-  // Decide win/lose + which symbol wins, weighted.
-  const options: (Prize | null)[] = [null, ...theme.prizes];
-  const weights = [theme.loseWeight, ...theme.prizes.map((p) => p.weight)];
-  const prize = weightedPick(options, weights);
-
-  if (!prize) {
-    // Losing card: no triple anywhere.
-    return { cells: fillNoTriple(theme, new Map(), GRID), prize: null, winCells: [] };
-  }
-
-  // Winning card: drop three of `prize` at random positions, then fill rest.
-  const positions = shuffle(Array.from({ length: GRID }, (_, i) => i)).slice(0, 3);
-  const fixed = new Map<number, string>();
-  for (const p of positions) fixed.set(p, prize.key);
-  const cells = fillNoTriple(theme, fixed, GRID);
-  return { cells, prize, winCells: positions.slice().sort((a, b) => a - b) };
+  /** Server-authoritative gross return (0 on a losing card). */
+  payout: number;
 }
 
 /* ---- Sparkle burst (for winning matched panels) ------------------ */
@@ -487,6 +442,7 @@ type Phase = "betting" | "scratching" | "resolved";
 export default function ScratchCards() {
   const wallet = useWallet();
   const { balance, ready } = wallet;
+  const playRound = usePlayStateless();
 
   const [bet, setBet] = useState(25);
   const [themeId, setThemeId] = useState<string>(THEMES[0].id);
@@ -514,22 +470,34 @@ export default function ScratchCards() {
   const allRevealed = phase === "scratching" && revealed.every(Boolean);
 
   /* ---- Buy a card -------------------------------------------------- */
-  const buyCard = useCallback(() => {
+  const buyCard = useCallback(async () => {
     // Guard against rapid double-clicks before React flushes the phase state.
     if (phase === "scratching" || buyingRef.current) return;
-    if (bet < MIN_BET) return;
+    if (bet < MIN_BET || bet > balance) return;
     buyingRef.current = true;
-    if (!wallet.bet(bet)) {
-      sfx.lose();
+    sfx.chip();
+
+    // Server (logged-in) or local guest demo pre-rolls the card + settles.
+    let round;
+    try {
+      round = await playRound("scratch", bet, { theme: themeId });
+    } catch {
       buyingRef.current = false;
+      sfx.lose();
       setResultText("Not enough chips for that card");
       return;
     }
-    sfx.chip();
-    const outcome = rollCard(theme);
+
+    const prizeKey = round.outcome.prizeKey as string | null;
+    const outcome: CardOutcome = {
+      cells: round.outcome.cells as string[],
+      prize: prizeKey ? theme.prizes.find((p) => p.key === prizeKey) ?? null : null,
+      winCells: round.outcome.winCells as number[],
+      payout: round.payout,
+    };
     resolvedRef.current = false;
     buyingRef.current = false;
-    setStake(bet);
+    setStake(round.bet);
     setRoundId((n) => n + 1);
     setCard(outcome);
     setRevealed(new Array(GRID).fill(false));
@@ -539,7 +507,7 @@ export default function ScratchCards() {
     setLastDelta(0);
     setResultText("Scratch the panels to reveal your prizes…");
     setPhase("scratching");
-  }, [phase, bet, wallet, theme]);
+  }, [phase, bet, balance, playRound, themeId, theme]);
 
   /* ---- Resolve once everything is revealed ------------------------- */
   const resolve = useCallback(
@@ -549,9 +517,8 @@ export default function ScratchCards() {
       setShowWin(true);
 
       if (outcome.prize) {
-        // Exact return: mult INCLUDES the stake. wallet.win() rounds to the cent.
-        const gross = outcome.prize.mult * s;
-        wallet.win(gross);
+        // Money already settled by the server; just display the gross return.
+        const gross = outcome.payout;
         setLastWin(gross);
         setLastDelta(gross - s);
         setBurst(true);
@@ -579,7 +546,7 @@ export default function ScratchCards() {
       }
       setPhase("resolved");
     },
-    [wallet],
+    [],
   );
 
   /* ---- Reveal a single panel --------------------------------------- */
