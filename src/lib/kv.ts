@@ -35,7 +35,16 @@ export interface LeaderboardEntry {
   balance: number;
 }
 
-export const USER_KEY = (u: string) => `user:${u.toLowerCase()}`;
-export const SESSION_KEY = (t: string) => `session:${t}`;
-export const LEADERBOARD_KEY = "leaderboard";
+// Optional keyspace prefix. Empty in production; set to e.g. "preview:" on
+// preview deploys so a shared Upstash DB stays isolated per environment.
+const PREFIX = process.env.KV_PREFIX ?? "";
+
+export const USER_KEY = (u: string) => `${PREFIX}user:${u.toLowerCase()}`;
+export const SESSION_KEY = (t: string) => `${PREFIX}session:${t}`;
+/** Authoritative balance, stored as an INTEGER number of cents. */
+export const BAL_KEY = (u: string) => `${PREFIX}bal:${u.toLowerCase()}`;
+/** Server-held round state for multi-step games. */
+export const ROUND_KEY = (id: string) => `${PREFIX}round:${id}`;
+export const LEADERBOARD_KEY = `${PREFIX}leaderboard`;
 export const SESSION_TTL = 60 * 60 * 24 * 7; // 7 days
+export const ROUND_TTL = 60 * 60; // 1 hour — abandoned rounds expire
