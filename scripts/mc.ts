@@ -90,6 +90,10 @@ const SCENARIOS: Scenario[] = [
 
   // Slots — Lucky Sevens RTP ~95.2% (published 4.8% edge).
   { label: "slots-classic", game: "slots-classic", bet: 100, params: {}, targetEdge: 4.8, tol: 0.5 },
+
+  // Tianna's Treasury — flagship Megaways. Target RTP ~95% (5% edge). High
+  // variance (cascades + free spins) → needs many rounds to converge.
+  { label: "tiannas-treasury", game: "tiannas-treasury", bet: 100, params: {}, targetEdge: 5.0, tol: 1.5 },
 ];
 
 function runScenario(s: Scenario, rounds: number) {

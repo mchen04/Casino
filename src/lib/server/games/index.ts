@@ -15,6 +15,7 @@ import { scratchSpec } from "./scratch";
 import { rouletteSpec } from "./roulette";
 import { sicBoSpec } from "./sic-bo";
 import { slotsClassicSpec } from "./slots-classic";
+import { tiannasTreasurySpec } from "./tiannas-treasury";
 
 let done = false;
 export function registerAll(): void {
@@ -33,6 +34,7 @@ export function registerAll(): void {
   register(rouletteSpec);
   register(sicBoSpec);
   register(slotsClassicSpec);
+  register(tiannasTreasurySpec);
 }
 
 registerAll();
