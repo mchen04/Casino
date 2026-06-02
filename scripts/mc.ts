@@ -33,6 +33,16 @@ const SCENARIOS: Scenario[] = [
   // Representative near-50% bets converge fast; extreme tails need more samples.
   { label: "dice over @ target 50", game: "dice", bet: 100, params: { target: 50, mode: "over" }, targetEdge: 1.0 },
   { label: "dice under @ target 50", game: "dice", bet: 100, params: { target: 50, mode: "under" }, targetEdge: 1.0 },
+
+  // Limbo edge is analytically ~1% for all targets; target 2 has low variance.
+  { label: "limbo target 2.0", game: "limbo", bet: 100, params: { target: 2 }, targetEdge: 1.0 },
+  { label: "limbo target 5.0 (info)", game: "limbo", bet: 100, params: { target: 5 }, targetEdge: null },
+
+  // Dragon Tiger (8-deck). Published edges: Dragon/Tiger ~3.73%, Tie ~ high.
+  { label: "dragon-tiger: dragon", game: "dragon-tiger", bet: 100, params: { dragon: 100, tiger: 0, tie: 0, suitTie: 0 }, targetEdge: 3.73, tol: 0.4 },
+  { label: "dragon-tiger: tiger", game: "dragon-tiger", bet: 100, params: { dragon: 0, tiger: 100, tie: 0, suitTie: 0 }, targetEdge: 3.73, tol: 0.4 },
+  { label: "dragon-tiger: tie 8:1", game: "dragon-tiger", bet: 100, params: { dragon: 0, tiger: 0, tie: 100, suitTie: 0 }, targetEdge: null },
+  { label: "dragon-tiger: suitTie 50:1", game: "dragon-tiger", bet: 100, params: { dragon: 0, tiger: 0, tie: 0, suitTie: 100 }, targetEdge: null },
 ];
 
 function runScenario(s: Scenario, rounds: number) {

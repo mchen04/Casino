@@ -3,7 +3,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useWallet } from "@/lib/wallet";
-import { makeShoe, type Card, type Rank, SUIT_SYMBOL } from "@/lib/cards";
+import { usePlayStateless } from "@/lib/playStateless";
+import { type Card, type Rank, SUIT_SYMBOL } from "@/lib/cards";
 import { sfx } from "@/lib/sound";
 import { formatChips, formatDelta } from "@/lib/format";
 import { CountingNumber } from "@/components/CountingNumber";
@@ -72,9 +73,7 @@ function rankLabel(card: Card): string {
 
 export default function DragonTiger() {
   const wallet = useWallet();
-  // Stable wallet function refs (these never change identity — zero-dep useCallbacks).
-  const walletBet = wallet.bet;
-  const walletWin = wallet.win;
+  const playRound = usePlayStateless();
 
   // Bets keyed by spot. Multiple spots can be active in one round.
   const [bets, setBets] = useState<Record<BetKey, number>>({
@@ -100,14 +99,11 @@ export default function DragonTiger() {
   // Streak board of recent winners (most recent first).
   const [history, setHistory] = useState<Outcome[]>([]);
 
-  // A persistent multi-deck shoe; reshuffle when running low.
-  const shoe = useRef<Card[]>([]);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   // Guard against rapid double-clicks before React re-renders.
   const isDealing = useRef(false);
 
   useEffect(() => {
-    shoe.current = makeShoe(8);
     return () => {
       timers.current.forEach(clearTimeout);
     };
@@ -116,11 +112,6 @@ export default function DragonTiger() {
   const after = useCallback((ms: number, fn: () => void) => {
     const id = setTimeout(fn, ms);
     timers.current.push(id);
-  }, []);
-
-  const draw = useCallback((): Card => {
-    if (shoe.current.length < 12) shoe.current = makeShoe(8);
-    return shoe.current.pop() as Card;
   }, []);
 
   const totalStake = bets.dragon + bets.tiger + bets.tie + bets.suitTie;
@@ -154,31 +145,10 @@ export default function DragonTiger() {
     setBets({ dragon: 0, tiger: 0, tie: 0, suitTie: 0 });
   }, [isBetting]);
 
-  const resolve = useCallback(
-    (d: Card, t: Card, stake: number, placed: Record<BetKey, number>) => {
-      const dv = DT_VALUE[d.rank];
-      const tv = DT_VALUE[t.rank];
-      const isTie = dv === tv;
-      const isSuitTie = isTie && d.suit === t.suit;
-      const winner: Side | "tie" = isTie ? "tie" : dv > tv ? "dragon" : "tiger";
-      const result: Outcome = { winner, isTie, isSuitTie };
-
-      // Compute gross returned to the wallet across all spots.
-      let gross = 0;
-      if (isTie) {
-        // Side bets lose HALF -> half the stake is returned (exact).
-        gross += placed.dragon / 2;
-        gross += placed.tiger / 2;
-        gross += placed.tie * 9; // 8:1 + stake
-        if (isSuitTie) gross += placed.suitTie * 51; // 50:1 + stake
-      } else {
-        // Winning side pays 1:1 (stake + equal profit).
-        gross += placed[winner] * 2;
-        // tie & suitTie bets lose entirely; losing side gets nothing.
-      }
-
+  // Display the server-decided result once the flip animation has played.
+  const applyResult = useCallback(
+    (d: Card, result: Outcome, gross: number, stake: number, placed: Record<BetKey, number>) => {
       const net = gross - stake;
-      if (gross > 0) walletWin(gross);
 
       setOutcome(result);
       setNetDelta(net);
@@ -186,9 +156,9 @@ export default function DragonTiger() {
 
       // Headline result text.
       let txt: string;
-      if (isSuitTie) txt = `SUIT TIE — ${rankLabel(d)}`;
-      else if (isTie) txt = `TIE — ${d.rank} = ${t.rank}`;
-      else txt = `${winner === "dragon" ? "DRAGON" : "TIGER"} WINS`;
+      if (result.isSuitTie) txt = `SUIT TIE — ${rankLabel(d)}`;
+      else if (result.isTie) txt = `TIE — ${d.rank} = ${d.rank}`;
+      else txt = `${result.winner === "dragon" ? "DRAGON" : "TIGER"} WINS`;
       if (net > 0) txt += `  ·  +${formatChips(net)}`;
       else if (net < 0) txt += `  ·  ${formatChips(net)}`;
       else txt += `  ·  Push`;
@@ -196,7 +166,7 @@ export default function DragonTiger() {
 
       // Feedback: did the player win anything net-positive?
       if (net > 0) {
-        if (isSuitTie && placed.suitTie > 0) sfx.jackpot();
+        if (result.isSuitTie && placed.suitTie > 0) sfx.jackpot();
         else if (net >= stake * 4) sfx.jackpot();
         else sfx.win();
         setShowBurst(true);
@@ -210,17 +180,13 @@ export default function DragonTiger() {
       isDealing.current = false;
       setPhase("resolved");
     },
-    [walletWin, after],
+    [after],
   );
 
-  const deal = useCallback(() => {
+  const deal = useCallback(async () => {
     // Guard against rapid double-clicks before React can re-render and update phase.
     if (!isBetting || !canAfford || isDealing.current) return;
     const stake = totalStake;
-    if (!walletBet(stake)) {
-      sfx.lose();
-      return;
-    }
     isDealing.current = true;
     const placed = { ...bets };
     setLastStake(stake);
@@ -228,15 +194,33 @@ export default function DragonTiger() {
     setOutcome(null);
     setResultText("");
     setShowBurst(false);
-
-    const d = draw();
-    const t = draw();
-    setDragonCard(d);
-    setTigerCard(t);
+    setDragonCard(null);
+    setTigerCard(null);
     setDragonDown(true);
     setTigerDown(true);
     setPhase("dealing");
     sfx.card();
+
+    // Server (logged-in) or local guest demo deals the cards + computes payout.
+    let round;
+    try {
+      round = await playRound("dragon-tiger", stake, placed);
+    } catch {
+      isDealing.current = false;
+      setPhase("betting");
+      sfx.lose();
+      return;
+    }
+
+    const d = round.outcome.dragonCard as Card;
+    const t = round.outcome.tigerCard as Card;
+    const result: Outcome = {
+      winner: round.outcome.winner as Side | "tie",
+      isTie: Boolean(round.outcome.isTie),
+      isSuitTie: Boolean(round.outcome.isSuitTie),
+    };
+    setDragonCard(d);
+    setTigerCard(t);
 
     // Cards slide in, then flip simultaneously.
     after(420, () => sfx.card());
@@ -246,9 +230,9 @@ export default function DragonTiger() {
       setDragonDown(false);
       setTigerDown(false);
     });
-    // After the flip animation completes, resolve.
-    after(1180, () => resolve(d, t, stake, placed));
-  }, [isBetting, canAfford, totalStake, walletBet, bets, draw, after, resolve]);
+    // After the flip animation completes, show the result.
+    after(1180, () => applyResult(d, result, round.payout, stake, placed));
+  }, [isBetting, canAfford, totalStake, bets, playRound, after, applyResult]);
 
   const newRound = useCallback(() => {
     timers.current.forEach(clearTimeout);

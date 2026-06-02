@@ -64,3 +64,43 @@ export function oneOf<T extends string>(v: unknown, allowed: readonly T[], name:
   assert(typeof v === "string" && (allowed as readonly string[]).includes(v), `Invalid ${name}`);
   return v as T;
 }
+
+/** A non-negative integer in [0, max]. Used for per-spot chip amounts. */
+export function nonNegInt(v: unknown, max: number, name: string): number {
+  const n = num(v, name);
+  assert(Number.isInteger(n) && n >= 0 && n <= max, `${name} out of range`);
+  return n;
+}
+
+export function bool(v: unknown, name: string): boolean {
+  assert(typeof v === "boolean", `Invalid ${name}`);
+  return v;
+}
+
+/**
+ * Validate a multi-spot bet: each spot is a non-negative integer, at least one
+ * spot is positive, and the spots sum EXACTLY to the accepted total `bet`. This
+ * makes it impossible to under-fund a spread or smuggle a payout-bearing spot
+ * the player never paid for.
+ */
+export function validateSpots<K extends string>(
+  raw: unknown,
+  keys: readonly K[],
+  bet: number,
+  maxPerSpot: number,
+): Record<K, number> {
+  assert(raw && typeof raw === "object", "Missing bets");
+  const r = raw as Record<string, unknown>;
+  const out = {} as Record<K, number>;
+  let sum = 0;
+  let positive = 0;
+  for (const k of keys) {
+    const amt = nonNegInt(r[k], maxPerSpot, k);
+    out[k] = amt;
+    sum += amt;
+    if (amt > 0) positive++;
+  }
+  assert(positive > 0, "No bet placed");
+  assert(sum === bet, "Bet spots must sum to the stake");
+  return out;
+}

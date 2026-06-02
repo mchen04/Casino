@@ -9,15 +9,12 @@ import React, {
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useWallet } from "@/lib/wallet";
+import { usePlayStateless } from "@/lib/playStateless";
 import { clamp } from "@/lib/rng";
 import { formatChips, formatDelta, formatMultiplier } from "@/lib/format";
 import { sfx } from "@/lib/sound";
 import { sleep } from "@/lib/async";
-import {
-  HOUSE_EDGE,
-  rollMultiplier,
-  winChanceForTarget,
-} from "@/lib/cryptoGames";
+import { HOUSE_EDGE, winChanceForTarget } from "@/lib/cryptoGames";
 import { Button } from "@/components/ui/Button";
 import { Celebration } from "@/components/Celebration";
 import { BetControls } from "@/components/BetControls";
@@ -158,7 +155,8 @@ function MultiplierDisplay({
 }
 
 export default function Limbo() {
-  const { balance, bet: placeBet, win, ready } = useWallet();
+  const { balance, ready } = useWallet();
+  const playRound = usePlayStateless();
 
   const [bet, setBet] = useState(25);
   const [target, setTarget] = useState(2);
@@ -183,6 +181,8 @@ export default function Limbo() {
       mountedRef.current = false;
     };
   }, []);
+  // Synchronous re-entrancy guard so one click = one server wager.
+  const rollingRef = useRef(false);
 
   // Keep bet affordable while idle.
   useEffect(() => {
@@ -247,8 +247,9 @@ export default function Limbo() {
   // Core round.
   // -------------------------------------------------------------------------
   const play = useCallback(async () => {
-    if (busy) return;
+    if (busy || rollingRef.current) return;
     if (!canAfford) return;
+    rollingRef.current = true;
     // Normalise target before charging.
     const tgt = clamp(
       Math.round(target * 100) / 100,
@@ -259,15 +260,27 @@ export default function Limbo() {
       setTarget(tgt);
       setTargetText(tgt.toFixed(2));
     }
-    if (!placeBet(bet)) return;
-
     const stake = bet;
-    const res = rollMultiplier();
-    setResultValue(res);
+
+    setResultValue(1);
     setRound(null);
     setRollKey((k) => k + 1);
     setPhase("rolling");
     sfx.thud();
+
+    // Server (logged-in) or local guest demo decides the result + payout.
+    let roundRes;
+    try {
+      roundRes = await playRound("limbo", stake, { target: tgt });
+    } catch {
+      rollingRef.current = false;
+      setPhase("betting");
+      return;
+    }
+    if (!mountedRef.current) return;
+    const res = Number(roundRes.outcome.result);
+    const won = Boolean(roundRes.outcome.won);
+    setResultValue(res);
 
     // Ticking climb feedback. Duration roughly mirrors the count-up curve.
     const climbDur = clamp(
@@ -284,12 +297,9 @@ export default function Limbo() {
     await sleep(180); // let the number lock visually
     if (!mountedRef.current) return;
 
-    const won = res >= tgt;
-    const gross = won ? stake * tgt : 0;
-    const delta = won ? gross - stake : -stake;
+    const delta = won ? roundRes.payout - stake : -stake;
 
     if (won) {
-      win(gross);
       setBurst((b) => b + 1);
       if (tgt >= 10) sfx.jackpot();
       else sfx.win();
@@ -301,7 +311,8 @@ export default function Limbo() {
     setRound(finished);
     setHistory((h) => [finished, ...h].slice(0, 12));
     setPhase("resolved");
-  }, [busy, canAfford, target, placeBet, bet, win]);
+    rollingRef.current = false;
+  }, [busy, canAfford, target, bet, playRound]);
 
   const newRound = useCallback(() => {
     sfx.click();
