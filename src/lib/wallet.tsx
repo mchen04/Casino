@@ -52,6 +52,15 @@ export interface Wallet extends WalletState {
    * Throws on rejection (insufficient funds / invalid). Guests should use bet()/win().
    */
   play: (game: string, amount: number, params: unknown) => Promise<PlayResult>;
+  /**
+   * Apply the authoritative balance returned by a /api/round step. Mid-round
+   * steps pass only the balance; on settle, pass the wagered/returned deltas so
+   * display stats + leaderboard stay in sync.
+   */
+  applyServerBalance: (
+    balance: number,
+    deltas?: { wagered?: number; returned?: number; biggestWin?: number; settled?: boolean },
+  ) => void;
   /** True when a server-authoritative wallet is active (i.e. logged in). */
   serverAuthoritative: boolean;
   topUp: (amount?: number) => void;
@@ -199,6 +208,23 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  const applyServerBalance = useCallback(
+    (
+      balance: number,
+      deltas?: { wagered?: number; returned?: number; biggestWin?: number; settled?: boolean },
+    ) => {
+      setState((s) => ({
+        ...s,
+        balance,
+        totalWagered: s.totalWagered + (deltas?.wagered ?? 0),
+        totalReturned: round2(s.totalReturned + (deltas?.returned ?? 0)),
+        rounds: deltas?.settled ? s.rounds + 1 : s.rounds,
+        biggestWin: Math.max(s.biggestWin, deltas?.biggestWin ?? 0),
+      }));
+    },
+    [],
+  );
+
   const topUp = useCallback((amount = STARTING_BALANCE) => {
     setState((s) => ({ ...s, balance: round2(s.balance + Math.max(0, Math.floor(amount))) }));
   }, []);
@@ -270,6 +296,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       bet,
       win,
       play,
+      applyServerBalance,
       serverAuthoritative: username !== null,
       topUp,
       reset,
@@ -280,7 +307,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       logout,
       deleteAccount,
     }),
-    [state, bet, win, play, topUp, reset, ready, username, login, register, logout, deleteAccount],
+    [state, bet, win, play, applyServerBalance, topUp, reset, ready, username, login, register, logout, deleteAccount],
   );
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;

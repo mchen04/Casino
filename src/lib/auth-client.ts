@@ -126,6 +126,28 @@ export async function apiPlay(
   return data as PlayResult;
 }
 
+export interface RoundResponse {
+  roundId?: string;
+  done: boolean;
+  publicView: Record<string, unknown>;
+  actions?: string[];
+  balance: number;
+  bet?: number;
+  payout?: number;
+}
+
+/** Stateful round: start a new round, or submit a decision. Server-authoritative. */
+export async function apiRound(body: Record<string, unknown>): Promise<RoundResponse> {
+  const res = await fetch("/api/round", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { error?: string })?.error ?? "Round failed");
+  return data as RoundResponse;
+}
+
 export async function apiSync(payload: SyncPayload): Promise<boolean> {
   try {
     const res = await fetch("/api/sync", {
