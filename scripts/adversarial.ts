@@ -18,7 +18,9 @@
  */
 import { makeRng } from "../src/lib/server/rngCore";
 import { getSpec, registeredGames, GameError } from "../src/lib/server/engine";
+import { getRoundGame, registeredRoundGames } from "../src/lib/server/round/engine";
 import "../src/lib/server/games";
+import "../src/lib/server/round/games";
 
 const rng = makeRng(Math.random);
 let failures = 0;
@@ -136,16 +138,93 @@ const BEST_BETS: Record<string, unknown> = {
   bingo: { cards: [[[1, 2, 3, 4, 5], [16, 17, 18, 19, 20], [31, 32, 0, 34, 35], [46, 47, 48, 49, 50], [61, 62, 63, 64, 65]]] },
 };
 
+// --- Stateful round machines (/api/round) -----------------------------------
+// Every step a round can emit MUST carry a finite, non-negative payout/debit/
+// credit — those are the only values that touch the authoritative balance.
+const EVIL_ROUND_PARAMS: unknown[] = [
+  null, undefined, 42, "x", [], {},
+  { trips: -1 }, { trips: Infinity }, { trips: 1e30 }, { trips: "9" },
+  { pairPlus: -1 }, { pairPlus: NaN }, { coins: 0 }, { coins: 99 }, { coins: 2.5 },
+  { buyIn: -1 }, { mines: -3 }, { mines: 99 },
+];
+const EVIL_ACTIONS = ["", "pwned", "fold", "cashout", "set", "roll", "place", "working",
+  "takedown", "leave", "raise", "call", "check", "hit", "double", "split", "bet4x", "draw"];
+const EVIL_PAYLOADS: unknown[] = [
+  null, undefined, {}, 7, "x",
+  { multiplier: Infinity }, { multiplier: -1 }, { multiplier: NaN }, { multiplier: 1e308 }, { multiplier: 2 },
+  { low: [] }, { low: ["x", "y"] }, { low: [1, 1] },
+  { to: -100 }, { to: 1e12 }, { to: Infinity }, { to: 0.5 },
+  { amount: -5 }, { amount: Infinity }, { amount: 1e12 }, { spot: "evil", amount: 1e9 },
+  { spot: "passOdds", amount: 1e9 }, { held: [true, true, true, true, true, true] },
+  { index: -1 }, { index: 1e9 }, { on: "yes" }, { __proto__: { polluted: true } },
+];
+
+function safeStep(slug: string, step: { payout?: number; debit?: number; credit?: number }, ctx: string) {
+  for (const [k, v] of [["payout", step.payout], ["debit", step.debit], ["credit", step.credit]] as const) {
+    if (v === undefined) continue;
+    if (!Number.isFinite(v) || (v as number) < 0) {
+      log(false, `${slug}: UNSAFE ${k}=${v} (${ctx})`);
+      return false;
+    }
+  }
+  return true;
+}
+
+function probeRoundGame(slug: string) {
+  const g = getRoundGame(slug)!;
+  const bets = [...new Set([g.minBet, Math.min(g.maxBet, Math.max(g.minBet, 100)), g.maxBet])];
+  for (const p of EVIL_ROUND_PARAMS) {
+    let validated: unknown;
+    try {
+      validated = g.validate(p);
+    } catch (e) {
+      log(e instanceof GameError, `${slug}: validate reject ${JSON.stringify(p)?.slice(0, 30)} → ${e instanceof GameError ? "GameError" : `CRASH ${(e as Error).message}`}`);
+      continue;
+    }
+    for (const bet of bets) {
+      let start;
+      try {
+        start = g.start(bet, validated, rng);
+      } catch (e) {
+        if (!(e instanceof GameError)) log(false, `${slug}: start CRASH bet=${bet} → ${(e as Error).message}`);
+        continue;
+      }
+      safeStep(slug, start, `start bet=${bet}`);
+      if (start.done || !start.state) continue;
+      // Hammer act() with every evil action × payload on the live state.
+      for (const action of EVIL_ACTIONS) {
+        for (const payload of EVIL_PAYLOADS) {
+          try {
+            const s2 = g.act(start.state, bet, action, payload, rng);
+            safeStep(slug, s2, `act ${action} ${JSON.stringify(payload)?.slice(0, 24)}`);
+          } catch (e) {
+            if (!(e instanceof GameError)) {
+              log(false, `${slug}: act CRASH ${action} ${JSON.stringify(payload)?.slice(0, 24)} → ${(e as Error).message}`);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 function main() {
   const games = registeredGames().sort();
-  console.log(`Adversarial red-team over ${games.length} resolvers\n`);
-  console.log("== (A/B/C) validate + resolve robustness ==");
+  const rounds = registeredRoundGames().sort();
+  console.log(`Adversarial red-team over ${games.length} stateless resolvers + ${rounds.length} round machines\n`);
+  console.log("== (A/B/C) stateless validate + resolve robustness ==");
   for (const slug of games) probeValidate(slug);
-  console.log("\n== (D) best-bet house edge >= 0 ==");
+  console.log("\n== (D) stateless best-bet house edge >= 0 ==");
   for (const slug of games) {
     if (BEST_BETS[slug] !== undefined) probeEdge(slug, BEST_BETS[slug]);
   }
-  console.log(`\n${failures === 0 ? "✅ 0 confirmed exploits" : `❌ ${failures} FINDINGS`} across ${games.length} resolvers`);
+  console.log("\n== (E) round-machine validate/start/act robustness (payout/debit/credit safe) ==");
+  for (const slug of rounds) {
+    const before = failures;
+    probeRoundGame(slug);
+    if (failures === before) console.log(`  [ok ] ${slug}: no unsafe step across evil params × actions × payloads`);
+  }
+  console.log(`\n${failures === 0 ? "✅ 0 confirmed exploits" : `❌ ${failures} FINDINGS`} across ${games.length + rounds.length} games`);
   if (failures > 0) process.exitCode = 1;
 }
 
