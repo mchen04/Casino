@@ -107,6 +107,9 @@ const SCENARIOS: Scenario[] = [
     targetEdge: 8.0,
     tol: 1.0,
   },
+
+  // Fruit Frenzy — RTP ~96.97% (published 3.2% edge), incl. natural free spins.
+  { label: "slots-fruit", game: "slots-fruit", bet: 100, params: {}, targetEdge: 3.2, tol: 0.6 },
 ];
 
 function runScenario(s: Scenario, rounds: number) {
