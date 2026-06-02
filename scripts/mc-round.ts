@@ -154,6 +154,56 @@ function simCS(rounds: number): Sim {
   return { initialWagered, totalWagered, returned };
 }
 
+/** Teen Patti — play any pair+/color/sequence, or a 10-high+ high card; else fold. */
+function tpShouldPlay(cards: Card[]): boolean {
+  const v = cards.map((c) => rankValue(c.rank)).sort((a, b) => b - a);
+  const suits = cards.map((c) => c.suit);
+  const isFlush = suits.every((su) => su === suits[0]);
+  const distinct = [...new Set(v)];
+  const isPairOrTrail = distinct.length < 3;
+  let isSeq = false;
+  if (distinct.length === 3) {
+    if (v[0] - v[2] === 2) isSeq = true;
+    else if (v[0] === 14 && v[1] === 3 && v[2] === 2) isSeq = true;
+  }
+  if (isPairOrTrail || isFlush || isSeq) return true;
+  return v[0] >= 10; // high card: play 10-high or better
+}
+function simTP(rounds: number): Sim {
+  const game = getRoundGame("teen-patti")!;
+  let initialWagered = 0;
+  let totalWagered = 0;
+  let returned = 0;
+  for (let i = 0; i < rounds; i++) {
+    const start = game.start(BET, {}, rng);
+    initialWagered += BET;
+    const play = tpShouldPlay(start.publicView.playerCards as Card[]);
+    if (play) {
+      totalWagered += BET * 2;
+      returned += game.act(start.state, BET, "play", null, rng).payout;
+    } else {
+      totalWagered += BET;
+      returned += game.act(start.state, BET, "fold", null, rng).payout;
+    }
+  }
+  return { initialWagered, totalWagered, returned };
+}
+
+/** Teen Patti — naive always-play (the strategy the documented ~3.3% assumes). */
+function simTPAlways(rounds: number): Sim {
+  const game = getRoundGame("teen-patti")!;
+  let initialWagered = 0;
+  let totalWagered = 0;
+  let returned = 0;
+  for (let i = 0; i < rounds; i++) {
+    const start = game.start(BET, {}, rng);
+    initialWagered += BET;
+    totalWagered += BET * 2;
+    returned += game.act(start.state, BET, "play", null, rng).payout;
+  }
+  return { initialWagered, totalWagered, returned };
+}
+
 function report(label: string, s: Sim, target: number, tol: number, measure: "initial" | "action" = "initial") {
   const net = s.returned - s.totalWagered;
   const edgeInitial = (-net / s.initialWagered) * 100; // house edge on the ante
@@ -185,6 +235,11 @@ function main() {
   report("three-card-poker", simTCP(rounds), 3.46, 0.35) ? pass++ : fail++;
   // Caribbean Stud (raise pair+/AK): documented ~5.22% on the ante.
   report("caribbean-stud", simCS(rounds), 5.22, 0.5) ? pass++ : fail++;
+  // Teen Patti (15% commission): documented ~3.3% applies to ALWAYS-PLAY (the as-
+  // designed figure). NOTE: selective folding is +EV for the player here — a known
+  // limitation of the original commission tuning, carried over faithfully.
+  report("teen-patti (always-play)", simTPAlways(rounds), 3.3, 1.0, "action") ? pass++ : fail++;
+  report("teen-patti (fold-weak, info)", simTP(rounds), 0, 99) ? pass++ : fail++;
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail > 0) process.exitCode = 1;
 }

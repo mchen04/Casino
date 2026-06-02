@@ -7,6 +7,7 @@ import { hiLoGame } from "./hi-lo";
 import { minesGame } from "./mines";
 import { threeCardPokerGame } from "./three-card-poker";
 import { caribbeanStudGame } from "./caribbean-stud";
+import { teenPattiGame } from "./teen-patti";
 
 let done = false;
 export function registerAllRoundGames(): void {
@@ -18,6 +19,7 @@ export function registerAllRoundGames(): void {
   registerRound(minesGame);
   registerRound(threeCardPokerGame);
   registerRound(caribbeanStudGame);
+  registerRound(teenPattiGame);
 }
 
 registerAllRoundGames();
