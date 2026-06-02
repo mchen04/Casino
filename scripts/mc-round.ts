@@ -58,6 +58,30 @@ function simRedDog(rounds: number): Sim {
   return { initialWagered, totalWagered, returned };
 }
 
+/** Hi-Lo — one guess on the likelier side, then cash out: 3% edge per guess. */
+function simHiLo(rounds: number): Sim {
+  const game = getRoundGame("hi-lo")!;
+  let initialWagered = 0;
+  let totalWagered = 0;
+  let returned = 0;
+  for (let i = 0; i < rounds; i++) {
+    const start = game.start(BET, {}, rng);
+    initialWagered += BET;
+    totalWagered += BET;
+    const pH = Number(start.publicView.pHigher);
+    const pL = Number(start.publicView.pLower);
+    const side = pH >= pL ? "higher" : "lower";
+    const g = game.act(start.state, BET, side, null, rng);
+    if (g.done) {
+      returned += g.payout; // busted
+      continue;
+    }
+    const cash = game.act(g.state, BET, "cashout", null, rng);
+    returned += cash.payout;
+  }
+  return { initialWagered, totalWagered, returned };
+}
+
 function report(label: string, s: Sim, target: number, tol: number, measure: "initial" | "action" = "initial") {
   const net = s.returned - s.totalWagered;
   const edgeInitial = (-net / s.initialWagered) * 100; // house edge on the ante
@@ -81,6 +105,8 @@ function main() {
   // Red Dog (raise on spread >= 7): documented ~2.67% element-of-risk
   // (edge-on-ante ~3.16%, the canonical single-deck figure).
   report("red-dog", simRedDog(rounds), 2.67, 0.35, "action") ? pass++ : fail++;
+  // Hi-Lo: 3% house edge per correct guess (documented 3.0%).
+  report("hi-lo", simHiLo(rounds), 3.0, 0.2) ? pass++ : fail++;
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail > 0) process.exitCode = 1;
 }
