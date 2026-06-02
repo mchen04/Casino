@@ -82,6 +82,27 @@ function simHiLo(rounds: number): Sim {
   return { initialWagered, totalWagered, returned };
 }
 
+/** Mines — pick one tile then cash out: exactly 1% edge for any cash-out point. */
+function simMines(rounds: number): Sim {
+  const game = getRoundGame("mines")!;
+  let initialWagered = 0;
+  let totalWagered = 0;
+  let returned = 0;
+  for (let i = 0; i < rounds; i++) {
+    const start = game.start(BET, { mines: 3 }, rng);
+    initialWagered += BET;
+    totalWagered += BET;
+    const pick = game.act(start.state, BET, "pick", { index: i % 25 }, rng);
+    if (pick.done) {
+      returned += pick.payout; // busted
+      continue;
+    }
+    const cash = game.act(pick.state, BET, "cashout", null, rng);
+    returned += cash.payout;
+  }
+  return { initialWagered, totalWagered, returned };
+}
+
 function report(label: string, s: Sim, target: number, tol: number, measure: "initial" | "action" = "initial") {
   const net = s.returned - s.totalWagered;
   const edgeInitial = (-net / s.initialWagered) * 100; // house edge on the ante
@@ -107,6 +128,8 @@ function main() {
   report("red-dog", simRedDog(rounds), 2.67, 0.35, "action") ? pass++ : fail++;
   // Hi-Lo: 3% house edge per correct guess (documented 3.0%).
   report("hi-lo", simHiLo(rounds), 3.0, 0.2) ? pass++ : fail++;
+  // Mines: exactly 1% edge for any cash-out point.
+  report("mines", simMines(rounds), 1.0, 0.2) ? pass++ : fail++;
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail > 0) process.exitCode = 1;
 }
