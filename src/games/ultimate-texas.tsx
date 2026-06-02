@@ -9,6 +9,7 @@ import {
   animate,
 } from "framer-motion";
 import { useWallet } from "@/lib/wallet";
+import { usePlayRound } from "@/lib/playRound";
 import {
   type Card,
   makeShoe,
@@ -239,11 +240,17 @@ function DealtCard({
 
 export default function UltimateTexasHoldem() {
   const wallet = useWallet();
+  const { start: roundStart, act: roundAct } = usePlayRound();
+  const roundIdRef = useRef<string | null>(null);
 
-  // Guards async reveal sequences against setState-after-unmount.
+  // Guards async reveal sequences against setState-after-unmount. Reset true on
+  // mount so a StrictMode mount→unmount→remount doesn't leave it stuck false.
   const mountedRef = useRef(true);
-  useEffect(() => () => {
-    mountedRef.current = false;
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   // bet config
@@ -280,10 +287,17 @@ export default function UltimateTexasHoldem() {
   const startRound = useCallback(async () => {
     if (busy || inRound) return;
     if (ante < 1) return;
-    // ante + blind posted now; trips posted now. Play bet comes later.
+    // ante + blind + trips posted now; play bet comes later.
     const upfront = ante * 2 + trips;
     if (!canAfford(upfront)) return;
-    if (!wallet.bet(upfront)) return; // deduct ante+blind+trips together
+
+    let handle;
+    try {
+      handle = await roundStart("ultimate-texas", ante, { trips }); // server debits ante+blind+trips
+    } catch {
+      return;
+    }
+    roundIdRef.current = handle.roundId ?? null;
 
     setBusy(true);
     setSettle(null);
@@ -294,10 +308,12 @@ export default function UltimateTexasHoldem() {
     setDealerRevealed(false);
     setRevealCount(0);
 
-    const shoe = makeShoe(1);
-    const ph: Card[] = [shoe[0], shoe[2]];
-    const dh: Card[] = [shoe[1], shoe[3]];
-    const comm: Card[] = [shoe[4], shoe[5], shoe[6], shoe[7], shoe[8]];
+    // Player hole comes from the server. Dealer hole + community stay hidden until
+    // the relevant decision reveals them; use face-down placeholders until then.
+    const ph = handle.publicView.playerHole as Card[];
+    const placeholder = makeShoe(1);
+    const dh: Card[] = [placeholder[0], placeholder[1]];
+    const comm: Card[] = placeholder.slice(2, 7);
 
     setPlayerHole([]);
     setDealerHole([]);
@@ -324,7 +340,7 @@ export default function UltimateTexasHoldem() {
     if (!mountedRef.current) return;
     setPhase("preflop");
     setBusy(false);
-  }, [busy, inRound, ante, trips, canAfford, wallet]);
+  }, [busy, inRound, ante, trips, canAfford, roundStart]);
 
   // ----- settlement --------------------------------------------------------
 
@@ -352,11 +368,13 @@ export default function UltimateTexasHoldem() {
     [ante],
   );
 
+  // Recompute the round outcome locally for DISPLAY only. The server has already
+  // settled the balance; the dealer hole + community cards are passed in from the
+  // server's settle response (state may not have flushed yet when this is called).
   const resolve = useCallback(
-    (finalPlay: number, folded: boolean) => {
-      // Build full hands.
-      const pHand = evaluateBest([...playerHole, ...community]);
-      const dHand = evaluateBest([...dealerHole, ...community]);
+    (finalPlay: number, folded: boolean, dHole: Card[], comm: Card[]) => {
+      const pHand = evaluateBest([...playerHole, ...comm]);
+      const dHand = evaluateBest([...dHole, ...comm]);
       const dealerQualified = dHand.category >= HandCategory.Pair;
 
       const lines: { label: string; amount: number }[] = [];
@@ -367,7 +385,6 @@ export default function UltimateTexasHoldem() {
         const tr = tripsRatio(pHand.category);
         if (tr >= 0) {
           const gross = trips * (tr + 1);
-          wallet.win(gross);
           net += gross - trips;
           lines.push({ label: `Trips (${pHand.name})`, amount: gross - trips });
         } else {
@@ -377,8 +394,7 @@ export default function UltimateTexasHoldem() {
       }
 
       if (folded) {
-        // Forfeit ante + blind. (Trips already settled above.)
-        net -= ante * 2;
+        net -= ante * 2; // forfeit ante + blind
         lines.push({ label: "Ante", amount: -ante });
         lines.push({ label: "Blind", amount: -ante });
         return finishSettle({
@@ -401,51 +417,41 @@ export default function UltimateTexasHoldem() {
 
       // --- PLAY bet: 1:1 on win, push on tie, loss otherwise -------------
       if (playerWins) {
-        wallet.win(finalPlay * 2);
         net += finalPlay;
         lines.push({ label: "Play", amount: finalPlay });
       } else if (tie) {
-        wallet.win(finalPlay); // push
         lines.push({ label: "Play (push)", amount: 0 });
       } else {
         net -= finalPlay;
         lines.push({ label: "Play", amount: -finalPlay });
       }
 
-      // --- ANTE: pays 1:1 on win, but PUSHES if dealer doesn't qualify;
-      //           loses if dealer wins; pushes on tie. -------------------
+      // --- ANTE: 1:1 on win, pushes if dealer doesn't qualify; push on tie -
       if (playerWins) {
         if (dealerQualified) {
-          wallet.win(ante * 2);
           net += ante;
           lines.push({ label: "Ante", amount: ante });
         } else {
-          wallet.win(ante); // push — dealer didn't qualify
           lines.push({ label: "Ante (push)", amount: 0 });
         }
       } else if (tie) {
-        wallet.win(ante); // push
         lines.push({ label: "Ante (push)", amount: 0 });
       } else {
         net -= ante;
         lines.push({ label: "Ante", amount: -ante });
       }
 
-      // --- BLIND: pays bonus paytable on player win only; push if win but
-      //            < straight; loses on a dealer win; pushes on tie. -----
+      // --- BLIND: bonus paytable on a win with a straight+; push if below --
       if (playerWins) {
         const ratio = blindRatio(pHand.category);
         if (ratio > 0) {
-          const profit = ante * ratio; // exact bonus — wallet rounds to the cent
-          wallet.win(ante + profit); // stake back + bonus profit
+          const profit = ante * ratio;
           net += profit;
           lines.push({ label: `Blind (${pHand.name})`, amount: profit });
         } else {
-          wallet.win(ante); // push — win but below a straight
           lines.push({ label: "Blind (push)", amount: 0 });
         }
       } else if (tie) {
-        wallet.win(ante); // push
         lines.push({ label: "Blind (push)", amount: 0 });
       } else {
         net -= ante;
@@ -470,14 +476,17 @@ export default function UltimateTexasHoldem() {
         best: pHand.best,
       });
     },
-    [playerHole, dealerHole, community, ante, trips, wallet, finishSettle],
+    [playerHole, ante, trips, finishSettle],
   );
 
   // ----- reveal sequence to showdown --------------------------------------
 
   const goToShowdown = useCallback(
-    async (finalPlay: number, folded: boolean) => {
+    async (finalPlay: number, folded: boolean, dHole: Card[], comm: Card[]) => {
       setBusy(true);
+      // Swap placeholders for the real server cards before revealing them.
+      setCommunity(comm);
+      setDealerHole(dHole);
 
       // Reveal any community cards not yet shown.
       const target = 5;
@@ -499,7 +508,7 @@ export default function UltimateTexasHoldem() {
       await sleep(520);
       if (!mountedRef.current) return;
       setPhase("showdown");
-      resolve(finalPlay, folded);
+      resolve(finalPlay, folded, dHole, comm);
       setBusy(false);
     },
     [revealCount, resolve],
@@ -507,27 +516,46 @@ export default function UltimateTexasHoldem() {
 
   // ----- player decisions --------------------------------------------------
 
-  // Pre-flop raise (3x or 4x). Posts the play bet, then runs straight to showdown.
+  // Pre-flop raise (3x or 4x). Posts the play bet on the server, then showdown.
   const raisePreflop = useCallback(
-    (mult: 3 | 4) => {
+    async (mult: 3 | 4) => {
       if (busy || phase !== "preflop") return;
+      const rid = roundIdRef.current;
+      if (!rid) return;
       const amt = ante * mult;
       if (!canAfford(amt)) return;
-      if (!wallet.bet(amt)) return;
       setBusy(true);
       setPlayBet(amt);
       sfx.chip();
-      void goToShowdown(amt, false);
+      let handle;
+      try {
+        handle = await roundAct(rid, mult === 4 ? "bet4x" : "bet3x");
+      } catch {
+        setBusy(false);
+        return;
+      }
+      const pv = handle.publicView;
+      void goToShowdown(amt, false, pv.dealerHole as Card[], pv.community as Card[]);
     },
-    [busy, phase, ante, canAfford, wallet, goToShowdown],
+    [busy, phase, ante, canAfford, roundAct, goToShowdown],
   );
 
-  // Pre-flop check -> reveal flop.
+  // Pre-flop check -> reveal the flop (3 real community cards from the server).
   const checkPreflop = useCallback(async () => {
     if (busy || phase !== "preflop") return;
+    const rid = roundIdRef.current;
+    if (!rid) return;
     sfx.click();
     setBusy(true);
-    // reveal 3 flop cards
+    let handle;
+    try {
+      handle = await roundAct(rid, "check");
+    } catch {
+      setBusy(false);
+      return;
+    }
+    const flop = handle.publicView.community as Card[]; // 3 cards
+    setCommunity((c) => [flop[0], flop[1], flop[2], c[3], c[4]]);
     for (let i = 1; i <= 3; i++) {
       setRevealCount(i);
       sfx.card();
@@ -539,25 +567,45 @@ export default function UltimateTexasHoldem() {
     if (!mountedRef.current) return;
     setPhase("flop");
     setBusy(false);
-  }, [busy, phase]);
+  }, [busy, phase, roundAct]);
 
-  // Flop raise (2x). Posts play bet, runs to showdown.
-  const raiseFlop = useCallback(() => {
+  // Flop raise (2x). Posts play bet on the server, runs to showdown.
+  const raiseFlop = useCallback(async () => {
     if (busy || phase !== "flop") return;
+    const rid = roundIdRef.current;
+    if (!rid) return;
     const amt = ante * 2;
     if (!canAfford(amt)) return;
-    if (!wallet.bet(amt)) return;
     setBusy(true);
     setPlayBet(amt);
     sfx.chip();
-    void goToShowdown(amt, false);
-  }, [busy, phase, ante, canAfford, wallet, goToShowdown]);
+    let handle;
+    try {
+      handle = await roundAct(rid, "bet2x");
+    } catch {
+      setBusy(false);
+      return;
+    }
+    const pv = handle.publicView;
+    void goToShowdown(amt, false, pv.dealerHole as Card[], pv.community as Card[]);
+  }, [busy, phase, ante, canAfford, roundAct, goToShowdown]);
 
-  // Flop check -> go to river decision (reveal turn + river).
+  // Flop check -> river decision (reveal turn + river from the server).
   const checkFlop = useCallback(async () => {
     if (busy || phase !== "flop") return;
+    const rid = roundIdRef.current;
+    if (!rid) return;
     sfx.click();
     setBusy(true);
+    let handle;
+    try {
+      handle = await roundAct(rid, "check");
+    } catch {
+      setBusy(false);
+      return;
+    }
+    const full = handle.publicView.community as Card[]; // all 5
+    setCommunity(full);
     for (let i = 4; i <= 5; i++) {
       setRevealCount(i);
       sfx.card();
@@ -569,27 +617,46 @@ export default function UltimateTexasHoldem() {
     if (!mountedRef.current) return;
     setPhase("river");
     setBusy(false);
-  }, [busy, phase]);
+  }, [busy, phase, roundAct]);
 
-  // River play (1x) — community already fully shown, just flip dealer.
-  const playRiver = useCallback(() => {
+  // River play (1x) — community already fully shown, just flip the dealer.
+  const playRiver = useCallback(async () => {
     if (busy || phase !== "river") return;
+    const rid = roundIdRef.current;
+    if (!rid) return;
     const amt = ante;
     if (!canAfford(amt)) return;
-    if (!wallet.bet(amt)) return;
     setBusy(true);
     setPlayBet(amt);
     sfx.chip();
-    void goToShowdown(amt, false);
-  }, [busy, phase, ante, canAfford, wallet, goToShowdown]);
+    let handle;
+    try {
+      handle = await roundAct(rid, "bet1x");
+    } catch {
+      setBusy(false);
+      return;
+    }
+    const pv = handle.publicView;
+    void goToShowdown(amt, false, pv.dealerHole as Card[], pv.community as Card[]);
+  }, [busy, phase, ante, canAfford, roundAct, goToShowdown]);
 
   // River fold — loses ante + blind.
-  const fold = useCallback(() => {
+  const fold = useCallback(async () => {
     if (busy || phase !== "river") return;
+    const rid = roundIdRef.current;
+    if (!rid) return;
     setBusy(true);
     sfx.click();
-    void goToShowdown(0, true);
-  }, [busy, phase, goToShowdown]);
+    let handle;
+    try {
+      handle = await roundAct(rid, "fold");
+    } catch {
+      setBusy(false);
+      return;
+    }
+    const pv = handle.publicView;
+    void goToShowdown(0, true, pv.dealerHole as Card[], pv.community as Card[]);
+  }, [busy, phase, roundAct, goToShowdown]);
 
   // ----- new round / reset -------------------------------------------------
 

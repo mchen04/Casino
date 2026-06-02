@@ -18,10 +18,10 @@ import {
   type Card,
   HandCategory,
   evaluate5,
-  makeShoe,
   rankValue,
 } from "@/lib/cards";
 import { useWallet } from "@/lib/wallet";
+import { usePlayRound } from "@/lib/playRound";
 import { formatChips, formatDelta } from "@/lib/format";
 import { sfx } from "@/lib/sound";
 import { Button } from "@/components/ui/Button";
@@ -233,6 +233,8 @@ function CoinPip({
 // ---------------------------------------------------------------------------
 export default function VideoPoker() {
   const wallet = useWallet();
+  const { start: roundStart, act: roundAct } = usePlayRound();
+  const roundIdRef = useRef<string | null>(null);
 
   const [coins, setCoins] = useState<number>(5);
   const [coinValue, setCoinValue] = useState<CoinValue>(25);
@@ -264,9 +266,6 @@ export default function VideoPoker() {
   const [dealtCount, setDealtCount] = useState(0);
   const [burstKey, setBurstKey] = useState(0);
 
-  // The shoe + the next index to draw from (cards 5..) for the current hand.
-  const deckRef = useRef<Card[]>([]);
-  const drawPtr = useRef(5);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const totalBet = coins * coinValue;
@@ -299,17 +298,21 @@ export default function VideoPoker() {
   // -------------------------------------------------------------------------
   // Deal
   // -------------------------------------------------------------------------
-  const deal = useCallback(() => {
+  const deal = useCallback(async () => {
     if (locked) return;
     if (!canAfford) return;
-    if (!wallet.bet(totalBet)) return;
+
+    let handle;
+    try {
+      handle = await roundStart("video-poker", totalBet, { coins }); // server debits the bet + deals
+    } catch {
+      return;
+    }
+    roundIdRef.current = handle.roundId ?? null;
 
     clearTimers();
-    const shoe = makeShoe(1);
-    deckRef.current = shoe;
-    drawPtr.current = 5;
+    const next = handle.publicView.hand as Card[];
 
-    const next = shoe.slice(0, 5);
     setHand(next);
     setHeld([false, false, false, false, false]);
     setFaceDown([true, true, true, true, true]);
@@ -332,7 +335,7 @@ export default function VideoPoker() {
       }, 160 + i * 130);
     }
     schedule(() => setPhase("holding"), 160 + 5 * 130 + 250);
-  }, [locked, canAfford, wallet, totalBet, clearTimers, schedule]);
+  }, [locked, canAfford, roundStart, totalBet, coins, clearTimers, schedule]);
 
   // -------------------------------------------------------------------------
   // Toggle hold
@@ -372,7 +375,7 @@ export default function VideoPoker() {
       setPhase("result");
 
       if (gross > 0) {
-        wallet.win(gross);
+        // Balance already settled server-side; just play the win feedback.
         setBurstKey((k) => k + 1);
         if (key === "royal" || key === "straightFlush" || key === "fourKind") {
           sfx.jackpot();
@@ -383,34 +386,42 @@ export default function VideoPoker() {
         sfx.lose();
       }
     },
-    [coins, coinValue, totalBet, wallet],
+    [coins, coinValue, totalBet],
   );
 
   // -------------------------------------------------------------------------
   // Draw — replace non-held cards from the same deck
   // -------------------------------------------------------------------------
-  const draw = useCallback(() => {
+  const draw = useCallback(async () => {
     if (phase !== "holding") return;
+    const rid = roundIdRef.current;
+    if (!rid) return;
     setPhase("drawing");
     clearTimers();
 
-    // All 5 slots are real Cards by the time we reach "holding" phase.
-    // Filter out any unexpected nulls (guards evaluate5 from bad input).
     const current: Card[] = hand.filter((c): c is Card => c !== null);
     if (current.length !== 5) return; // should never happen
-    const final = current.slice();
-    const replaceIdx: number[] = [];
-    for (let i = 0; i < 5; i++) {
-      if (!held[i]) replaceIdx.push(i);
+
+    // The server replaces non-held cards from its committed deck and returns the
+    // full 5-card result; the client only animates it.
+    let handle;
+    try {
+      handle = await roundAct(rid, "draw", { held });
+    } catch {
+      setPhase("holding");
+      return;
     }
+    const final = handle.publicView.hand as Card[];
+
+    const replaceIdx: number[] = [];
+    for (let i = 0; i < 5; i++) if (!held[i]) replaceIdx.push(i);
 
     if (replaceIdx.length === 0) {
-      // Stand pat — straight to resolve with a brief beat.
-      schedule(() => resolve(final), 220);
+      schedule(() => resolve(final), 220); // stand pat
       return;
     }
 
-    // Flip replaced cards down, swap their value, flip back up — one by one.
+    // Flip replaced cards down, swap to the server's card, flip back up.
     replaceIdx.forEach((idx, n) => {
       schedule(() => {
         setFaceDown((fd) => {
@@ -422,12 +433,9 @@ export default function VideoPoker() {
       }, n * 200);
 
       schedule(() => {
-        const replacement = deckRef.current[drawPtr.current++];
-        if (!replacement) return; // deck exhausted (should never happen with a 52-card shoe)
-        final[idx] = replacement;
         setHand((h) => {
           const copy = h.slice();
-          copy[idx] = replacement;
+          copy[idx] = final[idx];
           return copy;
         });
         setFaceDown((fd) => {
@@ -441,7 +449,7 @@ export default function VideoPoker() {
 
     const done = replaceIdx.length * 200 + 240 + 360;
     schedule(() => resolve(final), done);
-  }, [phase, hand, held, clearTimers, schedule, resolve]);
+  }, [phase, hand, held, roundAct, clearTimers, schedule, resolve]);
 
   // -------------------------------------------------------------------------
   // New hand (reset to betting)
