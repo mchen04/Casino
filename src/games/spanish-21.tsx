@@ -777,7 +777,7 @@ export default function Spanish21() {
               No 10s in the shoe · J Q K remain
             </span>
             <span className="text-[10px] uppercase tracking-widest text-white/35">
-              Dealer hits soft 17 · BJ pays 3:2
+              Dealer stands on all 17 · BJ pays 3:2
             </span>
           </div>
 
@@ -1127,7 +1127,7 @@ export default function Spanish21() {
             <ul className="space-y-1 text-[11px] leading-relaxed text-white/55">
               <li>• A player total of 21 always wins.</li>
               <li>• Player blackjack beats dealer blackjack.</li>
-              <li>• Dealer hits soft 17.</li>
+              <li>• Dealer stands on all 17 (S17).</li>
               <li>• Double on any number of cards.</li>
               <li>• Split equal-rank pairs (up to 4 hands).</li>
             </ul>
