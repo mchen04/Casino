@@ -9,6 +9,7 @@ import React, {
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useWallet } from "@/lib/wallet";
+import { usePlayStateless } from "@/lib/playStateless";
 import { shuffle } from "@/lib/rng";
 import { formatChips, formatDelta, formatMultiplier } from "@/lib/format";
 import { sfx } from "@/lib/sound";
@@ -65,12 +66,6 @@ const PAYTABLE: Record<number, number[]> = {
   9: [0, 0, 0, 0, 2.2, 8.7, 44, 175, 760, 1740],
   10: [0, 0, 0, 0, 0, 5.7, 28, 140, 425, 1415, 2000],
 };
-
-function payoutMultiplier(spots: number, hits: number): number {
-  const row = PAYTABLE[spots];
-  if (!row) return 0;
-  return row[hits] ?? 0;
-}
 
 /** Best possible payout for a pick count (max table entry). */
 function topMultiplier(spots: number): number {
@@ -204,7 +199,8 @@ function Ball({ n, hit, index }: { n: number; hit: boolean; index: number }) {
 // ---------------------------------------------------------------------------
 export default function Keno() {
   const wallet = useWallet();
-  const { balance, bet: placeBet, win, ready } = wallet;
+  const { balance, ready } = wallet;
+  const playRound = usePlayStateless();
 
   const [bet, setBet] = useState(25);
   const [phase, setPhase] = useState<Phase>("betting");
@@ -310,8 +306,6 @@ export default function Keno() {
     if (spots < 1) return;
     const amount = Math.floor(bet);
     if (amount < MIN_BET || amount > balance) return;
-    if (!placeBet(amount)) return; // unaffordable -> abort
-
     // reset round result state
     const myRun = ++runRef.current;
     setStake(amount);
@@ -324,9 +318,16 @@ export default function Keno() {
     setShowBurst(false);
     setPhase("drawing");
 
-    // Single fair draw: shuffle 1..80, take first 20.
-    const pool = shuffle(Array.from({ length: TOTAL_NUMBERS }, (_, i) => i + 1));
-    const balls = pool.slice(0, DRAW_COUNT);
+    // Server (logged-in) or local guest demo draws the 20 balls + settles.
+    let round;
+    try {
+      round = await playRound("keno", amount, { picks: Array.from(picks) });
+    } catch {
+      if (runRef.current === myRun) setPhase("betting");
+      return;
+    }
+    if (runRef.current !== myRun) return;
+    const balls = round.outcome.drawn as number[];
 
     let cancelled = false;
     cleanupRef.current = () => {
@@ -361,18 +362,16 @@ export default function Keno() {
     await sleep(360);
     if (cancelled || runRef.current !== myRun) return;
 
-    // Resolve.
-    const finalHits = balls.reduce((c, n) => (picks.has(n) ? c + 1 : c), 0);
-    const mult = payoutMultiplier(spots, finalHits);
-    const gross = amount * mult;
+    // Resolve from the server-authoritative outcome.
+    const finalHits = Number(round.outcome.hits);
+    const mult = Number(round.outcome.multiplier);
+    const gross = round.payout;
 
     setHits(finalHits);
     setMultiplier(mult);
     setPayout(gross);
     setDelta(gross - amount);
     setFlashing(null);
-
-    if (gross > 0) win(gross);
 
     if (mult >= 100) {
       setShowBurst(true);
@@ -387,7 +386,7 @@ export default function Keno() {
     }
 
     setPhase("resolved");
-  }, [ready, phase, spots, bet, balance, placeBet, picks, win]);
+  }, [ready, phase, spots, bet, balance, picks, playRound]);
 
   const newRound = useCallback(() => {
     runRef.current++;

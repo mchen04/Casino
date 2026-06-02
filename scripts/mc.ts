@@ -58,6 +58,24 @@ const SCENARIOS: Scenario[] = [
   { label: "baccarat: player", game: "baccarat", bet: 100, params: { player: 100, banker: 0, tie: 0, ppair: 0, bpair: 0 }, targetEdge: 1.24, tol: 0.3 },
   { label: "baccarat: tie 8:1", game: "baccarat", bet: 100, params: { player: 0, banker: 0, tie: 100, ppair: 0, bpair: 0 }, targetEdge: 14.4, tol: 0.6 },
   { label: "baccarat: ppair 11:1", game: "baccarat", bet: 100, params: { player: 0, banker: 0, tie: 0, ppair: 100, bpair: 0 }, targetEdge: null },
+
+  // Coin Flip — fair 50/50, pays 1.96× → 2% edge.
+  { label: "coin-flip: heads", game: "coin-flip", bet: 100, params: { call: "heads" }, targetEdge: 2.0, tol: 0.3 },
+
+  // Plinko — Stake-style tables; report as-coded edge (target ~1% headline).
+  { label: "plinko 8/low", game: "plinko", bet: 100, params: { rows: 8, risk: "low" }, targetEdge: null },
+  { label: "plinko 12/medium", game: "plinko", bet: 100, params: { rows: 12, risk: "medium" }, targetEdge: null },
+  { label: "plinko 16/high", game: "plinko", bet: 100, params: { rows: 16, risk: "high" }, targetEdge: null },
+
+  // Keno — table tuned to ~90-92% RTP (8-10% edge) for every pick count.
+  { label: "keno pick-2", game: "keno", bet: 100, params: { picks: [1, 2] }, targetEdge: null },
+  { label: "keno pick-5", game: "keno", bet: 100, params: { picks: [1, 2, 3, 4, 5] }, targetEdge: null },
+  { label: "keno pick-10", game: "keno", bet: 100, params: { picks: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] }, targetEdge: null },
+
+  // Scratch — per-theme RTP ~0.90-0.93 (8-10% edge).
+  { label: "scratch gold", game: "scratch", bet: 100, params: { theme: "gold" }, targetEdge: null },
+  { label: "scratch sevens", game: "scratch", bet: 100, params: { theme: "sevens" }, targetEdge: null },
+  { label: "scratch neon", game: "scratch", bet: 100, params: { theme: "neon" }, targetEdge: null },
 ];
 
 function runScenario(s: Scenario, rounds: number) {

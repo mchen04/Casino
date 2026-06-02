@@ -8,6 +8,10 @@ import { dragonTigerSpec } from "./dragon-tiger";
 import { moneyWheelSpec } from "./money-wheel";
 import { andarBaharSpec } from "./andar-bahar";
 import { baccaratSpec } from "./baccarat";
+import { coinFlipSpec } from "./coin-flip";
+import { plinkoSpec } from "./plinko";
+import { kenoSpec } from "./keno";
+import { scratchSpec } from "./scratch";
 
 let done = false;
 export function registerAll(): void {
@@ -19,6 +23,10 @@ export function registerAll(): void {
   register(moneyWheelSpec);
   register(andarBaharSpec);
   register(baccaratSpec);
+  register(coinFlipSpec);
+  register(plinkoSpec);
+  register(kenoSpec);
+  register(scratchSpec);
 }
 
 registerAll();
