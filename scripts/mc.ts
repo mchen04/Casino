@@ -94,6 +94,9 @@ const SCENARIOS: Scenario[] = [
   // Tianna's Treasury — flagship Megaways. Target RTP ~95% (5% edge). High
   // variance (cascades + free spins) → needs many rounds to converge.
   { label: "tiannas-treasury", game: "tiannas-treasury", bet: 100, params: {}, targetEdge: 5.0, tol: 1.5 },
+
+  // Neon Megaways — RTP ~95.8% (published 4.7% edge).
+  { label: "slots-megaways", game: "slots-megaways", bet: 100, params: {}, targetEdge: 4.7, tol: 1.2 },
 ];
 
 function runScenario(s: Scenario, rounds: number) {

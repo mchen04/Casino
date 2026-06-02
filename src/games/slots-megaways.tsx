@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useWallet } from "@/lib/wallet";
+import { usePlayStateless } from "@/lib/playStateless";
 import { BetControls } from "@/components/BetControls";
 import { formatChips, formatMultiplier } from "@/lib/format";
 import { weightedPick, randInt } from "@/lib/rng";
@@ -37,6 +38,7 @@ const SYMBOLS: Sym[] = [
 ];
 
 const PAY_SYMBOLS = SYMBOLS.filter((s) => !s.scatter);
+const SYM_BY_KEY: Record<string, Sym> = Object.fromEntries(SYMBOLS.map((s) => [s.key, s]));
 const REELS = 6;
 const MIN_ROWS = 2;
 const MAX_ROWS = 6;
@@ -136,6 +138,8 @@ const BUY_MULT = 10;
 
 export default function NeonMegaways() {
   const wallet = useWallet();
+  const playRound = usePlayStateless();
+  const serverAuthoritative = wallet.serverAuthoritative;
   const [bet, setBet] = useState(20);
   const [grid, setGrid] = useState<Cell[][]>(() => makeGrid());
   const [winners, setWinners] = useState<Set<string>>(new Set());
@@ -227,19 +231,85 @@ export default function NeonMegaways() {
     return total;
   }, [bet, wallet]);
 
+  // Animate a SERVER-decided cascade sequence (logged-in + guest both arrive
+  // here via playRound; the server owns the grid, cascades and payout).
+  const animateServerSpin = useCallback(
+    async (o: {
+      initialGrid: { id: string; key: string }[][];
+      steps: { winners: string[]; mult: number; win: number; nextGrid: { id: string; key: string }[][] }[];
+      scatterBonus: number;
+      scatters: number;
+      total: number;
+    }): Promise<number> => {
+      const toGrid = (g: { id: string; key: string }[][]): Cell[][] =>
+        g.map((reel) => reel.map((c) => ({ id: c.id, sym: SYM_BY_KEY[c.key] })));
+
+      setSpinWin(null);
+      setWinners(new Set());
+      setMultIndex(0);
+      setMessage("Spinning…");
+      sfx.tick();
+
+      setGrid(toGrid(o.initialGrid));
+      await sleep(420);
+      if (!mountedRef.current) return o.total;
+      sfx.thud();
+
+      if (o.scatterBonus > 0) {
+        setMessage(`💫 ${o.scatters} scatters · +${formatChips(o.scatterBonus)} bonus`);
+        await sleep(500);
+        if (!mountedRef.current) return o.total;
+      }
+
+      for (let i = 0; i < o.steps.length; i++) {
+        const step = o.steps[i];
+        const idx = MULT_LADDER.indexOf(step.mult);
+        setMultIndex(idx >= 0 ? idx : Math.min(i, MULT_LADDER.length - 1));
+        setWinners(new Set(step.winners));
+        setMessage(`Cascade ${i + 1} · ${formatMultiplier(step.mult)} · +${formatChips(step.win)}`);
+        sfx.win();
+        await sleep(720);
+        if (!mountedRef.current) return o.total;
+        setGrid(toGrid(step.nextGrid));
+        setWinners(new Set());
+        await sleep(520);
+        if (!mountedRef.current) return o.total;
+      }
+
+      if (o.total > 0) {
+        setSpinWin(o.total);
+        if (o.total >= bet * 20) sfx.jackpot();
+        else sfx.win();
+        setMessage(`WIN ${formatChips(o.total)} chips!`);
+      } else {
+        setSpinWin(0);
+        sfx.lose();
+        setMessage("No win — spin again");
+      }
+      return o.total;
+    },
+    [bet],
+  );
+
   const spin = useCallback(async () => {
     if (busy.current || spinning) return;
-    if (bet < 1 || bet > wallet.balance) return;
-    if (!wallet.bet(bet)) return;
+    if (bet < 5 || bet > wallet.balance) return;
 
     busy.current = true;
     setSpinning(true);
-    buyMultRef.current = 1;
-    const total = await playCascadeSpin();
-    setLastNet(total - bet);
+    let round;
+    try {
+      round = await playRound("slots-megaways", bet, {});
+    } catch {
+      busy.current = false;
+      setSpinning(false);
+      return;
+    }
+    await animateServerSpin(round.outcome as Parameters<typeof animateServerSpin>[0]);
+    setLastNet(round.payout - bet);
     setSpinning(false);
     busy.current = false;
-  }, [bet, spinning, wallet, playCascadeSpin]);
+  }, [bet, spinning, wallet.balance, playRound, animateServerSpin]);
 
   const buyCost = bet * BUY_COST_MULT;
   const buyBonus = useCallback(async () => {
@@ -433,10 +503,14 @@ export default function NeonMegaways() {
           type="button"
           data-testid="buy-bonus-btn"
           whileTap={{ scale: 0.97 }}
-          disabled={spinning || buyCost > wallet.balance}
+          disabled={spinning || buyCost > wallet.balance || serverAuthoritative}
           onClick={buyBonus}
           className="rounded-2xl border border-neon-lime/50 bg-neon-lime/5 px-6 py-3 font-display text-sm font-bold text-neon-lime transition hover:bg-neon-lime/10 disabled:cursor-not-allowed disabled:opacity-40 [@media(max-height:600px)]:py-2"
-          title={`Buy ${BUY_SPINS} cascading spins at ${BUY_MULT}× for ${BUY_COST_MULT}× your bet`}
+          title={
+            serverAuthoritative
+              ? "Buy Bonus is available in the guest demo"
+              : `Buy ${BUY_SPINS} cascading spins at ${BUY_MULT}× for ${BUY_COST_MULT}× your bet`
+          }
         >
           {bonusLeft > 0
             ? `BONUS RUNNING · ${bonusLeft} left`
