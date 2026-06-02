@@ -30,15 +30,16 @@ import {
   type LowRank,
   type Split,
   isJoker,
-  makePaiGowDeck,
   evalFive,
   evalLow,
   highBeatsLow,
   houseWay,
 } from "@/lib/paiGow";
 import { formatChips, formatDelta } from "@/lib/format";
+import { sleep } from "@/lib/async";
 import { sfx } from "@/lib/sound";
 import { useWallet } from "@/lib/wallet";
+import { usePlayRound } from "@/lib/playRound";
 import { Button } from "@/components/ui/Button";
 import { PlayingCard } from "@/components/PlayingCard";
 import { BetControls } from "@/components/BetControls";
@@ -63,26 +64,34 @@ interface Resolution {
   dealerLow: LowRank;
 }
 
-function resolve(player: Split, dealer: Split): Resolution {
-  const playerHigh = evalFive(player.high);
-  const dealerHigh = evalFive(dealer.high);
-  const playerLow = evalLow(player.low);
-  const dealerLow = evalLow(dealer.low);
+/** The terminal publicView the server returns from `act(..., "set")`. */
+interface SetView {
+  player: { high: Card[]; low: Card[] };
+  dealer: { high: Card[]; low: Card[] };
+  winBack: boolean;
+  winFront: boolean;
+  outcome: Outcome;
+}
 
-  // Dealer wins copies (ties), so a tie counts as a dealer win on that hand.
-  const highResult = playerHigh.score - dealerHigh.score; // 0 => copy => dealer
-  const lowResult = playerLow.score - dealerLow.score;
+/**
+ * Build a DISPLAY-ONLY Resolution from the server's terminal publicView. The
+ * server owns the outcome + win flags + payout; we only re-derive hand-rank
+ * labels and the per-hand win/copy indicators (for the badges and frame
+ * colours) from the cards it sent back. No money logic lives here.
+ */
+function resolutionFromServer(view: SetView): Resolution {
+  const playerHigh = evalFive(view.player.high);
+  const dealerHigh = evalFive(view.dealer.high);
+  const playerLow = evalLow(view.player.low);
+  const dealerLow = evalLow(view.dealer.low);
 
-  const playerWinsHigh = highResult > 0;
-  const playerWinsLow = lowResult > 0;
-
-  let outcome: Outcome;
-  if (playerWinsHigh && playerWinsLow) outcome = "win";
-  else if (!playerWinsHigh && !playerWinsLow) outcome = "lose";
-  else outcome = "push"; // split one / one (or a copy on one hand)
+  // Copies (ties) go to the dealer on the server, so a non-win on a hand that
+  // is not strictly behind reads as a "copy" (0); otherwise the dealer wins it.
+  const highResult = view.winBack ? 1 : playerHigh.score === dealerHigh.score ? 0 : -1;
+  const lowResult = view.winFront ? 1 : playerLow.score === dealerLow.score ? 0 : -1;
 
   return {
-    outcome,
+    outcome: view.outcome,
     highResult,
     lowResult,
     playerHigh,
@@ -218,6 +227,13 @@ function HandRankBadge({ text }: { text: string }) {
 
 export default function PaiGowPoker() {
   const wallet = useWallet();
+  // The server owns the 53-card deck, the dealer's house-way split and ALL
+  // payouts. The client only deals via the server, lets the player choose the
+  // 2 front cards, sends the split and animates the server's result.
+  const { start: roundStart, act: roundAct } = usePlayRound();
+  const roundIdRef = useRef<string | null>(null);
+  // Generation token to drop stale async after a re-deal / unmount (StrictMode).
+  const genRef = useRef(0);
 
   const [bet, setBet] = useState(25);
   const [phase, setPhase] = useState<Phase>("betting");
@@ -225,6 +241,8 @@ export default function PaiGowPoker() {
   // Player's seven cards + the indices currently assigned to the LOW hand.
   const [playerCards, setPlayerCards] = useState<Card[]>([]);
   const [lowIdx, setLowIdx] = useState<[number, number]>([5, 6]);
+  // The server's house-way suggested FRONT (low) card ids — the default split.
+  const suggestedLowRef = useRef<string[]>([]);
   const [dealerSplit, setDealerSplit] = useState<Split | null>(null);
 
   // Manual-swap selection (indices into playerCards).
@@ -244,7 +262,13 @@ export default function PaiGowPoker() {
     timers.current.forEach(clearTimeout);
     timers.current = [];
   }, []);
-  useEffect(() => () => clearTimers(), [clearTimers]);
+  useEffect(
+    () => () => {
+      genRef.current++; // invalidate in-flight async on unmount
+      clearTimers();
+    },
+    [clearTimers],
+  );
 
   const balance = wallet.balance;
   const canAfford = bet > 0 && bet <= balance;
@@ -274,12 +298,36 @@ export default function PaiGowPoker() {
   // -------------------------------------------------------------------------
   // Deal a new round
   // -------------------------------------------------------------------------
-  const deal = useCallback(() => {
+  const deal = useCallback(async () => {
     if (phase !== "betting" && phase !== "result") return;
     if (!canAfford) return;
-    if (!wallet.bet(bet)) return;
 
+    const gen = ++genRef.current;
     clearTimers();
+
+    let res;
+    try {
+      // Server deals both hands, debits the bet and returns ONLY the player's
+      // 7 cards (+ a house-way suggested front). The dealer stays hidden.
+      res = await roundStart("pai-gow-poker", bet, {});
+    } catch {
+      // Insufficient funds / network — stay idle, no balance change.
+      return;
+    }
+    if (gen !== genRef.current) return;
+    roundIdRef.current = res.roundId ?? null;
+
+    const pv = res.publicView as { player: Card[]; suggestedLow: string[] };
+    const pCards = pv.player;
+    const suggested = pv.suggestedLow ?? [];
+    suggestedLowRef.current = suggested;
+
+    // Order so the suggested FRONT cards sit last (indices 5 & 6), matching the
+    // back-first / front-last layout used by the swap UI.
+    const front = pCards.filter((c) => suggested.includes(c.id));
+    const back = pCards.filter((c) => !suggested.includes(c.id));
+    const ordered = front.length === 2 ? [...back, ...front] : pCards;
+
     setResolution(null);
     setPayout(0);
     setLastDelta(0);
@@ -287,18 +335,9 @@ export default function PaiGowPoker() {
     setSelected([]);
     setDealerFaceUp(false);
     setDealt(0);
-
-    const deck = makePaiGowDeck();
-    const pCards = deck.slice(0, 7);
-    const dCards = deck.slice(7, 14);
-
-    // House Way the player's hand as the default starting arrangement.
-    const startSplit = houseWay(pCards);
-    // Re-order playerCards so high hand is first 5, low hand is last 2 (stable).
-    const ordered = [...startSplit.high, ...startSplit.low];
     setPlayerCards(ordered);
     setLowIdx([5, 6]);
-    setDealerSplit(houseWay(dCards));
+    setDealerSplit(null); // revealed only after the player sets a legal split
 
     setPhase("dealing");
 
@@ -313,9 +352,12 @@ export default function PaiGowPoker() {
       );
     }
     timers.current.push(
-      setTimeout(() => setPhase("arranging"), 120 + order * 120 + 200),
+      setTimeout(() => {
+        if (gen !== genRef.current) return;
+        setPhase("arranging");
+      }, 120 + order * 120 + 200),
     );
-  }, [phase, canAfford, wallet, bet, clearTimers]);
+  }, [phase, canAfford, bet, clearTimers, roundStart]);
 
   // -------------------------------------------------------------------------
   // Manual swap: select up to two cards, then swap their hand assignment.
@@ -387,50 +429,68 @@ export default function PaiGowPoker() {
   // -------------------------------------------------------------------------
   // Confirm arrangement -> reveal dealer -> resolve.
   // -------------------------------------------------------------------------
-  const confirm = useCallback(() => {
-    if (phase !== "arranging" || !dealerSplit) return;
-    if (!currentlyLegal) {
+  const confirm = useCallback(async () => {
+    if (phase !== "arranging") return;
+    // Gate locally so we NEVER send a foul (the server would throw).
+    if (!currentlyLegal || playerSplit.low.length !== 2) {
       setFoulWarning(true);
       sfx.lose();
       return;
     }
+    const rid = roundIdRef.current;
+    if (!rid) return;
+
+    const gen = ++genRef.current;
     clearTimers();
     setPhase("revealing");
     sfx.card();
 
-    // Flip dealer cards face up, then resolve.
-    timers.current.push(
-      setTimeout(() => {
-        setDealerFaceUp(true);
-        sfx.card();
-      }, 350),
-    );
+    let res;
+    try {
+      // Send the chosen FRONT card ids; the server validates, plays the dealer
+      // by house way and returns the terminal view + the authoritative payout.
+      res = await roundAct(rid, "set", {
+        low: [playerSplit.low[0].id, playerSplit.low[1].id],
+      });
+    } catch {
+      // Should not happen (we gate fouls), but recover gracefully to arranging.
+      if (gen !== genRef.current) return;
+      setPhase("arranging");
+      setFoulWarning(true);
+      sfx.lose();
+      return;
+    }
+    if (gen !== genRef.current) return;
 
-    timers.current.push(
-      setTimeout(() => {
-        const res = resolve(playerSplit, dealerSplit);
-        setResolution(res);
-        let gross = 0;
-        if (res.outcome === "win") {
-          gross = bet * 1.95; // even money minus exact 5% commission
-          wallet.win(gross);
-          setLastDelta(gross - bet);
-          sfx.win();
-        } else if (res.outcome === "push") {
-          gross = bet;
-          wallet.win(gross);
-          setLastDelta(0);
-          sfx.tick();
-        } else {
-          gross = 0;
-          setLastDelta(-bet);
-          sfx.lose();
-        }
-        setPayout(gross);
-        setPhase("result");
-      }, 1100),
-    );
-  }, [phase, dealerSplit, currentlyLegal, clearTimers, playerSplit, bet, wallet]);
+    const view = res.publicView as unknown as SetView;
+    const serverPayout = res.payout ?? 0;
+
+    // Reveal the dealer's two hands from the server's view.
+    setDealerSplit({ high: view.dealer.high, low: view.dealer.low });
+
+    await sleep(350);
+    if (gen !== genRef.current) return;
+    setDealerFaceUp(true);
+    sfx.card();
+
+    await sleep(750);
+    if (gen !== genRef.current) return;
+
+    const resolution = resolutionFromServer(view);
+    setResolution(resolution);
+    setPayout(serverPayout);
+    if (resolution.outcome === "win") {
+      setLastDelta(serverPayout - bet);
+      sfx.win();
+    } else if (resolution.outcome === "push") {
+      setLastDelta(0);
+      sfx.tick();
+    } else {
+      setLastDelta(-bet);
+      sfx.lose();
+    }
+    setPhase("result");
+  }, [phase, currentlyLegal, playerSplit, clearTimers, roundAct, bet]);
 
   // -------------------------------------------------------------------------
   // Deal-staging helpers: which of the 14 cards have "landed".

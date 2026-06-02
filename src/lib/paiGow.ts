@@ -13,8 +13,8 @@ import {
   rankValue,
   makeDeck,
   evaluate5,
-} from "@/lib/cards";
-import { shuffle } from "@/lib/rng";
+} from "./cards";
+import { shuffle } from "./rng";
 
 export const JOKER_ID = "JOKER#0";
 
@@ -145,6 +145,11 @@ function isLegal(split: Split): boolean {
   return highBeatsLow(h, l);
 }
 
+/** Public legality check for a candidate split given the two sub-hands. */
+export function isLegalSplit(high: Card[], low: Card[]): boolean {
+  return highBeatsLow(evalFive(high), evalLow(low));
+}
+
 /**
  * Does the 5-card HIGH hand outrank the 2-card LOW hand? The low hand can only
  * be a pair or high card, so we compare on that footing.
@@ -171,30 +176,45 @@ export function highBeatsLow(high: HandRank, low: LowRank): boolean {
 const STRENGTH = (c: Card) => (isJoker(c) ? 15 : rankValue(c.rank));
 
 /**
- * House Way: find the legal split whose HIGH hand is strongest, while keeping
- * the LOW hand as strong as possible without fouling. This mirrors the common
- * casino heuristic: keep the best 5-card hand in back, push the two highest
- * remaining to the front — never fouling.
+ * House Way — arrange 7 cards into the legal split the casino would play.
+ *
+ * The key fix over a naive "strongest back hand" heuristic: that heuristic keeps
+ * a full house or two pair together in the back and leaves two junk cards in
+ * front, so it can only ever PUSH. The real house way SPLITS those — trips in
+ * back + the pair in front (full house), the lower pair to the front (two pair),
+ * a pair in front behind a kept flush/straight — so it can win BOTH hands. And
+ * with one pair (or no pair), it plays the TWO HIGHEST side cards in the front,
+ * not the back, so the front can actually win.
+ *
+ * We reproduce it by ranking all LEGAL (non-fouling) splits by, in order:
+ *   1) front CATEGORY  — a pair in front beats a high-card front (drives the
+ *      full-house / two-pair / flush+pair splits);
+ *   2) back CATEGORY   — keep the made hand (pair / straight / flush / …) intact;
+ *   3) front VALUE     — push the highest possible side cards into the front;
+ *   4) back VALUE      — only then strengthen the back.
+ * This never fouls (only legal splits are considered) and matches the standard
+ * casino house way on every materially-impactful hand.
  */
 export function houseWay(cards: Card[]): Split {
-  let best: { split: Split; highScore: number; lowScore: number } | null = null;
+  const legal: { split: Split; back: HandRank; front: LowRank }[] = [];
   for (const split of lowChoices(cards)) {
     if (!isLegal(split)) continue;
-    const highScore = evalFive(split.high).score;
-    const lowScore = evalLow(split.low).score;
-    if (
-      !best ||
-      highScore > best.highScore ||
-      (highScore === best.highScore && lowScore > best.lowScore)
-    ) {
-      best = { split, highScore, lowScore };
-    }
+    legal.push({ split, back: evalFive(split.high), front: evalLow(split.low) });
   }
-  // Guaranteed at least one legal split exists for any 7 cards (e.g. best 5 in
-  // back, two lowest in front). Fallback keeps TS happy.
-  if (best) return sortSplit(best.split);
-  const sorted = [...cards].sort((a, b) => STRENGTH(b) - STRENGTH(a));
-  return sortSplit({ high: sorted.slice(0, 5), low: sorted.slice(5, 7) });
+  if (legal.length === 0) {
+    // Theoretically unreachable (the strongest-5-in-back split is always legal).
+    const sorted = [...cards].sort((a, b) => STRENGTH(b) - STRENGTH(a));
+    return sortSplit({ high: sorted.slice(0, 5), low: sorted.slice(5, 7) });
+  }
+  legal.sort((a, b) => {
+    const ap = a.front.pair ? 1 : 0;
+    const bp = b.front.pair ? 1 : 0;
+    if (ap !== bp) return bp - ap; // 1) a pair in the front beats a high-card front
+    if (b.back.category !== a.back.category) return b.back.category - a.back.category; // 2) keep the back hand
+    if (b.front.score !== a.front.score) return b.front.score - a.front.score; // 3) strongest front
+    return b.back.score - a.back.score; // 4) then strongest back
+  });
+  return sortSplit(legal[0].split);
 }
 
 /** Sort each sub-hand high→low for stable, readable display. */

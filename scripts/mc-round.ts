@@ -623,6 +623,24 @@ function simS21(rounds: number): Sim {
 }
 
 /**
+ * Pai Gow Poker — player sets via the (fixed) house way, exactly like the dealer.
+ * The edge comes from copies going to the dealer + the 5% commission on wins.
+ * House-way vs house-way → ~2.7% on the ante (Wizard cites ~2.84% optimal-player).
+ */
+function simPaiGow(rounds: number): Sim {
+  const game = getRoundGame("pai-gow-poker")!;
+  let wagered = 0;
+  let returned = 0;
+  for (let i = 0; i < rounds; i++) {
+    const start = game.start(BET, {}, rng);
+    wagered += BET;
+    const lowIds = (start.publicView as { suggestedLow: string[] }).suggestedLow;
+    returned += game.act(start.state, BET, "set", { low: lowIds }, rng).payout;
+  }
+  return { initialWagered: wagered, totalWagered: wagered, returned };
+}
+
+/**
  * Crash — cash out at a spread of blind targets. The server resolves by its own
  * clock, so we mock Date.now to advance exactly to when the climb reaches the
  * target, exercising the real act() path (incl. the elapsed-time clamp). The
@@ -706,6 +724,10 @@ function main() {
   // Spanish 21 (S17, correct bonuses): ~0.4% optimal; a hair higher under this
   // blackjack-style strategy. Wide band — confirms a small POSITIVE edge.
   run("spanish-21", () => simS21(rounds), 0.7, 0.7);
+  // Pai Gow Poker (improved near-optimal house way BOTH sides, 5% commission,
+  // copies to dealer): ~2.45% (a touch below the 2.84% simple-house-way figure
+  // because both sides now play optimally — fairer to the player, still +EV).
+  run("pai-gow-poker", () => simPaiGow(rounds), 2.45, 0.55);
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail > 0) process.exitCode = 1;
 }
