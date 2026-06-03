@@ -14,7 +14,7 @@ import {
   useSpring,
   useTransform,
 } from "framer-motion";
-import { useWallet } from "@/lib/wallet";
+import { useWallet, useBettingGuard } from "@/lib/wallet";
 import { usePlayStateless } from "@/lib/playStateless";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
@@ -648,6 +648,9 @@ export default function PharaohsFortune() {
   const [spinning, setSpinning] = useState(false);
   const [stoppedCount, setStoppedCount] = useState(REELS); // reels already landed
   const [busy, setBusy] = useState(false); // mid-round lock (incl. free spins)
+  // The buy-bonus debits via wallet.bet() directly (outside the play hook); busy
+  // stays true for the whole bought free-spin run, so guard the bailout on it.
+  useBettingGuard(busy);
   const [result, setResult] = useState<SpinResult | null>(null);
   const [message, setMessage] = useState<string>("Place your bet and spin the reels");
   const [spinWin, setSpinWin] = useState(0); // chips won, last resolved spin

@@ -13,7 +13,7 @@ import React, {
   useState,
 } from "react";
 import { motion, AnimatePresence, useMotionValue, animate } from "framer-motion";
-import { useWallet } from "@/lib/wallet";
+import { useWallet, useBettingGuard } from "@/lib/wallet";
 import { usePlayStateless } from "@/lib/playStateless";
 import { BetControls } from "@/components/BetControls";
 import { Button } from "@/components/ui/Button";
@@ -424,6 +424,9 @@ export default function LuckySevens() {
   const bonusLeftRef = useRef(0);
   const buyMultRef = useRef(1);
   const [bonusActive, setBonusActive] = useState(false);
+  // The buy-bonus debits via wallet.bet() directly (outside the play hook), so
+  // guard the bailout button for the whole bought free-spin run.
+  useBettingGuard(bonusActive);
 
   const clearTimers = useCallback(() => {
     timers.current.forEach((t) => clearTimeout(t));

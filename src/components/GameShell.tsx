@@ -101,7 +101,7 @@ export function GameShell({
               </AnimatePresence>
             </div>
 
-            {wallet.ready && wallet.balance < 100 && (
+            {wallet.ready && wallet.balance < 100 && !wallet.betting && (
               <button
                 onClick={() => {
                   void wallet.rescue();
