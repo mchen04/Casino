@@ -195,7 +195,7 @@ export default function TiannasTreasury() {
 
     let round;
     try {
-      round = await playRound("tiannas-treasury", bet, {});
+      round = await playRound("tiannas-treasury", bet, {}, { defer: true });
     } catch {
       spinGuard.current = false;
       setSpinning(false);
@@ -231,6 +231,9 @@ export default function TiannasTreasury() {
     }
 
     if (!mounted.current) return;
+    // Spin fully resolved — NOW credit the winnings into the header balance, so
+    // the money never appears before the cascades + vault finish animating.
+    round.settle();
     setLastTotal(o.totalWin);
     setRunningWin(o.totalWin);
     if (o.totalWin > 0) {
