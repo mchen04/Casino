@@ -221,6 +221,9 @@ export default function Bingo() {
     gross: number;
     perCard: { index: number; pattern: PatternKind; firstLineBall: number; mult: number; payout: number }[];
   } | null>(null);
+  // Deferred round handle: the bet is debited up front but the payout is withheld
+  // until resolve() reveals the final outcome, so the balance never jumps early.
+  const roundRef = useRef<{ settle: () => void } | null>(null);
 
   const [bonusPhase, setBonusPhase] = useState(false);
 
@@ -299,6 +302,12 @@ export default function Bingo() {
 
     const profit = gross - stake;
     setResult({ stake, gross, profit, ballsDrawn, earliestLineBall, perCard, best });
+
+    // Draw is done and the final outcome is now revealed — credit the winnings
+    // into the header balance (bet was already debited up front). No-op if there
+    // is no deferred handle (e.g. a round that never started cleanly).
+    roundRef.current?.settle();
+    roundRef.current = null;
 
     if (gross > 0) {
       if (best === "blackout") {
@@ -417,7 +426,7 @@ export default function Bingo() {
     // per-card result and payout. The cards the player previewed ARE played.
     let round;
     try {
-      round = await playRound("bingo", stake, { cards: cards.map((c) => c.cells) });
+      round = await playRound("bingo", stake, { cards: cards.map((c) => c.cells) }, { defer: true });
     } catch {
       startingRef.current = false;
       sfx.lose();
@@ -429,6 +438,8 @@ export default function Bingo() {
       perCard: { index: number; pattern: PatternKind; firstLineBall: number; mult: number; payout: number }[];
     };
     serverResultRef.current = { gross: round.payout, perCard: o.perCard };
+    // Withhold the payout until the hopper finishes drawing; resolve() settles it.
+    roundRef.current = round;
 
     stakeRef.current = stake;
     callsRef.current = [];

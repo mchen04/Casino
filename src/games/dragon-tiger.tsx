@@ -202,9 +202,11 @@ export default function DragonTiger() {
     sfx.card();
 
     // Server (logged-in) or local guest demo deals the cards + computes payout.
+    // Defer the winnings: the bet stays debited up front, but the payout is held
+    // back until the flip animation finishes and the result is revealed below.
     let round;
     try {
-      round = await playRound("dragon-tiger", stake, placed);
+      round = await playRound("dragon-tiger", stake, placed, { defer: true });
     } catch {
       isDealing.current = false;
       setPhase("betting");
@@ -231,7 +233,12 @@ export default function DragonTiger() {
       setTigerDown(false);
     });
     // After the flip animation completes, show the result.
-    after(1180, () => applyResult(d, result, round.payout, stake, placed));
+    after(1180, () => {
+      // Reveal done — NOW credit the winnings so the header balance never jumps
+      // to the final figure before the cards have flipped.
+      round.settle();
+      applyResult(d, result, round.payout, stake, placed);
+    });
   }, [isBetting, canAfford, totalStake, bets, playRound, after, applyResult]);
 
   const newRound = useCallback(() => {

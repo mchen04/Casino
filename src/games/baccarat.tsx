@@ -249,7 +249,7 @@ export default function Baccarat() {
     // Server (logged-in) or local guest demo deals the coup + computes payout.
     let round;
     try {
-      round = await playRound("baccarat", staked, placed);
+      round = await playRound("baccarat", staked, placed, { defer: true });
     } catch {
       dealingRef.current = false;
       setPhase("betting");
@@ -304,6 +304,9 @@ export default function Baccarat() {
 
     // Show the settled result.
     later(() => {
+      // Cards dealt + flipped + result revealed — NOW credit winnings so the
+      // header balance never jumps ahead of the reveal animation.
+      round.settle();
       applyResult(res, round.payout, staked, placed);
     }, afterDeal + 700);
   }, [phase, totalStaked, bets, playRound, clearTimers, later, applyResult]);

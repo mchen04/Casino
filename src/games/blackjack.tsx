@@ -85,6 +85,10 @@ export default function Blackjack() {
   // decisions through /api/round and animates the cards the server deals back.
   const { start: roundStart, act: roundAct } = usePlayRound();
   const roundIdRef = useRef<string | null>(null);
+  // Deferred-mode settle from the latest terminal step: the bet is debited up
+  // front, but the winnings are withheld until we call this — after the dealer
+  // finishes drawing and the result banner shows (see settleDisplay).
+  const settleRef = useRef<(() => void) | null>(null);
 
   // --- cosmetic shoe (visual depth/shuffle indicator only) -------------------
   const [shoeCount, setShoeCount] = useState(DECKS * 52);
@@ -136,6 +140,10 @@ export default function Blackjack() {
       const resolved = serverHandsToLocal(serverHands, outcomes);
       const wageredThisRound = serverHands.reduce((s, h) => s + h.bet, 0) + insBet;
       const net = payout - wageredThisRound;
+
+      // Reveal done — NOW credit the withheld winnings into the header balance.
+      settleRef.current?.();
+      settleRef.current = null;
 
       setHands(resolved);
       setDealer(dealerCards);
@@ -262,12 +270,14 @@ export default function Blackjack() {
     const gen = ++genRef.current;
     let res;
     try {
-      res = await roundStart("blackjack", bet, {}); // server debits the main bet
+      // defer: debit the bet now, withhold the payout until the reveal finishes.
+      res = await roundStart("blackjack", bet, {}, { defer: true });
     } catch {
       return;
     }
     if (gen !== genRef.current) return;
     roundIdRef.current = res.roundId ?? null;
+    settleRef.current = res.settle;
 
     // reset visuals
     setRoundResult("");
@@ -349,11 +359,13 @@ export default function Blackjack() {
         else sfx.click();
         let res;
         try {
-          res = await roundAct(rid, action);
+          // defer: any extra debit (double/split) applies now; payout withheld.
+          res = await roundAct(rid, action, undefined, { defer: true });
         } catch {
           return;
         }
         if (gen !== genRef.current) return;
+        settleRef.current = res.settle;
         if (action === "split") burnShoe(2);
         else if (action === "hit" || action === "double") burnShoe(1);
         if (action === "insurance") setInsuranceBet(Math.floor(bet / 2));

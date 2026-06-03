@@ -166,7 +166,7 @@ export default function TexasHoldem() {
   // purely visual. `bet` is this hand's buy-in so we can show the net.
   // -----------------------------------------------------------------------
   const resolveHand = useCallback(
-    async (gen: number, pv: TexasView, payout: number, bet: number) => {
+    async (gen: number, pv: TexasView, payout: number, bet: number, settle: () => void) => {
       const fullBoard = (pv.board ?? []) as Card[];
       const bHole = (pv.botHole ?? []) as Card[];
       const outcome = pv.outcome ?? "push";
@@ -176,6 +176,7 @@ export default function TexasHoldem() {
       setPhase("showdown");
       syncBetting(pv);
 
+      try {
       // Reveal any remaining board cards one at a time, then the bot's hole.
       let shown = revealBoardRef.current;
       while (shown < fullBoard.length) {
@@ -231,6 +232,12 @@ export default function TexasHoldem() {
       setLegalActions([]);
       pushLog("system", `${text} Net ${formatDelta(net)}.`);
       setPhase("done");
+      } finally {
+        // Reveal complete (or cut short by an unmount) — credit the withheld
+        // payout. settle() is idempotent and the wallet provider outlives this
+        // view, so the win is always booked even if the reveal is interrupted.
+        settle();
+      }
     },
     [syncBetting, pushLog],
   );
@@ -248,7 +255,7 @@ export default function TexasHoldem() {
   const applyStep = useCallback(
     async (
       gen: number,
-      res: { done?: boolean; publicView: Record<string, unknown>; payout?: number },
+      res: { done?: boolean; publicView: Record<string, unknown>; payout?: number; settle: () => void },
       bet: number,
     ) => {
       const pv = res.publicView as unknown as TexasView;
@@ -283,7 +290,7 @@ export default function TexasHoldem() {
       if (gen !== genRef.current) return;
 
       if (res.done) {
-        await resolveHand(gen, pv, res.payout ?? 0, bet);
+        await resolveHand(gen, pv, res.payout ?? 0, bet, res.settle);
         return;
       }
 
@@ -315,7 +322,7 @@ export default function TexasHoldem() {
     const gen = ++genRef.current;
     let res;
     try {
-      res = await roundStart("texas-holdem", bet, {}); // server debits the stack
+      res = await roundStart("texas-holdem", bet, {}, { defer: true }); // server debits the stack; win withheld until reveal
     } catch (err) {
       acting.current = false;
       if (gen !== genRef.current) return;
@@ -411,7 +418,7 @@ export default function TexasHoldem() {
 
       let res;
       try {
-        res = await roundAct(rid, action, payload);
+        res = await roundAct(rid, action, payload, { defer: true });
       } catch (err) {
         acting.current = false;
         if (gen !== genRef.current) return;

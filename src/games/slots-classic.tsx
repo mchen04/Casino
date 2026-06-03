@@ -455,6 +455,9 @@ export default function LuckySevens() {
     let line: SymKey[];
     let result: Outcome;
     let gross: number;
+    // Defer the playRound win: the bet is debited up front, but the payout is
+    // withheld until the reels stop and the result is revealed (see resolveT).
+    let settle: (() => void) | null = null;
 
     if (isBonus) {
       bonusLeftRef.current -= 1;
@@ -470,7 +473,7 @@ export default function LuckySevens() {
       // Server (logged-in) or local guest demo decides the line + payout.
       let round;
       try {
-        round = await playRound("slots-classic", bet, {});
+        round = await playRound("slots-classic", bet, {}, { defer: true });
       } catch {
         setAutoSpin(false);
         spinGuardRef.current = false;
@@ -483,6 +486,7 @@ export default function LuckySevens() {
         tier: round.outcome.tier as Outcome["tier"],
       };
       gross = round.payout;
+      settle = round.settle;
     }
 
     clearTimers();
@@ -524,6 +528,10 @@ export default function LuckySevens() {
       setOutcome(result);
       setWinReels(winningReels(line, result));
       setPhase("resolved");
+
+      // Reels stopped + result revealed — now credit the deferred win to the
+      // header balance (bonus spins are guest-pre-paid, so there's nothing to settle).
+      settle?.();
 
       if (gross > 0) {
         setPayout(gross);

@@ -483,7 +483,7 @@ export default function TeenPatti() {
 
     let handle;
     try {
-      handle = await roundStart("teen-patti", boot, {}); // server debits the boot
+      handle = await roundStart("teen-patti", boot, {}, { defer: true }); // server debits the boot; winnings deferred to the showdown reveal
     } catch {
       return;
     }
@@ -520,7 +520,7 @@ export default function TeenPatti() {
   // -------------------------------------------------------------------------
 
   const resolveRound = useCallback(
-    (folded: boolean, playBet: number, serverDealer: Card[]) => {
+    (folded: boolean, playBet: number, serverDealer: Card[], settle: () => void) => {
       const pCards = player.filter((c): c is Card => c !== null);
       const dCards = serverDealer;
       if (pCards.length !== 3 || dCards.length !== 3) return;
@@ -605,8 +605,9 @@ export default function TeenPatti() {
 
       // After the reveal lands, credit winnings and fire the result feedback.
       after(3 * 360 + 320, () => {
-        // Balance is already settled server-side (applied when the round resolved);
-        // we only drive the visual reveal here — no client-side credit.
+        // Showdown reveal finished — NOW credit the withheld winnings so the
+        // header balance never updates before the dealer cards flip.
+        settle();
         setPhase("result");
         if (outcome === "win") {
           const big = net >= boot * 6;
@@ -634,13 +635,13 @@ export default function TeenPatti() {
     setPhase("revealing");
     let handle;
     try {
-      handle = await roundAct(rid, "play"); // server debits the matched boot + settles
+      handle = await roundAct(rid, "play", undefined, { defer: true }); // server debits the matched boot; winnings deferred to the reveal
     } catch {
       setPhase("seen");
       setPlayStake(0);
       return;
     }
-    resolveRound(false, boot, handle.publicView.dealerCards as Card[]);
+    resolveRound(false, boot, handle.publicView.dealerCards as Card[], handle.settle);
   };
 
   const onFold = async () => {
@@ -651,12 +652,12 @@ export default function TeenPatti() {
     setPhase("revealing");
     let handle;
     try {
-      handle = await roundAct(rid, "fold");
+      handle = await roundAct(rid, "fold", undefined, { defer: true });
     } catch {
       setPhase("seen");
       return;
     }
-    resolveRound(true, 0, handle.publicView.dealerCards as Card[]);
+    resolveRound(true, 0, handle.publicView.dealerCards as Card[], handle.settle);
   };
 
   const nextRound = () => {

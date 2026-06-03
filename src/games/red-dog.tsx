@@ -150,7 +150,7 @@ export default function RedDog() {
 
       let handle;
       try {
-        handle = await roundAct(rid, action);
+        handle = await roundAct(rid, action, undefined, { defer: true });
       } catch {
         dealing.current = false;
         setPhase("decision");
@@ -181,6 +181,8 @@ export default function RedDog() {
           setResultText(`Missed — ${third.rank} not between. Lost ${formatChips(total)}`);
           sfx.lose();
         }
+        // Third card revealed and result shown — now credit the withheld payout.
+        handle.settle();
         dealing.current = false;
         setPhase("resolved");
       });
@@ -214,7 +216,7 @@ export default function RedDog() {
     // Server (logged-in) or guest local demo deals + commits the round.
     let handle;
     try {
-      handle = await roundStart("red-dog", ante, {});
+      handle = await roundStart("red-dog", ante, {}, { defer: true });
     } catch {
       dealing.current = false;
       setPhase("betting");
@@ -263,6 +265,8 @@ export default function RedDog() {
               setResultText("Pair — no trips. Push, ante returned.");
               sfx.thud();
             }
+            // Round ended at the deal (pair) — credit the withheld payout now.
+            handle.settle();
             dealing.current = false;
             setPhase("resolved");
           });
@@ -272,6 +276,8 @@ export default function RedDog() {
           setOutcome("push");
           setResultText("Consecutive cards — Push, ante returned.");
           sfx.thud();
+          // Round ended at the deal (consecutive) — credit the withheld payout now.
+          handle.settle();
           dealing.current = false;
           setPhase("resolved");
         }

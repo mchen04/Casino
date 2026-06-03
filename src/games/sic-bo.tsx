@@ -537,9 +537,11 @@ export default function SicBo() {
     sfx.thud();
 
     // Server (logged-in) or local guest demo rolls the dice + settles.
+    // Defer the winnings: the stake stays debited up front, but the payout is
+    // withheld until the dice finish tumbling and the result is revealed.
     let round;
     try {
-      round = await playRound("sic-bo", stake, { bets: placed });
+      round = await playRound("sic-bo", stake, { bets: placed }, { defer: true });
     } catch {
       rollingRef.current = false;
       setPhase("betting");
@@ -563,7 +565,10 @@ export default function SicBo() {
     // tick clatter while the dice tumble
     [120, 280, 440, 620, 800].forEach((t) => after(t, () => sfx.tick()));
     // settle once the tumble settles
-    after(1180, () => resolve(r, round.payout, stake, placed));
+    after(1180, () => {
+      round.settle(); // dice revealed — credit the deferred winnings into the balance now
+      resolve(r, round.payout, stake, placed);
+    });
   }, [canRoll, totalStake, bets, after, resolve, playRound]);
 
   const newRound = useCallback(() => {

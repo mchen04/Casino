@@ -309,7 +309,8 @@ export default function PaiGowPoker() {
     try {
       // Server deals both hands, debits the bet and returns ONLY the player's
       // 7 cards (+ a house-way suggested front). The dealer stays hidden.
-      res = await roundStart("pai-gow-poker", bet, {});
+      // Defer: bet is debited now, but any payout is withheld until settle().
+      res = await roundStart("pai-gow-poker", bet, {}, { defer: true });
     } catch {
       // Insufficient funds / network — stay idle, no balance change.
       return;
@@ -449,9 +450,13 @@ export default function PaiGowPoker() {
     try {
       // Send the chosen FRONT card ids; the server validates, plays the dealer
       // by house way and returns the terminal view + the authoritative payout.
-      res = await roundAct(rid, "set", {
-        low: [playerSplit.low[0].id, playerSplit.low[1].id],
-      });
+      // Defer so the payout lands only after the reveal animation finishes.
+      res = await roundAct(
+        rid,
+        "set",
+        { low: [playerSplit.low[0].id, playerSplit.low[1].id] },
+        { defer: true },
+      );
     } catch {
       // Should not happen (we gate fouls), but recover gracefully to arranging.
       if (gen !== genRef.current) return;
@@ -477,6 +482,9 @@ export default function PaiGowPoker() {
     if (gen !== genRef.current) return;
 
     const resolution = resolutionFromServer(view);
+    // Dealer is face-up and compared — NOW credit the payout into the header
+    // balance, so it never jumps to the result before the reveal completes.
+    res.settle();
     setResolution(resolution);
     setPayout(serverPayout);
     if (resolution.outcome === "win") {

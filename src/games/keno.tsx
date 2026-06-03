@@ -321,7 +321,7 @@ export default function Keno() {
     // Server (logged-in) or local guest demo draws the 20 balls + settles.
     let round;
     try {
-      round = await playRound("keno", amount, { picks: Array.from(picks) });
+      round = await playRound("keno", amount, { picks: Array.from(picks) }, { defer: true });
     } catch {
       if (runRef.current === myRun) setPhase("betting");
       return;
@@ -367,6 +367,9 @@ export default function Keno() {
     const mult = Number(round.outcome.multiplier);
     const gross = round.payout;
 
+    // All balls revealed — NOW credit the winnings so the header balance never
+    // jumps to the final figure before the draw finishes animating.
+    round.settle();
     setHits(finalHits);
     setMultiplier(mult);
     setPayout(gross);

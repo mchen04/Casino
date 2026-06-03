@@ -235,6 +235,9 @@ export default function VideoPoker() {
   const wallet = useWallet();
   const { start: roundStart, act: roundAct } = usePlayRound();
   const roundIdRef = useRef<string | null>(null);
+  // Withheld payout settle() from the deferred draw; called only after the
+  // final hand is revealed so the balance never updates mid-animation.
+  const settleRef = useRef<(() => void) | null>(null);
 
   const [coins, setCoins] = useState<number>(5);
   const [coinValue, setCoinValue] = useState<CoinValue>(25);
@@ -304,7 +307,7 @@ export default function VideoPoker() {
 
     let handle;
     try {
-      handle = await roundStart("video-poker", totalBet, { coins }); // server debits the bet + deals
+      handle = await roundStart("video-poker", totalBet, { coins }, { defer: true }); // server debits the bet + deals; payout deferred to draw
     } catch {
       return;
     }
@@ -374,8 +377,13 @@ export default function VideoPoker() {
       });
       setPhase("result");
 
+      // Final hand revealed — NOW credit the withheld payout into the balance,
+      // so the header never updates while the cards are still flipping.
+      settleRef.current?.();
+      settleRef.current = null;
+
       if (gross > 0) {
-        // Balance already settled server-side; just play the win feedback.
+        // Balance already settled above; just play the win feedback.
         setBurstKey((k) => k + 1);
         if (key === "royal" || key === "straightFlush" || key === "fourKind") {
           sfx.jackpot();
@@ -406,12 +414,14 @@ export default function VideoPoker() {
     // full 5-card result; the client only animates it.
     let handle;
     try {
-      handle = await roundAct(rid, "draw", { held });
+      handle = await roundAct(rid, "draw", { held }, { defer: true }); // terminal payout withheld until resolve() reveals the hand
     } catch {
       setPhase("holding");
       return;
     }
     const final = handle.publicView.hand as Card[];
+    // Stash the deferred settle; resolve() fires it after the reveal animation.
+    settleRef.current = () => handle.settle();
 
     const replaceIdx: number[] = [];
     for (let i = 0; i < 5; i++) if (!held[i]) replaceIdx.push(i);
