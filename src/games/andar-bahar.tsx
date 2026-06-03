@@ -186,7 +186,7 @@ export default function AndarBahar() {
 
     let round;
     try {
-      round = await playRound("andar-bahar", stake, { side: placedSide });
+      round = await playRound("andar-bahar", stake, { side: placedSide }, { defer: true });
     } catch {
       dealingRef.current = false;
       setPhase("betting");
@@ -229,6 +229,8 @@ export default function AndarBahar() {
     // After the final card lands, show the result.
     after(t + 520, () => {
       dealingRef.current = false;
+      // Winnings settle into the header balance only now, as the result is revealed.
+      round.settle();
       applyResult(result, round.payout, stake, placedSide);
     });
   }, [isBetting, affordable, bet, pick, playRound, after, applyResult]);

@@ -356,7 +356,7 @@ export default function ThreeCardPoker() {
     // cards stay hidden in publicView until the play/fold decision.
     let handle;
     try {
-      handle = await roundStart("three-card-poker", ante, { pairPlus });
+      handle = await roundStart("three-card-poker", ante, { pairPlus }, { defer: true });
     } catch {
       resolving.current = false;
       return;
@@ -394,7 +394,7 @@ export default function ThreeCardPoker() {
   // -------------------------------------------------------------------------
 
   const resolveRound = useCallback(
-    (folded: boolean, serverDealer: Card[]) => {
+    (folded: boolean, serverDealer: Card[], settle: () => void) => {
       const pCards = player.filter((c): c is Card => c !== null);
       const dCards = serverDealer;
       if (pCards.length !== 3 || dCards.length !== 3) return;
@@ -509,6 +509,9 @@ export default function ThreeCardPoker() {
 
       // After the reveal completes, fire result feedback.
       after(3 * 320 + 250, () => {
+        // Dealer fully revealed + result shown — NOW credit winnings so the
+        // header balance never jumps to the final figure mid-reveal.
+        settle();
         setPhase("result");
         if (overallWin) {
           const big = net >= ante * 8 || ppReturn >= pairPlus * 30;
@@ -538,13 +541,13 @@ export default function ThreeCardPoker() {
     setPhase("revealing");
     let handle;
     try {
-      handle = await roundAct(rid, "play");
+      handle = await roundAct(rid, "play", undefined, { defer: true });
     } catch {
       resolving.current = false;
       setPhase("decision");
       return;
     }
-    resolveRound(false, handle.publicView.dealerCards as Card[]);
+    resolveRound(false, handle.publicView.dealerCards as Card[], handle.settle);
   };
 
   const onFold = async () => {
@@ -557,13 +560,13 @@ export default function ThreeCardPoker() {
     setPhase("revealing");
     let handle;
     try {
-      handle = await roundAct(rid, "fold");
+      handle = await roundAct(rid, "fold", undefined, { defer: true });
     } catch {
       resolving.current = false;
       setPhase("decision");
       return;
     }
-    resolveRound(true, handle.publicView.dealerCards as Card[]);
+    resolveRound(true, handle.publicView.dealerCards as Card[], handle.settle);
   };
 
   const nextRound = () => {

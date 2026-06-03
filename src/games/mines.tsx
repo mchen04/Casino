@@ -384,9 +384,11 @@ export default function Mines() {
     lockRef.current = true;
 
     // Server (logged-in) or guest demo commits the mine positions (hidden).
+    // Defer mode: the stake is still debited up front, but any payout is held
+    // until settle() runs after the round's reveal animation finishes.
     let handle;
     try {
-      handle = await roundStart("mines", bet, { mines });
+      handle = await roundStart("mines", bet, { mines }, { defer: true });
     } catch {
       lockRef.current = false;
       return;
@@ -414,7 +416,7 @@ export default function Mines() {
 
       let handle;
       try {
-        handle = await roundAct(rid, "pick", { index: i });
+        handle = await roundAct(rid, "pick", { index: i }, { defer: true });
       } catch {
         lockRef.current = false;
         return;
@@ -438,6 +440,9 @@ export default function Mines() {
         if (!mountedRef.current) return;
         setPhase("busted");
         setResult({ won: false, amount: -lost, text: `Boom! You hit a mine. Lost ${formatChips(lost)}.` });
+        // Result revealed — settle (no payout on a bust, so this is a no-op, but
+        // we run it on every completion path to keep the deferred ledger closed).
+        handle.settle();
         setResolving(false);
         lockRef.current = false;
         return;
@@ -458,6 +463,8 @@ export default function Mines() {
         setRevealed(new Set(Array.from({ length: TILES }, (_, k) => k)));
         setPhase("cashed");
         setResult({ won: true, amount: gross - stake, text: `Perfect clear! All gems found — won ${formatChips(gross)}.` });
+        // Board + win revealed — now credit the deferred payout into the header.
+        handle.settle();
         sfx.jackpot();
         setResolving(false);
       } else {
@@ -479,7 +486,7 @@ export default function Mines() {
 
     let handle;
     try {
-      handle = await roundAct(rid, "cashout");
+      handle = await roundAct(rid, "cashout", undefined, { defer: true });
     } catch {
       lockRef.current = false;
       setResolving(false);
@@ -490,6 +497,8 @@ export default function Mines() {
     setRevealed(new Set(Array.from({ length: TILES }, (_, k) => k)));
     setPhase("cashed");
     setResult({ won: true, amount: gross - stake, text: `Cashed out at ${formatMultiplier(mult)} — won ${formatChips(gross)}.` });
+    // Board + cash-out total revealed — credit the deferred winnings now.
+    handle.settle();
     if (gross >= stake * 5) sfx.jackpot();
     else sfx.win();
     setResolving(false);

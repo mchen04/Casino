@@ -702,14 +702,16 @@ export default function Craps() {
 
     // Fire the authoritative roll. The hook credits winnings + balance itself.
     acting.current = true;
-    const rollPromise: Promise<{ pv: CrapsPublicView | null; error?: string }> = (async () => {
+    const rollPromise: Promise<{ pv: CrapsPublicView | null; error?: string; settle?: () => void }> = (async () => {
       try {
         const rid = roundIdRef.current ?? (await ensureRound());
         if (!rid) return { pv: null, error: "Couldn't open the table — try again." };
-        const r = await roundAct(rid, "roll");
+        // Defer this roll's whole balance change so its winnings stay hidden
+        // until the dice land (settle() is called from the resolve timer below).
+        const r = await roundAct(rid, "roll", undefined, { deferStep: true });
         const pv = r.publicView as unknown as CrapsPublicView;
         if (pv.dice) landed.res = pv.dice;
-        return { pv };
+        return { pv, settle: r.settle };
       } catch (err) {
         return { pv: null, error: err instanceof Error ? err.message : "Roll failed." };
       } finally {
@@ -746,7 +748,11 @@ export default function Craps() {
     // Resolve once the dice have landed AND the server responded.
     timers.current.push(
       setTimeout(() => {
-        void rollPromise.then(({ pv, error }) => {
+        void rollPromise.then(({ pv, error, settle }) => {
+          // Dice have landed — NOW apply the withheld roll balance, so the header
+          // never shows the win before the dice finish tumbling. Idempotent, and
+          // the wallet provider outlives this view, so it books even on unmount.
+          settle?.();
           if (gen !== genRef.current) return;
 
           if (tickRef.current) {

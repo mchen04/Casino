@@ -262,6 +262,9 @@ export default function LetItRide() {
   const bet1ActiveRef = useRef(true);
   // guard against a double credit (e.g. React StrictMode double-invoke).
   const resolvedRef = useRef(false);
+  // settle() from the terminal act — deferred so the win is withheld until the
+  // final community cards are revealed and the result is shown.
+  const settleRef = useRef<(() => void) | null>(null);
 
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const after = useCallback((ms: number, fn: () => void) => {
@@ -287,7 +290,8 @@ export default function LetItRide() {
 
     let handle;
     try {
-      handle = await roundStart("let-it-ride", unit, {}); // server debits all 3 bets
+      // defer: bet debited up front, winnings withheld until the result reveal
+      handle = await roundStart("let-it-ride", unit, {}, { defer: true }); // server debits all 3 bets
     } catch {
       return;
     }
@@ -298,6 +302,7 @@ export default function LetItRide() {
     timers.current = [];
     bet1ActiveRef.current = true;
     resolvedRef.current = false;
+    settleRef.current = null;
     setResolution(null);
     setLastDelta(null);
     setBets([{ active: true }, { active: true }, { active: true }]);
@@ -372,6 +377,9 @@ export default function LetItRide() {
       } else {
         sfx.lose();
       }
+      // Final hand revealed — NOW credit the withheld winnings so the header
+      // balance never jumps to the result before the cards finish revealing.
+      settleRef.current?.();
       setPhase("resolved");
     },
     [unit, totalWager],
@@ -388,7 +396,7 @@ export default function LetItRide() {
       sfx.chip();
       let handle;
       try {
-        handle = await roundAct(rid, letRide ? "ride1" : "pull1");
+        handle = await roundAct(rid, letRide ? "ride1" : "pull1", undefined, { defer: true });
       } catch {
         setPhase("decision1");
         return;
@@ -421,11 +429,14 @@ export default function LetItRide() {
       sfx.chip();
       let handle;
       try {
-        handle = await roundAct(rid, letRide ? "ride2" : "pull2"); // server settles
+        // terminal step: defer the payout until resolve() reveals the final hand
+        handle = await roundAct(rid, letRide ? "ride2" : "pull2", undefined, { defer: true });
       } catch {
         setPhase("decision2");
         return;
       }
+      // stash the terminal settle() so resolve() can credit the win at the reveal
+      settleRef.current = handle.settle;
       if (!letRide) sfx.thud();
       setBets((b): [BetSlot, BetSlot, BetSlot] => [
         b[0],

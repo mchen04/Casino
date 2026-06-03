@@ -190,7 +190,7 @@ export default function Crash() {
 
       let handle;
       try {
-        handle = await roundAct(rid, "cashout", { multiplier: Math.max(1, claimed) });
+        handle = await roundAct(rid, "cashout", { multiplier: Math.max(1, claimed) }, { defer: true });
       } catch {
         // Network hiccup — keep the flight live and let the player try again.
         cashedRef.current = false;
@@ -213,6 +213,8 @@ export default function Crash() {
         setHistory((h) =>
           [{ id: ++histIdRef.current, point: pv.crashPoint, cashed: false }, ...h].slice(0, 18),
         );
+        // Bust revealed (shake + "Busted!") — commit the loss into the balance now.
+        handle.settle();
       } else {
         const m = pv.multiplier;
         setCashedAt(m);
@@ -225,6 +227,8 @@ export default function Crash() {
         setHistory((h) =>
           [{ id: ++histIdRef.current, point: m, cashed: true }, ...h].slice(0, 18),
         );
+        // Cash-out revealed ("Cashed out!" + celebration) — credit the win now.
+        handle.settle();
       }
     },
     [stopLoop, roundAct, startClimb],
@@ -250,7 +254,7 @@ export default function Crash() {
     // Server draws the HIDDEN crash point and debits the stake atomically.
     let handle;
     try {
-      handle = await roundStart("crash", stake, {});
+      handle = await roundStart("crash", stake, {}, { defer: true });
     } catch {
       return; // bet rejected (insufficient funds / network) → stay idle
     }

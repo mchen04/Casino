@@ -172,6 +172,8 @@ interface Ball {
   stake: number;
   /** Server-authoritative gross return for this ball (0 on a sub-1× bucket). */
   payout: number;
+  /** Credits this ball's withheld winnings; called once on landing (deferred). */
+  settle: () => void;
   resolved: boolean;
 }
 
@@ -195,6 +197,7 @@ function buildBall(
   bucket: number,
   mult: number,
   payout: number,
+  settle: () => void,
 ): Ball {
   const { rows } = geom;
   const path: Pt[] = [];
@@ -235,6 +238,7 @@ function buildBall(
     mult,
     stake,
     payout,
+    settle,
     resolved: false,
   };
 }
@@ -373,13 +377,15 @@ export default function Plinko() {
   // -------------------------------------------------------------------------
   const resolveBall = useCallback(
     (b: Ball) => {
-      // Money was already settled server-side at drop time; just animate/log it.
+      // The bet was debited at drop time; the winnings were withheld. Now that
+      // the ball has landed and its bucket result is revealed, credit them.
       const gross = b.payout;
       const delta = gross - b.stake;
       const log: ResultLog = { id: b.id, bucket: b.bucket, mult: b.mult, delta };
       setLastResult(log);
       setHistory((h) => [log, ...h].slice(0, 18));
       setBucketFlash((f) => ({ ...f, [b.bucket]: (f[b.bucket] ?? 0) + 1 }));
+      b.settle(); // credit this ball's winnings only after its landing is shown
 
       if (b.mult >= 10) {
         sfx.jackpot();
@@ -479,14 +485,15 @@ export default function Plinko() {
     // Server (logged-in) or local guest demo decides the bounce path + payout.
     let round;
     try {
-      round = await playRound("plinko", bet, { rows, risk });
+      // Debit the stake up front but defer the payout to the ball's landing.
+      round = await playRound("plinko", bet, { rows, risk }, { defer: true });
     } catch {
       return;
     }
     const bounces = round.outcome.bounces as boolean[];
     const bucket = Number(round.outcome.bucket);
     const mult = Number(round.outcome.multiplier);
-    const ball = buildBall(geom, risk, round.bet, bounces, bucket, mult, round.payout);
+    const ball = buildBall(geom, risk, round.bet, bounces, bucket, mult, round.payout, round.settle);
     setBalls((bs) => [...bs, ball]);
   }, [canAfford, bet, rows, risk, geom, playRound]);
 

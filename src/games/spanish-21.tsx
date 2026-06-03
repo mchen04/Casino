@@ -366,7 +366,7 @@ export default function Spanish21() {
   /* ---------------------------------------------------------------- */
 
   const settleDisplay = useCallback(
-    (pv: Record<string, unknown>, payout: number) => {
+    (pv: Record<string, unknown>, payout: number, settle: () => void) => {
       const serverHands = (pv.playerHands ?? []) as ServerHand[];
       const outcomes = (pv.outcomes ?? []) as HandOutcome[];
       const dealerCards = (pv.dealer ?? []) as Card[];
@@ -384,6 +384,10 @@ export default function Spanish21() {
 
       const text = buildResultText(resolved, dealerCards, net);
       setResult(text);
+
+      // Reveal is on screen (dealer drawn out, banner + delta shown) — NOW credit
+      // the withheld winnings so the header balance never jumps ahead of the result.
+      settle();
 
       // Feedback.
       if (net > 0) {
@@ -432,7 +436,7 @@ export default function Spanish21() {
   /* ---------------------------------------------------------------- */
 
   const revealDealerAndSettle = useCallback(
-    async (gen: number, pv: Record<string, unknown>, payout: number) => {
+    async (gen: number, pv: Record<string, unknown>, payout: number, settle: () => void) => {
       const dealerCards = (pv.dealer ?? []) as Card[];
       setActive(-1);
       setStepActions([]);
@@ -455,7 +459,7 @@ export default function Spanish21() {
       if (blackjackTotal(dealerCards).total > 21) sfx.thud();
       await sleep(300);
       if (gen !== genRef.current) return;
-      settleDisplay(pv, payout);
+      settleDisplay(pv, payout, settle);
     },
     [settleDisplay],
   );
@@ -467,11 +471,11 @@ export default function Spanish21() {
   const applyStep = useCallback(
     async (
       gen: number,
-      res: { done?: boolean; publicView: Record<string, unknown>; actions?: string[]; payout?: number },
+      res: { done?: boolean; publicView: Record<string, unknown>; actions?: string[]; payout?: number; settle: () => void },
     ) => {
       const pv = res.publicView;
       if (res.done) {
-        await revealDealerAndSettle(gen, pv, res.payout ?? 0);
+        await revealDealerAndSettle(gen, pv, res.payout ?? 0, res.settle);
         return;
       }
       const serverHands = (pv.playerHands ?? []) as ServerHand[];
@@ -494,7 +498,7 @@ export default function Spanish21() {
     const gen = ++genRef.current;
     let res;
     try {
-      res = await roundStart("spanish-21", bet, {}); // server debits the main bet
+      res = await roundStart("spanish-21", bet, {}, { defer: true }); // server debits the main bet; win held until reveal
     } catch {
       return; // insufficient funds / network — abort back to idle, no balance change
     }
@@ -558,8 +562,8 @@ export default function Spanish21() {
     if (gen !== genRef.current) return;
 
     if (res.done) {
-      // Natural (player and/or dealer) — settled at the deal.
-      await revealDealerAndSettle(gen, pv, res.payout ?? 0);
+      // Natural (player and/or dealer) — settle after the dealer reveal.
+      await revealDealerAndSettle(gen, pv, res.payout ?? 0, res.settle);
       return;
     }
 
@@ -587,7 +591,7 @@ export default function Spanish21() {
         else sfx.click();
         let res;
         try {
-          res = await roundAct(rid, action);
+          res = await roundAct(rid, action, undefined, { defer: true }); // win held until the dealer-reveal settle
         } catch {
           return;
         }

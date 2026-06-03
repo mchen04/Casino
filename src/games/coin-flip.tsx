@@ -369,7 +369,7 @@ export default function CoinFlip() {
 
       let round;
       try {
-        round = await playRound("coin-flip", stake, { call });
+        round = await playRound("coin-flip", stake, { call }, { defer: true });
       } catch {
         resolvingRef.current = false;
         setPhase("betting");
@@ -391,6 +391,10 @@ export default function CoinFlip() {
       setResult({ call, landed: landedSide, won });
       const hid = ++historyIdRef.current;
       setHistory((h) => [{ side: landedSide, id: hid }, ...h].slice(0, 14));
+
+      // Coin has settled and the result is revealed — NOW credit the payout so
+      // the header balance never updates before the flip animation finishes.
+      round.settle();
 
       if (won) {
         setPot(round.payout);

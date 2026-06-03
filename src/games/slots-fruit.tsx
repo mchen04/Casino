@@ -873,7 +873,7 @@ export default function FruitFrenzy() {
 
     let round;
     try {
-      round = await playRound("slots-fruit", bet, {});
+      round = await playRound("slots-fruit", bet, {}, { defer: true });
     } catch {
       serverSpinRef.current = false;
       sfx.lose();
@@ -905,6 +905,9 @@ export default function FruitFrenzy() {
           : "Free spins done",
       );
     }
+    // Reels (+ any free spins) have fully revealed — NOW credit winnings so the
+    // header balance never jumps to the final figure mid-animation.
+    round.settle();
     serverSpinRef.current = false;
   }, [busy, freeSpins, bet, playRound, animateServerSpin]);
 

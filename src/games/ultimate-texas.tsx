@@ -293,7 +293,7 @@ export default function UltimateTexasHoldem() {
 
     let handle;
     try {
-      handle = await roundStart("ultimate-texas", ante, { trips }); // server debits ante+blind+trips
+      handle = await roundStart("ultimate-texas", ante, { trips }, { defer: true }); // server debits ante+blind+trips; win deferred to settle()
     } catch {
       return;
     }
@@ -482,7 +482,13 @@ export default function UltimateTexasHoldem() {
   // ----- reveal sequence to showdown --------------------------------------
 
   const goToShowdown = useCallback(
-    async (finalPlay: number, folded: boolean, dHole: Card[], comm: Card[]) => {
+    async (
+      finalPlay: number,
+      folded: boolean,
+      dHole: Card[],
+      comm: Card[],
+      settleRound: () => void,
+    ) => {
       setBusy(true);
       // Swap placeholders for the real server cards before revealing them.
       setCommunity(comm);
@@ -509,6 +515,7 @@ export default function UltimateTexasHoldem() {
       if (!mountedRef.current) return;
       setPhase("showdown");
       resolve(finalPlay, folded, dHole, comm);
+      settleRound(); // reveal done — NOW credit the withheld winnings into the balance
       setBusy(false);
     },
     [revealCount, resolve],
@@ -529,13 +536,13 @@ export default function UltimateTexasHoldem() {
       sfx.chip();
       let handle;
       try {
-        handle = await roundAct(rid, mult === 4 ? "bet4x" : "bet3x");
+        handle = await roundAct(rid, mult === 4 ? "bet4x" : "bet3x", undefined, { defer: true });
       } catch {
         setBusy(false);
         return;
       }
       const pv = handle.publicView;
-      void goToShowdown(amt, false, pv.dealerHole as Card[], pv.community as Card[]);
+      void goToShowdown(amt, false, pv.dealerHole as Card[], pv.community as Card[], handle.settle);
     },
     [busy, phase, ante, canAfford, roundAct, goToShowdown],
   );
@@ -581,13 +588,13 @@ export default function UltimateTexasHoldem() {
     sfx.chip();
     let handle;
     try {
-      handle = await roundAct(rid, "bet2x");
+      handle = await roundAct(rid, "bet2x", undefined, { defer: true });
     } catch {
       setBusy(false);
       return;
     }
     const pv = handle.publicView;
-    void goToShowdown(amt, false, pv.dealerHole as Card[], pv.community as Card[]);
+    void goToShowdown(amt, false, pv.dealerHole as Card[], pv.community as Card[], handle.settle);
   }, [busy, phase, ante, canAfford, roundAct, goToShowdown]);
 
   // Flop check -> river decision (reveal turn + river from the server).
@@ -631,13 +638,13 @@ export default function UltimateTexasHoldem() {
     sfx.chip();
     let handle;
     try {
-      handle = await roundAct(rid, "bet1x");
+      handle = await roundAct(rid, "bet1x", undefined, { defer: true });
     } catch {
       setBusy(false);
       return;
     }
     const pv = handle.publicView;
-    void goToShowdown(amt, false, pv.dealerHole as Card[], pv.community as Card[]);
+    void goToShowdown(amt, false, pv.dealerHole as Card[], pv.community as Card[], handle.settle);
   }, [busy, phase, ante, canAfford, roundAct, goToShowdown]);
 
   // River fold — loses ante + blind.
@@ -649,13 +656,13 @@ export default function UltimateTexasHoldem() {
     sfx.click();
     let handle;
     try {
-      handle = await roundAct(rid, "fold");
+      handle = await roundAct(rid, "fold", undefined, { defer: true });
     } catch {
       setBusy(false);
       return;
     }
     const pv = handle.publicView;
-    void goToShowdown(0, true, pv.dealerHole as Card[], pv.community as Card[]);
+    void goToShowdown(0, true, pv.dealerHole as Card[], pv.community as Card[], handle.settle);
   }, [busy, phase, roundAct, goToShowdown]);
 
   // ----- new round / reset -------------------------------------------------

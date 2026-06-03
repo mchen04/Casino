@@ -299,13 +299,15 @@ export default function NeonMegaways() {
     setSpinning(true);
     let round;
     try {
-      round = await playRound("slots-megaways", bet, {});
+      round = await playRound("slots-megaways", bet, {}, { defer: true });
     } catch {
       busy.current = false;
       setSpinning(false);
       return;
     }
     await animateServerSpin(round.outcome as Parameters<typeof animateServerSpin>[0]);
+    // Cascades fully revealed — credit winnings now so the balance never jumps ahead.
+    round.settle();
     setLastNet(round.payout - bet);
     setSpinning(false);
     busy.current = false;

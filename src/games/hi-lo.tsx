@@ -249,9 +249,10 @@ export default function HiLo() {
     setNextFaceDown(true);
 
     // Server (logged-in) or guest local demo starts the round + deals the base card.
+    // Defer mode: debit the bet up front, withhold any winnings until settle().
     let handle;
     try {
-      handle = await roundStart("hi-lo", bet, {});
+      handle = await roundStart("hi-lo", bet, {}, { defer: true });
     } catch {
       return;
     }
@@ -278,10 +279,12 @@ export default function HiLo() {
       setLastWon(null);
       setPhase("revealing");
 
-      // Server (or guest demo) draws + judges the next card.
+      // Server (or guest demo) draws + judges the next card. Defer: a winning
+      // guess keeps the round live (settle() is a no-op); a loss is terminal
+      // (payout 0) and we settle() only after the bust is revealed below.
       let handle;
       try {
-        handle = await roundAct(rid, g);
+        handle = await roundAct(rid, g, undefined, { defer: true });
       } catch {
         setPhase("playing");
         return;
@@ -329,6 +332,8 @@ export default function HiLo() {
             setCurrent(drawn);
             setPhase("busted");
             stakeRef.current = 0;
+            // Bust revealed — settle the (zero-payout) terminal step now.
+            handle.settle();
           }
         }, 430);
         timerRefs.current.push(t2);
@@ -346,7 +351,7 @@ export default function HiLo() {
     const stake = stakeRef.current;
     let handle;
     try {
-      handle = await roundAct(rid, "cashout");
+      handle = await roundAct(rid, "cashout", undefined, { defer: true });
     } catch {
       return;
     }
@@ -362,6 +367,8 @@ export default function HiLo() {
     if (profit > 0) setCashOutResult({ gross, mult });
     stakeRef.current = 0;
     setPhase("cashed");
+    // Cash-out result revealed — credit the banked winnings now.
+    handle.settle();
   }, [phase, streak.length, mult, roundAct]);
 
   // ── New deal (reset to betting) ──────────────────────────────────────────

@@ -150,6 +150,9 @@ export default function CaribbeanStud() {
   const { balance, ready } = wallet;
   const { start: roundStart, act: roundAct } = usePlayRound();
   const roundIdRef = useRef<string | null>(null);
+  // Deferred settle from the terminal act() — released only after the dealer
+  // reveal finishes, so the header balance never jumps before the showdown.
+  const settleRef = useRef<(() => void) | null>(null);
 
   const [ante, setAnte] = useState(25);
   const [phase, setPhase] = useState<Phase>("betting");
@@ -211,11 +214,12 @@ export default function CaribbeanStud() {
     // Server (logged-in) or guest demo deals; only the dealer's up-card is shown.
     let handle;
     try {
-      handle = await roundStart("caribbean-stud", a, {});
+      handle = await roundStart("caribbean-stud", a, {}, { defer: true });
     } catch {
       return;
     }
     roundIdRef.current = handle.roundId ?? null;
+    settleRef.current = null;
     const player = handle.publicView.playerCards as Card[];
     const up = handle.publicView.dealerUp as Card;
     const placeholder = makeShoe(1).slice(0, 4) as Card[];
@@ -303,6 +307,9 @@ export default function CaribbeanStud() {
       setResultDetail(detail);
       setNetDelta(net);
       setPhase("result");
+      // Showdown is revealed — release the withheld payout into the balance now.
+      settleRef.current?.();
+      settleRef.current = null;
 
       if (result === "win") {
         const big = net >= a * 6;
@@ -352,11 +359,13 @@ export default function CaribbeanStud() {
     setStaked((s) => ({ ...s, raise: raiseAmt }));
     let handle;
     try {
-      handle = await roundAct(rid, "raise");
+      handle = await roundAct(rid, "raise", undefined, { defer: true });
     } catch {
       setStaked((s) => ({ ...s, raise: 0 }));
       return;
     }
+    // Terminal act — hold the payout until resolve() reveals the showdown.
+    settleRef.current = handle.settle ?? null;
     revealDealer(raiseAmt, handle.publicView.dealerCards as Card[]);
   }, [phase, staked.ante, roundAct, revealDealer]);
 
@@ -368,11 +377,13 @@ export default function CaribbeanStud() {
     setPhase("revealing");
     let handle;
     try {
-      handle = await roundAct(rid, "fold");
+      handle = await roundAct(rid, "fold", undefined, { defer: true });
     } catch {
       setPhase("decision");
       return;
     }
+    // Terminal act — hold the (ante-forfeit) settle until the reveal lands.
+    settleRef.current = handle.settle ?? null;
     const serverDealer = handle.publicView.dealerCards as Card[];
     setDealerCards(serverDealer);
     const flipGap = 380;
@@ -393,6 +404,9 @@ export default function CaribbeanStud() {
       setResultDetail(`Ante forfeited (${formatChips(staked.ante)})`);
       setNetDelta(-staked.ante);
       setPhase("result");
+      // Fold reveal complete — settle the forfeited ante now.
+      settleRef.current?.();
+      settleRef.current = null;
       sfx.lose();
     });
   }, [phase, staked.ante, after, roundAct]);

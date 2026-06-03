@@ -465,6 +465,7 @@ export default function ScratchCards() {
   const [burst, setBurst] = useState(false);
   const resolvedRef = useRef(false);
   const buyingRef = useRef(false); // prevents rapid double-buy before state flushes
+  const settleRef = useRef<(() => void) | null>(null); // deferred payout for the active card
 
   const affordable = ready && balance >= Math.max(MIN_BET, bet);
   const allRevealed = phase === "scratching" && revealed.every(Boolean);
@@ -477,10 +478,11 @@ export default function ScratchCards() {
     buyingRef.current = true;
     sfx.chip();
 
-    // Server (logged-in) or local guest demo pre-rolls the card + settles.
+    // Server (logged-in) or local guest demo pre-rolls the card. The bet is
+    // debited now; winnings are deferred until the card is fully revealed.
     let round;
     try {
-      round = await playRound("scratch", bet, { theme: themeId });
+      round = await playRound("scratch", bet, { theme: themeId }, { defer: true });
     } catch {
       buyingRef.current = false;
       sfx.lose();
@@ -497,6 +499,7 @@ export default function ScratchCards() {
     };
     resolvedRef.current = false;
     buyingRef.current = false;
+    settleRef.current = round.settle; // credit the win only once the card is revealed
     setStake(round.bet);
     setRoundId((n) => n + 1);
     setCard(outcome);
@@ -515,6 +518,11 @@ export default function ScratchCards() {
       if (resolvedRef.current) return;
       resolvedRef.current = true;
       setShowWin(true);
+
+      // Card fully revealed — NOW credit the deferred winnings so the balance
+      // never jumps before the panels finish flipping. No-op on losing cards.
+      settleRef.current?.();
+      settleRef.current = null;
 
       if (outcome.prize) {
         // Money already settled by the server; just display the gross return.

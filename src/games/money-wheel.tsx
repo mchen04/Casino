@@ -195,7 +195,7 @@ export default function MoneyWheel() {
     // Server (logged-in) or local guest demo decides the landed segment + payout.
     let round;
     try {
-      round = await playRound("money-wheel", stake, { pick: selectedSpot.key });
+      round = await playRound("money-wheel", stake, { pick: selectedSpot.key }, { defer: true });
     } catch {
       spinningRef.current = false;
       setPhase("betting");
@@ -268,6 +268,9 @@ export default function MoneyWheel() {
         );
       }
       setPhase("resolved");
+      // Wheel has stopped and the landed segment is revealed — credit the
+      // winnings now so the header balance never jumps before the spin ends.
+      round.settle();
       spinningRef.current = false;
     }, spinDuration * 1000 + 120);
   }, [phase, bet, ring, rotation, selectedSpot, landSegmentUnderPointer, playRound]);

@@ -848,7 +848,7 @@ export default function PharaohsFortune() {
     // one call; we only animate the returned sequence. Money is server-settled.
     let round;
     try {
-      round = await playRound("slots-egypt", totalBet, {});
+      round = await playRound("slots-egypt", totalBet, {}, { defer: true });
     } catch {
       setBusy(false);
       setMessage("Not enough chips for that bet");
@@ -915,6 +915,9 @@ export default function PharaohsFortune() {
           : "Free spins complete",
       );
     }
+    // Base spin + any free spins fully revealed — NOW credit the winnings into
+    // the header balance, so money never appears before the reels finish.
+    round.settle();
     setBusy(false);
   }, [busy, spinning, affordable, bet, playRound, runSpin, settleResult]);
 

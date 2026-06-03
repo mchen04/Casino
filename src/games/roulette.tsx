@@ -538,7 +538,7 @@ export default function Roulette() {
     }));
     let round;
     try {
-      round = await playRound("roulette", stake, { mode: wheelKind, bets: placedBets });
+      round = await playRound("roulette", stake, { mode: wheelKind, bets: placedBets }, { defer: true });
     } catch {
       spinningRef.current = false;
       setPhase("betting");
@@ -596,7 +596,11 @@ export default function Roulette() {
         landedColor === "green" ? GREEN : landedColor === "red" ? RED : BLACK,
       );
 
-      // Money already settled server-side; recompute winners for the highlight.
+      // Wheel has stopped and the pocket is revealed — NOW credit the winnings so
+      // the header balance never jumps to the payout before the ball lands.
+      round.settle();
+
+      // Recompute winners for the highlight.
       const gross = round.payout;
       let straightHit = false;
       const winners = new Set<string>();

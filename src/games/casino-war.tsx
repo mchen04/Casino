@@ -59,6 +59,10 @@ export default function CasinoWar() {
   const { balance, ready } = wallet;
   const { start: roundStart, act: roundAct } = usePlayRound();
   const roundIdRef = useRef<string | null>(null);
+  // Deferred settle for the active round: the bet is debited up front but the
+  // winnings are withheld until finish() reveals the result, so the header
+  // balance never jumps to the final figure mid-animation.
+  const settleRef = useRef<() => void>(() => {});
 
   const [bet, setBet] = useState(25);
   const [phase, setPhase] = useState<Phase>("betting");
@@ -115,6 +119,8 @@ export default function CasinoWar() {
 
   const finish = useCallback(
     (info: ResultInfo) => {
+      // Reveal complete — NOW credit the withheld winnings into the header.
+      settleRef.current();
       setResult(info);
       setPhase("resolved");
       if (info.outcome === "war-win" || info.outcome === "war-tie") {
@@ -142,7 +148,7 @@ export default function CasinoWar() {
 
     let handle;
     try {
-      handle = await roundStart("casino-war", bet, {});
+      handle = await roundStart("casino-war", bet, {}, { defer: true });
     } catch {
       resolvingRef.current = false;
       setPhase("betting");
@@ -153,6 +159,9 @@ export default function CasinoWar() {
     const d = pvw.dealerCard as Card;
     const outcome = pvw.outcome as string;
     roundIdRef.current = handle.roundId ?? null;
+    // Hold the win until finish() reveals the result (no-op on the tie path,
+    // which is non-terminal and continues via surrender/war).
+    settleRef.current = handle.settle;
 
     setPlayerCard(p);
     sfx.card();
@@ -194,12 +203,14 @@ export default function CasinoWar() {
       resolvingRef.current = false;
       return;
     }
+    let handle;
     try {
-      await roundAct(rid, "surrender");
+      handle = await roundAct(rid, "surrender", undefined, { defer: true });
     } catch {
       resolvingRef.current = false;
       return;
     }
+    settleRef.current = handle.settle; // credited inside finish() on reveal
     finish({ outcome: "surrender", net: bet / 2 - bet, label: "Surrendered", good: false });
     resolvingRef.current = false;
   }, [phase, bet, roundAct, finish]);
@@ -221,7 +232,7 @@ export default function CasinoWar() {
 
     let handle;
     try {
-      handle = await roundAct(rid, "war");
+      handle = await roundAct(rid, "war", undefined, { defer: true });
     } catch {
       resolvingRef.current = false;
       setShowWarBanner(false);
@@ -233,6 +244,8 @@ export default function CasinoWar() {
     const pw = pvw.playerWar as Card;
     const dw = pvw.dealerWar as Card;
     const outcome = pvw.outcome as string;
+    // Hold the win until the war showdown reveal lands in finish() below.
+    settleRef.current = handle.settle;
 
     await sleep(950);
     if (!mountedRef.current) return;

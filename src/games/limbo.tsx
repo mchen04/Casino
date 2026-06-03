@@ -269,9 +269,11 @@ export default function Limbo() {
     sfx.thud();
 
     // Server (logged-in) or local guest demo decides the result + payout.
+    // Defer crediting the win until the limbo climb finishes and the result
+    // is revealed (the bet stays debited up front).
     let roundRes;
     try {
-      roundRes = await playRound("limbo", stake, { target: tgt });
+      roundRes = await playRound("limbo", stake, { target: tgt }, { defer: true });
     } catch {
       rollingRef.current = false;
       setPhase("betting");
@@ -298,6 +300,10 @@ export default function Limbo() {
     if (!mountedRef.current) return;
 
     const delta = won ? roundRes.payout - stake : -stake;
+
+    // Climb finished and the result is now revealed — credit the win to the
+    // header balance (the bet was already debited up front).
+    roundRes.settle();
 
     if (won) {
       setBurst((b) => b + 1);

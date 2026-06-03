@@ -170,7 +170,7 @@ export default function Dice() {
     // settled inside playRound; we only animate toward the returned outcome.
     let round;
     try {
-      round = await playRound("dice", stake, { target: t, mode: m });
+      round = await playRound("dice", stake, { target: t, mode: m }, { defer: true });
     } catch {
       rollingRef.current = false;
       setPhase("idle");
@@ -213,6 +213,10 @@ export default function Dice() {
     };
     setResult(res);
     setHistory((h) => [res, ...h].slice(0, 16));
+
+    // Roll fully revealed — NOW credit winnings so the balance never jumps
+    // ahead of the marker settling on its final number.
+    round.settle();
 
     if (won) {
       setBurst((b) => b + 1);
