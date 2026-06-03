@@ -56,7 +56,7 @@ const NOOP = () => {};
  * should catch and unwind any optimistic UI.
  */
 export function usePlayStateless() {
-  const { serverAuthoritative, play, applyServerBalance, bet: localBet, win, balance } = useWallet();
+  const { serverAuthoritative, play, applyServerBalance, bet: localBet, win, balance, beginBet } = useWallet();
 
   return useCallback(
     async (
@@ -77,11 +77,13 @@ export function usePlayStateless() {
         // the round/returned/biggest-win stats) land on settle(), after the reveal.
         const r = await apiPlay(game, amount, params);
         applyServerBalance(round2(r.balance - r.payout), { wagered: amount });
+        const endBet = beginBet();
         let settled = false;
         const settle = () => {
           if (settled) return;
           settled = true;
           applyServerBalance(r.balance, { returned: r.payout, biggestWin: r.payout, settled: true });
+          endBet();
         };
         return { outcome: r.outcome, payout: r.payout, bet: r.bet, balance: r.balance, settle };
       }
@@ -96,11 +98,13 @@ export function usePlayStateless() {
       const validated = spec.validate(params);
       const res = spec.resolve(amount, validated, clientRng);
       const payout = Math.max(0, res.payout);
+      const endBet = defer ? beginBet() : NOOP;
       let settled = false;
       const settle = () => {
         if (settled) return;
         settled = true;
         if (payout > 0) win(payout);
+        endBet();
       };
       // Immediate mode credits the win up front; deferred mode waits for settle().
       if (!defer) settle();
@@ -112,6 +116,6 @@ export function usePlayStateless() {
         settle: defer ? settle : NOOP,
       };
     },
-    [serverAuthoritative, play, applyServerBalance, localBet, win, balance],
+    [serverAuthoritative, play, applyServerBalance, localBet, win, balance, beginBet],
   );
 }

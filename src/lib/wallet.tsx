@@ -5,6 +5,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -25,6 +26,20 @@ import {
 const STARTING_BALANCE = 10_000;
 /** Guest-wallet bailout grant. Logged-in grants are decided server-side (/api/rescue). */
 const RESCUE_GRANT = 5_000;
+/**
+ * Safety net for the in-flight bet guard: if a game never settles a deferred bet
+ * (e.g. it unmounts mid-reveal), auto-clear the flag after this long so the
+ * bankruptcy bailout button can never be hidden forever. Comfortably longer than
+ * any reveal animation.
+ */
+const BET_GUARD_MS = 20_000;
+/** Backstop for a bought-bonus / free-spin sequence, which can run many spins. */
+const BONUS_GUARD_MS = 300_000;
+
+// Layout effect on the client (so the guard flips before paint — no flash),
+// plain effect on the server (avoids React's useLayoutEffect-during-SSR warning).
+const useIsoLayoutEffect =
+  typeof window !== "undefined" ? useLayoutEffect : useEffect;
 const storageKey = (username: string | null) =>
   username ? `neon-royale-wallet-${username}` : "neon-royale-wallet-guest";
 
@@ -66,6 +81,22 @@ export interface Wallet extends WalletState {
   ) => void;
   /** True when a server-authoritative wallet is active (i.e. logged in). */
   serverAuthoritative: boolean;
+  /**
+   * True while one or more bets are mid-reveal — debited, but with the payout not
+   * yet credited (deferred settlement). The header uses this to suppress the
+   * bankruptcy bailout button so it never flashes in on a transient sub-threshold
+   * dip during a spin/flip/deal animation.
+   */
+  betting: boolean;
+  /**
+   * Mark a bet in-flight for the duration of a reveal animation OR an open
+   * multi-step round. Returns a `done` callback to invoke once the result has
+   * been shown / the round has resolved; a safety timer (default `BET_GUARD_MS`,
+   * overridable for long-lived round guards) also clears the flag if `done` is
+   * never called (e.g. the game unmounts). Wired into the shared play hooks, not
+   * called by games.
+   */
+  beginBet: (safetyMs?: number) => () => void;
   topUp: (amount?: number) => void;
   /**
    * Bankruptcy bailout. For logged-in users this is server-authoritative — the
@@ -98,6 +129,9 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<WalletState>(defaultState);
   const [ready, setReady] = useState(false);
   const [username, setUsername] = useState<string | null>(null);
+  // Count of bets currently mid-reveal (deferred-settlement window). Kept out of
+  // WalletState so it's never persisted or synced — it's transient UI state.
+  const [activeBets, setActiveBets] = useState(0);
   const loaded = useRef(false);
   // Track the username at the time state was last synced to avoid stale closure issues
   const usernameRef = useRef<string | null>(null);
@@ -259,6 +293,23 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     setState((s) => ({ ...s, balance: STARTING_BALANCE, resets: s.resets + 1 }));
   }, []);
 
+  const beginBet = useCallback((safetyMs: number = BET_GUARD_MS): (() => void) => {
+    setActiveBets((n) => n + 1);
+    let done = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      setActiveBets((n) => Math.max(0, n - 1));
+    };
+    // Self-heal: clear the guard even if the caller never settles (e.g. the game
+    // unmounts). Reveal guards use the short default; round guards pass a longer
+    // backstop since a player can sit on a decision for a while.
+    timer = setTimeout(finish, safetyMs);
+    return finish;
+  }, []);
+
   const login = useCallback(async (user: string, password: string) => {
     const result = await apiLogin(user, password);
     if (!result) throw new Error("Login failed");
@@ -324,6 +375,8 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       play,
       applyServerBalance,
       serverAuthoritative: username !== null,
+      betting: activeBets > 0,
+      beginBet,
       topUp,
       rescue,
       reset,
@@ -334,7 +387,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       logout,
       deleteAccount,
     }),
-    [state, bet, win, play, applyServerBalance, topUp, rescue, reset, ready, username, login, register, logout, deleteAccount],
+    [state, bet, win, play, applyServerBalance, activeBets, beginBet, topUp, rescue, reset, ready, username, login, register, logout, deleteAccount],
   );
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
@@ -346,6 +399,22 @@ export function useWallet(): Wallet {
     throw new Error("useWallet must be used within a <WalletProvider>");
   }
   return ctx;
+}
+
+/**
+ * Suppress the bankruptcy bailout button while `active` is true. For game flows
+ * that move chips OUTSIDE the play hooks — i.e. the slots "buy bonus / free
+ * spins" feature, which debits via `wallet.bet()` directly — so the "+5,000"
+ * never flashes in during a bought-bonus animation that dipped the balance. Pass
+ * a flag that's true for the whole bonus (set in the same render that debits, so
+ * the guard engages before paint) and resets when it ends.
+ */
+export function useBettingGuard(active: boolean): void {
+  const { beginBet } = useWallet();
+  useIsoLayoutEffect(() => {
+    if (!active) return;
+    return beginBet(BONUS_GUARD_MS);
+  }, [active, beginBet]);
 }
 
 export { STARTING_BALANCE };

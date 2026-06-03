@@ -14,7 +14,7 @@ import {
   useSpring,
   useTransform,
 } from "framer-motion";
-import { useWallet } from "@/lib/wallet";
+import { useWallet, useBettingGuard } from "@/lib/wallet";
 import { usePlayStateless } from "@/lib/playStateless";
 import { weightedPick, randInt } from "@/lib/rng";
 import { formatChips, formatMultiplier } from "@/lib/format";
@@ -548,6 +548,9 @@ export default function FruitFrenzy() {
 
   // Free spins.
   const [freeSpins, setFreeSpins] = useState(0);
+  // The buy-bonus debits via wallet.bet() directly (outside the play hook), so
+  // guard the bailout button while a bought/triggered free-spin run is active.
+  useBettingGuard(freeSpins > 0);
   const [freeBanner, setFreeBanner] = useState(false);
   const [inFreeSpin, setInFreeSpin] = useState(false);
   // Win multiplier active during a *bought* bonus (1 during normal play and

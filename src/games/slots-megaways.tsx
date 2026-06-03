@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useWallet } from "@/lib/wallet";
+import { useWallet, useBettingGuard } from "@/lib/wallet";
 import { usePlayStateless } from "@/lib/playStateless";
 import { BetControls } from "@/components/BetControls";
 import { formatChips, formatMultiplier } from "@/lib/format";
@@ -155,6 +155,9 @@ export default function NeonMegaways() {
   // Win multiplier active during a bought bonus (1 in normal play).
   const buyMultRef = useRef(1);
   const [bonusLeft, setBonusLeft] = useState(0);
+  // The buy-bonus debits via wallet.bet() directly (outside the play hook), so
+  // guard the bailout button for the whole bought free-spin run.
+  useBettingGuard(bonusLeft > 0);
   useEffect(() => {
     // Reset on mount too — under React StrictMode the mount→unmount→remount
     // dance would otherwise leave this stuck false (killing every async spin).
