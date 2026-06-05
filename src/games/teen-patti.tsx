@@ -70,8 +70,8 @@ interface TPRank {
  * Evaluate a Teen Patti hand of exactly 3 cards using the Teen Patti ranking
  * (Trail highest, then Pure Sequence, Sequence, Color, Pair, High Card).
  *
- * Sequences: Ace can be high (A-K-Q, the best run) or low (A-2-3, the worst
- * run). A-2-3 sorts BELOW 2-3-4 — it is the lowest possible sequence.
+ * Sequences: Ace can be high (A-K-Q, the best run) or low. A-2-3 is the
+ * second-best run, above K-Q-J and below A-K-Q.
  */
 function evaluateTeenPatti(cards: Card[]): TPRank {
   if (cards.length !== 3) throw new Error("evaluateTeenPatti expects 3 cards");
@@ -88,9 +88,8 @@ function evaluateTeenPatti(cards: Card[]): TPRank {
       // Ordinary consecutive run (e.g. 5-6-7 → high 7, or 12-13-14 = A-K-Q → 14).
       straightHigh = distinct[0];
     } else if (distinct[0] === 14 && distinct[1] === 3 && distinct[2] === 2) {
-      // A-2-3 — the LOWEST sequence. Rank it just below 2-3-4 (high 4) by
-      // giving it a high value of 3 (2-3-4 is 4, so A-2-3 < 2-3-4).
-      straightHigh = 3;
+      // A-2-3 ranks just below A-K-Q and above K-Q-J in common Teen Patti rules.
+      straightHigh = 13.5;
     }
   }
   const isSequence = straightHigh > 0;

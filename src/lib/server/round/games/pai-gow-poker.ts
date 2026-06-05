@@ -5,6 +5,7 @@ import { JOKER, evalFive, evalLow, houseWay, isLegalSplit } from "../../../paiGo
 
 // Server-authoritative Pai Gow Poker — mirrors src/games/pai-gow-poker.tsx.
 //   53-card deck (52 + one semi-wild joker). Player and dealer get 7 cards each.
+//   Five aces is highest; the A-2-3-4-5 wheel is the second-highest straight.
 //   The player splits into a 5-card HIGH (back) hand and a 2-card LOW (front)
 //   hand; the back MUST outrank the front (else it would foul — rejected). The
 //   DEALER is set by the FIXED house way (see paiGow.houseWay), which now splits

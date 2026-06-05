@@ -9,8 +9,9 @@
  * a legal split; manual swapping is validated against the foul rule.
  *
  * Joker is semi-wild: it can complete a straight or flush, otherwise it
- * plays as an Ace. Evaluation substitutes the joker to maximise the hand
- * within those rules.
+ * plays as an Ace. Five aces is highest; A-2-3-4-5 is the second-highest
+ * straight. Evaluation substitutes the joker to maximise the hand within
+ * those rules.
  *
  * Payouts (commission 5%): win BOTH -> win(bet * 1.95). Win one / lose one
  * (or any tie on a single hand) -> PUSH win(bet). Lose both / copy both ->

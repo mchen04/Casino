@@ -47,14 +47,14 @@ const ALL_RANK_SUIT: { rank: Rank; suit: Suit }[] = (() => {
 /**
  * Evaluate exactly 5 cards, substituting a joker (if present) to maximise the
  * hand. Pai Gow rule: joker only completes a straight/flush, otherwise it is
- * an Ace. We approximate this faithfully by trying every substitution and
- * keeping the best — for straights/flushes that yields the completed hand;
- * for everything else, substituting the missing Ace (Ace-high / pair of aces)
- * is always the best non-straight/flush result, matching the rule.
+ * an Ace. Five aces is the top hand, and the A-2-3-4-5 wheel ranks as the
+ * second-highest straight/straight flush in Pai Gow Poker.
  */
 export function evalFive(cards: Card[]): HandRank {
+  if (isFiveAces(cards)) return fiveAcesRank();
+
   const jokerIdx = cards.findIndex(isJoker);
-  if (jokerIdx === -1) return evaluate5(cards);
+  if (jokerIdx === -1) return normalizePaiGowStraight(evaluate5(cards));
 
   // Cards already on the table (excluding the joker) constrain which physical
   // card the joker could "be", but for ranking we only care about rank/suit
@@ -68,12 +68,50 @@ export function evalFive(cards: Card[]): HandRank {
     if (present.has(`${sub.rank}|${sub.suit}`)) continue;
     const trial = cards.slice();
     trial[jokerIdx] = { rank: sub.rank, suit: sub.suit, id: "JOKER-SUB" };
-    const r = evaluate5(trial);
+    const r = normalizePaiGowStraight(evaluate5(trial));
     if (!best || r.score > best.score) best = r;
   }
   // Fallback (should never trigger): joker as plain Ace of an unused suit.
-  if (!best) best = evaluate5(cards.map((c) => (isJoker(c) ? { ...JOKER } : c)));
+  if (!best) {
+    const aceJokerCards = cards.map((c) => (isJoker(c) ? { ...JOKER } : c));
+    best = normalizePaiGowStraight(evaluate5(aceJokerCards));
+  }
   return best;
+}
+
+function packedScore(category: HandCategory, tiebreak: number[]): number {
+  let score = category;
+  for (let i = 0; i < 5; i++) score = score * 15 + (tiebreak[i] ?? 0);
+  return score;
+}
+
+function isFiveAces(cards: Card[]): boolean {
+  return cards.length === 5 && cards.every((c) => isJoker(c) || c.rank === "A");
+}
+
+function fiveAcesRank(): HandRank {
+  const tiebreak = [15];
+  return {
+    category: HandCategory.RoyalFlush,
+    name: "Five Aces",
+    tiebreak,
+    score: packedScore(HandCategory.RoyalFlush, tiebreak),
+  };
+}
+
+function normalizePaiGowStraight(rank: HandRank): HandRank {
+  if (
+    (rank.category === HandCategory.Straight || rank.category === HandCategory.StraightFlush) &&
+    rank.tiebreak[0] === 5
+  ) {
+    const tiebreak = [13.5];
+    return {
+      ...rank,
+      tiebreak,
+      score: packedScore(rank.category, tiebreak),
+    };
+  }
+  return rank;
 }
 
 // ---------------------------------------------------------------------------
@@ -212,11 +250,16 @@ export function houseWay(cards: Card[]): Split {
   // meant to split (trips back + pair front; pair back + pair front), which the
   // comparator does. So when the best back is a straight/flush family, restrict
   // to splits that preserve that category, then play the best legal front.
-  const maxBackCat = legal.reduce((m, e) => Math.max(m, e.back.category), 0);
+  const maxKeepBackCat = legal.reduce(
+    (m, e) => (e.back.name === "Five Aces" ? m : Math.max(m, e.back.category)),
+    0,
+  );
   const KEEP = new Set<number>([
     HandCategory.Straight, HandCategory.Flush, HandCategory.StraightFlush, HandCategory.RoyalFlush,
   ]);
-  const pool = KEEP.has(maxBackCat) ? legal.filter((e) => e.back.category === maxBackCat) : legal;
+  const pool = KEEP.has(maxKeepBackCat)
+    ? legal.filter((e) => e.back.name !== "Five Aces" && e.back.category === maxKeepBackCat)
+    : legal;
   pool.sort((a, b) => {
     const ap = a.front.pair ? 1 : 0;
     const bp = b.front.pair ? 1 : 0;

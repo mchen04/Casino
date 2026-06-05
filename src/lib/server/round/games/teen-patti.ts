@@ -6,8 +6,9 @@ import { makeDeck, rankValue, type Card } from "../../../cards";
 //   vs the dealer's 3 cards using Teen Patti ranking (Trail > Pure Seq > Seq >
 //   Color > Pair > High). Win pays 1:1 + a bonus (Trail 5:1, Pure Seq 3:1, Seq
 //   1:1) MINUS a 15% house commission on the winnings — which is what gives the
-//   ~3.3% edge (the bare showdown is a symmetric ~0% game). Tie pushes. Single
-//   deck; both hands committed at the deal (dealer hidden until play/fold).
+//   ~3.3% edge (the bare showdown is a symmetric ~0% game). Tie pushes. A-K-Q is
+//   the highest sequence and A-2-3 is second. Single deck; both hands committed at
+//   the deal (dealer hidden until play/fold).
 
 enum TPCategory { HighCard = 0, Pair = 1, Color = 2, Sequence = 3, PureSequence = 4, Trail = 5 }
 const COMMISSION = 0.15;
@@ -21,7 +22,10 @@ function evaluateTeenPatti(cards: Card[]): { category: TPCategory; score: number
   let straightHigh = 0;
   if (distinct.length === 3) {
     if (distinct[0] - distinct[2] === 2) straightHigh = distinct[0];
-    else if (distinct[0] === 14 && distinct[1] === 3 && distinct[2] === 2) straightHigh = 3; // A-2-3
+    // Standard Teen Patti order: A-K-Q is the top run, A-2-3 is second.
+    else if (distinct[0] === 14 && distinct[1] === 3 && distinct[2] === 2) {
+      straightHigh = 13.5;
+    }
   }
   const isSequence = straightHigh > 0;
   const isTrail = distinct.length === 1;
