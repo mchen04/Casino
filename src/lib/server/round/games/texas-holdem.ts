@@ -1,6 +1,6 @@
 import { type RoundGame, RoundStep, GameError } from "../engine";
 import { intIn, assert } from "../../engine";
-import { evaluateBest, makeDeck, HandCategory, rankValue, type Card } from "../../../cards";
+import { evaluateBest, makeDeck, type Card } from "../../../cards";
 
 // Server-authoritative heads-up Texas Hold'em (you vs ONE bot, no rake).
 //   Buy in for a stack; the server deals (deck committed), posts blinds, runs the
@@ -45,96 +45,181 @@ const STREET_REVEAL: Record<Street, number> = { preflop: 0, flop: 3, turn: 4, ri
 const NEXT_STREET: Record<Street, Street | null> = { preflop: "flop", flop: "turn", turn: "river", river: null };
 
 // ---------------------------------------------------------------------------
-// Bot heuristic — strength in [0,1] from made hand + draw equity (postflop) or
-// a preflop hand score.
+// Bot strategy — estimate real heads-up equity against an unknown player range
+// and compare it to pot odds. The bot deliberately ignores s.playerHole and
+// unrevealed s.board cards, even though the server state has them committed.
 // ---------------------------------------------------------------------------
-function preflopStrength(hole: Card[]): number {
-  const v = hole.map((c) => rankValue(c.rank));
-  const hi = Math.max(v[0], v[1]);
-  const lo = Math.min(v[0], v[1]);
-  const pair = hole[0].rank === hole[1].rank;
-  const suited = hole[0].suit === hole[1].suit;
-  const gap = hi - lo;
-  if (pair) return Math.min(0.5 + (hi - 2) / 24, 0.97); // 22→0.5 … AA→0.97
-  let s = (hi + lo) / 28;
-  if (suited) s += 0.08;
-  if (gap === 1) s += 0.06;
-  else if (gap === 2) s += 0.03;
-  else if (gap === 3) s += 0.015;
-  if (hi >= 13) s += 0.05; // a high card to make top pair
-  return Math.max(0.05, Math.min(0.92, s));
+const EXACT_EQUITY_LIMIT = 90_000;
+const EQUITY_SAMPLES = 2_400;
+
+function withoutKnownCards(cards: Card[], known: Card[]): Card[] {
+  const knownIds = new Set(known.map((c) => c.id));
+  return cards.filter((c) => !knownIds.has(c.id));
 }
-/** Count flush / open-ended-straight draws to add semibluff equity. */
-function drawBonus(hole: Card[], board: Card[]): number {
-  const cards = [...hole, ...board];
-  let bonus = 0;
-  // Flush draw: 4 to a suit.
-  const bySuit: Record<string, number> = {};
-  for (const c of cards) bySuit[c.suit] = (bySuit[c.suit] ?? 0) + 1;
-  if (Object.values(bySuit).some((n) => n === 4)) bonus += 0.18;
-  // Straight draw: 4 distinct ranks inside a 5-wide window (incl. wheel).
-  const set = new Set(cards.map((c) => rankValue(c.rank)));
-  if (set.has(14)) set.add(1); // wheel
-  let straightDraw = false;
-  for (let lo = 1; lo <= 10; lo++) {
-    let inWin = 0;
-    for (let k = 0; k < 5; k++) if (set.has(lo + k)) inWin++;
-    if (inWin === 4) straightDraw = true;
+
+function comboCount(n: number, k: number): number {
+  if (k < 0 || k > n) return 0;
+  if (k === 0 || k === n) return 1;
+  let out = 1;
+  for (let i = 1; i <= k; i++) out = (out * (n - k + i)) / i;
+  return out;
+}
+
+function scoreShowdown(
+  botHole: Card[],
+  oppHole: Card[],
+  visibleBoard: Card[],
+  futureBoard: Card[],
+): 0 | 0.5 | 1 {
+  const board = [...visibleBoard, ...futureBoard];
+  const bot = evaluateBest([...botHole, ...board]);
+  const opp = evaluateBest([...oppHole, ...board]);
+  if (bot.score > opp.score) return 1;
+  if (bot.score < opp.score) return 0;
+  return 0.5;
+}
+
+function enumerateRunouts(
+  pool: Card[],
+  needed: number,
+  visit: (runout: Card[]) => void,
+  start = 0,
+  runout: Card[] = [],
+): void {
+  if (runout.length === needed) {
+    visit(runout);
+    return;
   }
-  if (straightDraw) bonus += 0.14;
-  return bonus;
+  for (let i = start; i <= pool.length - (needed - runout.length); i++) {
+    runout.push(pool[i]);
+    enumerateRunouts(pool, needed, visit, i + 1, runout);
+    runout.pop();
+  }
 }
-function botStrength(hole: Card[], board: Card[]): number {
-  if (board.length < 3) return preflopStrength(hole);
-  const ev = evaluateBest([...hole, ...board]);
-  const base: Record<HandCategory, number> = {
-    [HandCategory.HighCard]: 0.16,
-    [HandCategory.Pair]: 0.42,
-    [HandCategory.TwoPair]: 0.63,
-    [HandCategory.ThreeOfAKind]: 0.75,
-    [HandCategory.Straight]: 0.84,
-    [HandCategory.Flush]: 0.9,
-    [HandCategory.FullHouse]: 0.95,
-    [HandCategory.FourOfAKind]: 0.99,
-    [HandCategory.StraightFlush]: 0.997,
-    [HandCategory.RoyalFlush]: 1,
-  };
-  const top = (ev.tiebreak[0] ?? 2) / 14;
-  let s = base[ev.category] + top * 0.04;
-  if (ev.category <= HandCategory.Pair) s = Math.min(0.8, s + drawBonus(hole, board)); // semibluff equity
-  return Math.max(0.05, Math.min(1, s));
+
+function exactEquity(botHole: Card[], visibleBoard: Card[], unseen: Card[]): number {
+  const futureNeeded = 5 - visibleBoard.length;
+  let equity = 0;
+  let trials = 0;
+
+  for (let i = 0; i < unseen.length - 1; i++) {
+    for (let j = i + 1; j < unseen.length; j++) {
+      const oppHole = [unseen[i], unseen[j]];
+      const runoutPool = unseen.filter((_, idx) => idx !== i && idx !== j);
+      enumerateRunouts(runoutPool, futureNeeded, (futureBoard) => {
+        equity += scoreShowdown(botHole, oppHole, visibleBoard, futureBoard);
+        trials++;
+      });
+    }
+  }
+
+  return trials > 0 ? equity / trials : 0.5;
+}
+
+function sampledEquity(
+  botHole: Card[],
+  visibleBoard: Card[],
+  unseen: Card[],
+  rng: { float(): number },
+): number {
+  const futureNeeded = 5 - visibleBoard.length;
+  let equity = 0;
+
+  for (let trial = 0; trial < EQUITY_SAMPLES; trial++) {
+    const pool = unseen.slice();
+    const draw = (count: number): Card[] => {
+      const out: Card[] = [];
+      for (let i = 0; i < count; i++) {
+        const idx = Math.floor(rng.float() * pool.length);
+        out.push(pool.splice(idx, 1)[0]);
+      }
+      return out;
+    };
+    const oppHole = draw(2);
+    const futureBoard = draw(futureNeeded);
+    equity += scoreShowdown(botHole, oppHole, visibleBoard, futureBoard);
+  }
+
+  return equity / EQUITY_SAMPLES;
+}
+
+function botEquity(
+  botHole: Card[],
+  visibleBoard: Card[],
+  rng: { float(): number },
+): number {
+  const unseen = withoutKnownCards(makeDeck(1), [...botHole, ...visibleBoard]);
+  const futureNeeded = 5 - visibleBoard.length;
+  const exactTrials = comboCount(unseen.length, 2) * comboCount(unseen.length - 2, futureNeeded);
+  const equity =
+    exactTrials > 0 && exactTrials <= EXACT_EQUITY_LIMIT
+      ? exactEquity(botHole, visibleBoard, unseen)
+      : sampledEquity(botHole, visibleBoard, unseen, rng);
+  return Math.max(0, Math.min(1, equity));
+}
+
+function legalRaiseTarget(s: THState, desiredTo: number): number | null {
+  const myBet = s.botStreetBet;
+  const oppBet = s.playerStreetBet;
+  const maxTo = myBet + s.botStack;
+  if (maxTo <= oppBet) return null;
+
+  const minTo =
+    oppBet > myBet
+      ? oppBet + Math.max(BB, oppBet - myBet)
+      : Math.max(oppBet, myBet) + BB;
+  const rounded = Math.ceil(desiredTo / SB) * SB;
+  const target = Math.min(Math.max(rounded, minTo), maxTo);
+  return target > oppBet ? target : null;
+}
+
+function sizedRaiseTo(s: THState, equity: number, toCall: number, bluff = false): number | null {
+  const potAfterCall = s.pot + Math.max(0, toCall);
+  const effectiveStack = Math.min(s.botStack, s.playerStack);
+  const spr = effectiveStack / Math.max(BB, potAfterCall);
+  const fraction =
+    equity >= 0.84 ? 1
+    : equity >= 0.72 ? 0.75
+    : equity >= 0.62 ? 0.55
+    : bluff ? 0.45
+    : 0.5;
+
+  if (equity >= 0.88 && spr <= 1.25) return legalRaiseTarget(s, s.botStreetBet + s.botStack);
+  return legalRaiseTarget(s, s.playerStreetBet + Math.max(BB, Math.round(potAfterCall * fraction)));
 }
 
 // A small deterministic-ish randomizer for the bot, seeded off the rng.
 function botActFor(s: THState, rng: { float(): number }): { kind: "fold" | "check" | "call" | "raise"; to?: number } {
   const board = s.board.slice(0, s.revealCount);
-  const strength = botStrength(s.botHole, board);
+  const equity = botEquity(s.botHole, board, rng);
   const toCall = s.playerStreetBet - s.botStreetBet;
-  const maxBet = s.botStack;
-  const bluff = rng.float() < 0.1;
-  const potNow = s.pot;
+  const potAfterCall = s.pot + Math.max(0, toCall);
+  const streetAggression = board.length === 5 ? 0.04 : board.length === 0 ? 0.08 : 0.1;
 
   if (toCall <= 0) {
-    const wantBet = strength > 0.55 || bluff;
-    if (wantBet && maxBet > 0) {
-      const potSize = Math.max(BB, potNow);
-      let amt = strength > 0.85 ? potSize : strength > 0.65 ? Math.round(potSize * 0.6) : Math.round(potSize * 0.45);
-      amt = Math.max(BB, Math.min(amt, maxBet));
-      return { kind: "raise", to: s.botStreetBet + amt };
+    const valueBet = equity >= (board.length === 0 ? 0.58 : 0.56);
+    const semiBluff = equity >= 0.42 && rng.float() < streetAggression;
+    if ((valueBet || semiBluff) && s.botStack > 0) {
+      const to = sizedRaiseTo(s, equity, 0, semiBluff && !valueBet);
+      if (to != null) return { kind: "raise", to };
     }
     return { kind: "check" };
   }
 
-  const potOdds = toCall / (potNow + toCall);
-  if (strength < 0.3 + potOdds * 0.15 && !bluff) return { kind: "fold" };
-  // Raise strong hands / occasional semibluff.
-  if ((strength > 0.78 || (bluff && strength > 0.45)) && maxBet > Math.min(toCall, maxBet)) {
-    const potSize = Math.max(BB, potNow + toCall);
-    const raiseAmt = strength > 0.9 ? potSize : Math.round(potSize * 0.6);
-    let to = s.playerStreetBet + Math.max(BB, raiseAmt);
-    to = Math.min(to, s.botStreetBet + maxBet); // cap at all-in
-    if (to > s.playerStreetBet) return { kind: "raise", to };
+  const potOdds = toCall / Math.max(1, potAfterCall);
+  const callEdge = equity - potOdds;
+  if (callEdge < -0.025) return { kind: "fold" };
+
+  const valueRaise = equity >= Math.max(0.62, potOdds + 0.18);
+  const semiBluffRaise =
+    board.length < 5 &&
+    equity >= Math.max(0.44, potOdds + 0.06) &&
+    rng.float() < streetAggression;
+  if (valueRaise || semiBluffRaise) {
+    const to = sizedRaiseTo(s, equity, toCall, semiBluffRaise && !valueRaise);
+    if (to != null) return { kind: "raise", to };
   }
+
   return { kind: "call" };
 }
 

@@ -39,19 +39,8 @@ export function Chip({
   const s = schemeFor(value);
   const label =
     value >= 1000 ? `${value / 1000}K` : String(value);
-  return (
-    <motion.button
-      type="button"
-      onClick={onClick}
-      disabled={!onClick}
-      whileHover={onClick ? { y: -4, scale: 1.05 } : undefined}
-      whileTap={onClick ? { scale: 0.92 } : undefined}
-      className={`relative grid place-items-center rounded-full ${
-        onClick ? "cursor-pointer" : "cursor-default"
-      } ${className}`}
-      style={{ width: size, height: size }}
-      aria-label={`${value} chip`}
-    >
+  const content = (
+    <>
       <span
         className="absolute inset-0 rounded-full"
         style={{
@@ -85,6 +74,33 @@ export function Chip({
           {label}
         </span>
       )}
+    </>
+  );
+
+  const chipClass = `relative grid place-items-center rounded-full ${
+    onClick ? "cursor-pointer" : "cursor-default"
+  } ${className}`;
+  const chipStyle = { width: size, height: size };
+
+  if (!onClick) {
+    return (
+      <motion.div className={chipClass} style={chipStyle}>
+        {content}
+      </motion.div>
+    );
+  }
+
+  return (
+    <motion.button
+      type="button"
+      onClick={onClick}
+      whileHover={{ y: -4, scale: 1.05 }}
+      whileTap={{ scale: 0.92 }}
+      className={chipClass}
+      style={chipStyle}
+      aria-label={`${value} chip`}
+    >
+      {content}
     </motion.button>
   );
 }

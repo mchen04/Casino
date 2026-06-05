@@ -442,10 +442,10 @@ export default function TeenPatti() {
   const playerSeen = playerShown.every(Boolean);
   const totalStake = boot + playStake; // for the active round
 
-  // Clamp boot to balance / minimum.
-  const maxBoot = wallet.ready ? wallet.balance : 0;
+  // A playable round needs the Boot now plus the matching Play stake later.
+  const maxPlayableBoot = wallet.ready ? Math.floor(wallet.balance / 2) : 0;
   const canDeal =
-    phase === "betting" && boot >= MIN_BOOT && boot <= wallet.balance;
+    phase === "betting" && boot >= MIN_BOOT && boot * 2 <= wallet.balance;
   // To Play you must match the boot, so you need 2× boot total.
   const canAffordPlay = wallet.balance >= boot; // boot already deducted; need another boot
 
@@ -456,7 +456,7 @@ export default function TeenPatti() {
   const addBoot = (v: number) => {
     if (phase !== "betting") return;
     sfx.chip();
-    setBoot((b) => Math.min(b + v, wallet.balance));
+    setBoot((b) => Math.min(b + v, maxPlayableBoot));
   };
   const clearBoot = () => {
     if (phase !== "betting") return;
@@ -471,7 +471,7 @@ export default function TeenPatti() {
   const maxOut = () => {
     if (phase !== "betting") return;
     sfx.click();
-    setBoot(Math.floor(maxBoot));
+    setBoot(maxPlayableBoot);
   };
 
   // -------------------------------------------------------------------------
