@@ -7,7 +7,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:dealer": "npx tsc -p tsconfig.scripts.json && node .mc-build/scripts/dealer-optimal-tests.js"
   },
   "dependencies": {
     "@upstash/redis": "^1.38.0",

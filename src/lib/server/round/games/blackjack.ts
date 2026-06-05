@@ -1,5 +1,5 @@
 import { type RoundGame, RoundStep, GameError } from "../engine";
-import { makeShoe, blackjackTotal, type Card } from "../../../cards";
+import { makeDeck, blackjackTotal, type Card } from "../../../cards";
 
 // Server-authoritative Blackjack — mirrors src/games/blackjack.tsx.
 //   6 decks, dealer STANDS on all 17 (S17), blackjack pays 3:2, double on any
@@ -152,7 +152,7 @@ export const blackjackGame: RoundGame<BJState, Record<string, never>> = {
   maxBet: 100_000, // base bet; splits/doubles debit incrementally and re-check balance
   validate: () => ({}),
   start: (bet, _params, rng) => {
-    const shoe = rng.shuffle(makeShoe(DECKS));
+    const shoe = rng.shuffle(makeDeck(DECKS));
     const p1 = shoe.shift() as Card;
     const d1 = shoe.shift() as Card;
     const p2 = shoe.shift() as Card;
