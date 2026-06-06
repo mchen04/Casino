@@ -136,7 +136,7 @@ export default function Dice() {
   // Keep bet affordable while idle.
   useEffect(() => {
     if (busy) return;
-    if (bet > balance) setBet(Math.max(0, balance));
+    if (bet > balance) setBet(Math.max(0, Math.floor(balance)));
   }, [balance, bet, busy]);
 
   const chancePct = useMemo(() => winChance(target, mode) * 100, [target, mode]);

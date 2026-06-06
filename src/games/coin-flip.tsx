@@ -332,7 +332,7 @@ export default function CoinFlip() {
   // Keep bet within affordable bounds while idle (and not mid-streak).
   useEffect(() => {
     if (phase !== "betting" || streakActive) return;
-    if (bet > balance) setBet(Math.max(0, balance));
+    if (bet > balance) setBet(Math.max(0, Math.floor(balance)));
   }, [balance, bet, phase, streakActive]);
 
   const canAfford = bet >= MIN_BET && bet <= balance;

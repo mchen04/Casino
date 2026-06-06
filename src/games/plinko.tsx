@@ -369,7 +369,7 @@ export default function Plinko() {
 
   // Keep bet affordable while idle.
   useEffect(() => {
-    if (bet > balance) setBet(Math.max(0, balance));
+    if (bet > balance) setBet(Math.max(0, Math.floor(balance)));
   }, [balance, bet]);
 
   // -------------------------------------------------------------------------

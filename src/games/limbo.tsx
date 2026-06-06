@@ -187,7 +187,7 @@ export default function Limbo() {
   // Keep bet affordable while idle.
   useEffect(() => {
     if (phase !== "betting") return;
-    if (bet > balance) setBet(Math.max(0, balance));
+    if (bet > balance) setBet(Math.max(0, Math.floor(balance)));
   }, [balance, bet, phase]);
 
   const canAfford = bet >= MIN_BET && bet <= balance;

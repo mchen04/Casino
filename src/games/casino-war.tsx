@@ -94,7 +94,7 @@ export default function CasinoWar() {
   // Keep bet within affordable bounds while idle.
   useEffect(() => {
     if (phase !== "betting") return;
-    if (bet > balance) setBet(Math.max(0, balance));
+    if (bet > balance) setBet(Math.max(0, Math.floor(balance)));
   }, [balance, bet, phase]);
 
   // busy covers any async phase so controls are locked while resolving

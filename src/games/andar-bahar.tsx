@@ -249,14 +249,14 @@ export default function AndarBahar() {
     setShowBurst(false);
     setNetDelta(0);
     // Clamp the carried-over bet to the current balance.
-    setBet((b) => Math.max(MIN_BET, Math.min(b, Math.max(MIN_BET, wallet.balance))));
+    setBet((b) => Math.max(MIN_BET, Math.min(b, Math.max(MIN_BET, Math.floor(wallet.balance)))));
   }, [wallet.balance]);
 
   const addChip = useCallback(
     (v: number) => {
       if (!isBetting) return;
       sfx.chip();
-      setBet((b) => Math.min(b + v, Math.max(MIN_BET, wallet.balance)));
+      setBet((b) => Math.min(b + v, Math.max(MIN_BET, Math.floor(wallet.balance))));
     },
     [isBetting, wallet.balance],
   );
@@ -264,7 +264,7 @@ export default function AndarBahar() {
   const setMax = useCallback(() => {
     if (!isBetting) return;
     sfx.chip();
-    setBet(Math.max(MIN_BET, wallet.balance));
+    setBet(Math.max(MIN_BET, Math.floor(wallet.balance)));
   }, [isBetting, wallet.balance]);
 
   const clearBet = useCallback(() => {
@@ -579,7 +579,7 @@ export default function AndarBahar() {
               disabled={!isBetting}
               onClick={() => {
                 sfx.chip();
-                setBet((b) => Math.min(b * 2, Math.max(MIN_BET, wallet.balance)));
+                setBet((b) => Math.min(b * 2, Math.max(MIN_BET, Math.floor(wallet.balance))));
               }}
             >
               2×

@@ -61,11 +61,15 @@ export function usePlayStateless() {
   return useCallback(
     async (
       game: string,
-      amount: number,
+      rawAmount: number,
       params: unknown,
       opts?: PlayOptions,
     ): Promise<StatelessRound> => {
       const defer = opts?.defer ?? false;
+      // Stakes are whole chips, but the displayed balance can carry cents from
+      // fair payouts. Floor a (possibly fractional) "Max"/clamp amount to the
+      // affordable whole-chip stake so it's never rejected as a non-integer bet.
+      const amount = Math.floor(rawAmount);
 
       if (serverAuthoritative) {
         if (!defer) {

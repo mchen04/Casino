@@ -682,7 +682,7 @@ export default function PharaohsFortune() {
   useEffect(() => {
     if (!wallet.ready) return;
     if (bet > wallet.balance && wallet.balance > 0) {
-      setBet(clamp(wallet.balance, 1, wallet.balance));
+      setBet(clamp(Math.floor(wallet.balance), 1, Math.max(1, Math.floor(wallet.balance))));
     }
   }, [wallet.ready, wallet.balance, bet]);
 
@@ -960,7 +960,7 @@ export default function PharaohsFortune() {
   const addChip = (v: number) => {
     if (busy) return;
     sfx.chip();
-    setBet((b) => clamp(b + v, 1, Math.max(1, wallet.balance)));
+    setBet((b) => clamp(b + v, 1, Math.max(1, Math.floor(wallet.balance))));
   };
   const setBetClamped = (n: number) =>
     setBet(clamp(Math.floor(n), 1, Math.max(1, wallet.balance)));

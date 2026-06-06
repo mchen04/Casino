@@ -89,8 +89,13 @@ export function usePlayRound() {
   }, []);
 
   const start = useCallback(
-    async (game: string, bet: number, params: unknown, opts?: RoundOptions): Promise<RoundHandle> => {
+    async (game: string, rawBet: number, params: unknown, opts?: RoundOptions): Promise<RoundHandle> => {
       const defer = opts?.defer ?? false;
+      // Stakes are whole chips, but the displayed balance can carry cents from
+      // fair payouts (e.g. a 1.95× win). A "Max"/clamp control that fed in the raw
+      // fractional balance must not be rejected here as a non-integer bet — floor
+      // to the affordable whole-chip stake before validating or submitting.
+      const bet = Math.floor(rawBet);
 
       if (serverAuthoritative) {
         const r = await apiRound({ op: "start", game, bet, params });

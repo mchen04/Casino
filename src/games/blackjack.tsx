@@ -667,7 +667,7 @@ export default function Blackjack() {
                       ? undefined
                       : () => {
                           sfx.chip();
-                          setBet((b) => Math.min(wallet.balance, b + v));
+                          setBet((b) => Math.min(Math.floor(wallet.balance), b + v));
                         }
                   }
                 />
@@ -689,7 +689,7 @@ export default function Blackjack() {
                 size="sm"
                 variant="ghost"
                 data-testid="bet-double"
-                onClick={() => setBet((b) => Math.min(wallet.balance, b * 2))}
+                onClick={() => setBet((b) => Math.min(Math.floor(wallet.balance), b * 2))}
               >
                 2×
               </Button>
@@ -697,7 +697,7 @@ export default function Blackjack() {
                 size="sm"
                 variant="ghost"
                 data-testid="bet-max"
-                onClick={() => setBet(wallet.balance)}
+                onClick={() => setBet(Math.floor(wallet.balance))}
               >
                 Max
               </Button>

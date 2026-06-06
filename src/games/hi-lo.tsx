@@ -394,7 +394,7 @@ export default function HiLo() {
 
   // Auto-cap the bet to the balance so a stale value never exceeds funds.
   useEffect(() => {
-    if (phase === "betting" && bet > balance) setBet(Math.max(0, balance));
+    if (phase === "betting" && bet > balance) setBet(Math.max(0, Math.floor(balance)));
   }, [phase, balance, bet]);
 
   const higherDisabled = !playing || busy || liveOdds.pHigher <= 0;
